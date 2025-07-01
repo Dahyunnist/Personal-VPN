@@ -5,6 +5,8 @@
 #include<bits/stdc++.h>
 
 #pragma comment(lib,"ws2_32.lib")//链接此动态链接库 windows特有 
+// 编译时要在后面加上-lws2_32
+// e.g. g++ .\server.cpp -o server -lws2_32
 
 using namespace std; 
 
