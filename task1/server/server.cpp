@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <iostream>
 #include <string.h>
+#include <sys/select.h>
+#include <map>
 
 using namespace std;
 // 编译：g++ server.cpp -o server -Wall
@@ -14,6 +16,28 @@ using namespace std;
 // 5. receive data from the client
 // 6. send data to the client
 // 7. close the socket
+
+const int BUFFER_SIZE = 256;
+const int PORT = 8888;
+const int MAX_CLIENTS = 10;
+
+struct ClientInfo{
+    int socket;
+    string name;
+    string ip;
+    uint16_t port;
+};
+
+map<int, ClientInfo> client_info;
+
+void show_client_info(const ClientInfo &info){
+    cout << "   new client info:" << endl;
+    cout << "   socket: " << info.socket << endl;
+    cout << "   name: " << info.name << endl;
+    cout << "   ip: " << info.ip << endl;
+    cout << "   port: " << info.port << endl;
+}
+
 
 
 int main(){
@@ -27,13 +51,21 @@ int main(){
         return 1; //return 0 if socket creation fails
     }
 
+    // set SO_REUSEADDR option
+    int opt = 1;
+    if(setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1){
+        cerr << "[ERROR] setsockopt failed" << endl;
+        close(server_socket);
+        return 1;
+    }
+
     // bind IP and port
     sockaddr_in _myaddr = {}; //initialize a struct that stores addr type, port number and IP addr
     _myaddr.sin_family = AF_INET; //use IPv4 address
-    _myaddr.sin_port = htons(8888); //use port 8888
-    _myaddr.sin_addr.s_addr = inet_addr("0.0.0.0"); //store IP
+    _myaddr.sin_port = htons(PORT); //use port 8888
+    _myaddr.sin_addr.s_addr = INADDR_ANY; //listen to any IP address
         // inet_addr(): convert string IP to binary format
-        // S_un.S_addr: use the S_un union to access the address field(unique to Windows)
+        // S_un.S_addr: use the S_un union to access the address field(specific to Windows)
     if(bind(server_socket, (sockaddr*)&_myaddr, sizeof(sockaddr_in)) == -1){
         cout << "bind failed" << endl;
         close(server_socket);
@@ -47,45 +79,102 @@ int main(){
         return 1;
     }
 
-    // allow client to connect
-    sockaddr_in _clientAddr = {}; //initialize a struct to store client addr
-    socklen_t _addr_len = sizeof(sockaddr_in); //get the length of addr struct
-    int client_socket = -1; //store client socket temporarily
-    char _buf[256] = {}; //create buffer to store data from client
+    // // allow client to connect
+    // sockaddr_in _clientAddr = {}; //initialize a struct to store client addr
+    // socklen_t _addr_len = sizeof(sockaddr_in); //get the length of addr struct
+    // int client_socket = -1; //store client socket temporarily
+    // char _buf[256] = {}; //create buffer to store data from client
 
-    // deal with client connections 
+    // initialize select variables
+    fd_set read_fds; //a bitmap
+    int client_sockets[MAX_CLIENTS] = {0};
+    int max_sd = server_socket;
+
+
+    // main event
     while(true){
-        // first, check if connetction is valid
-        client_socket = accept(server_socket, (sockaddr*)&_clientAddr, &_addr_len);
-        if(client_socket == -1){
-            cout << "received invalid client socket" << endl;
+        FD_ZERO(&read_fds); //clear the set
+        FD_SET(server_socket, &read_fds);
+
+        // add all client sockets to the set
+        for(int i = 0; i < MAX_CLIENTS; i++){
+            if(client_sockets[i] > 0){
+                FD_SET(client_sockets[i], &read_fds);
+                if(client_sockets[i] > max_sd){
+                    max_sd = client_sockets[i];
+                }
+            }
+        }
+
+        // use select function to wait for events
+        if(select(max_sd+1, &read_fds, nullptr, nullptr, nullptr) < 0){
+            cerr << "[ERROR] select error" << endl;
             continue;
         }
-        else{
-            cout << "New client added" << endl;
-            cout << "IP address: " << inet_ntoa(_clientAddr.sin_addr) << endl;
-        }
-        while(true){
-            // receive data from client
-            memset(_buf, 0, sizeof(_buf));
-            int _buf_len = recv(client_socket, _buf, 256, 0);
-            if(_buf_len <= 0){
-                cout << "Data receive failed or connection error" << endl;
-                break;
+
+        // deal with new connections
+        if(FD_ISSET(server_socket, &read_fds)){
+            sockaddr_in client_addr = {};
+            socklen_t client_addr_len = sizeof(client_addr);
+            int new_socket = accept(server_socket, (sockaddr*)&client_addr, &client_addr_len);
+            if(new_socket == -1){
+                cerr << "[ERROR] Accept failed" << endl;
+                continue;
             }
-            cout << "Received from client: " << _buf << endl;
-            if(strcmp(_buf, "closesocket") == 0){
-                cout << "Now Close Socket as requested..." << endl;
-                break;
+            ClientInfo info;
+            info.socket = new_socket;
+            info.name = "Client_" + to_string(new_socket);
+            info.port = ntohs(client_addr.sin_port);
+            info.ip = inet_ntoa(client_addr.sin_addr);
+            client_info[new_socket] = info;
+
+            cout << "[INFO] New Client connected: " << inet_ntoa(client_addr.sin_addr) << endl;
+            show_client_info(info);
+
+            for(int i = 0; i < MAX_CLIENTS; i++){
+                if(client_sockets[i] == 0){
+                    client_sockets[i] = new_socket;
+                    break;
+                }
             }
-            // reply to client
-            char _msg[256] = {};
-            memcpy(&_msg, _buf, _buf_len); //copy data from buffer to message
-            send(client_socket, _msg, strlen(_msg)+1, 0);
         }
-        // close the socket
-        close(client_socket);
+
+        // deal with client data
+        for(int i = 0; i < MAX_CLIENTS; i++){
+            int client_socket = client_sockets[i];
+            if(client_socket > 0 && FD_ISSET(client_socket, &read_fds)){
+                char buf[BUFFER_SIZE] = {};
+                memset(buf, 0, sizeof(buf));
+
+                int recv_len = recv(client_socket, buf, BUFFER_SIZE, 0);
+                if(recv_len <= 0){
+                    if(recv_len < 0){
+                        cout << "[INFO] Data receive failed" << endl;
+                    }
+                    else{
+                        cout << "[INFO] Client " << client_info[client_socket].name << " connection closed" << endl;
+                    }
+                    
+                    close(client_socket);
+                    client_sockets[i] = 0;
+                }
+                else{
+                    cout << "[DATA] Received from client " << client_info[client_socket].name << " : " << buf << endl;
+                    if(strcmp(buf, "closesocket") == 0){
+                        cout << "[INFO] Closing client socket as " << client_info[client_socket].name << " requested..." << endl;
+                        close(client_socket);
+                        client_sockets[i] = 0;
+                    }
+                    else{
+                        send(client_socket, buf, recv_len, 0);
+                        cout << "[DATA] Sent to client " << client_info[client_socket].name << ": " << buf << endl;
+                    }
+                }
+            }
+        }
+        
     }
+
 
     // close the server socket
     close(server_socket);

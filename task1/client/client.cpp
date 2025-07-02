@@ -6,7 +6,7 @@
 
 #pragma comment(lib,"ws2_32.lib")//链接此动态链接库 windows特有 
 // 编译时要在后面加上-lws2_32
-// e.g. g++ .\server.cpp -o server -lws2_32
+// e.g. g++ server.cpp -o server -lws2_32
 
 using namespace std; 
 
@@ -34,7 +34,8 @@ int main()
 	if(_mysocket == INVALID_SOCKET)
     {   
         return 0;  
-    } 
+    }
+	cout << "Socket(" << _mysocket << ") created successfully" << endl; 
     
     //connect to server
     sockaddr_in _sin = {};
@@ -44,6 +45,8 @@ int main()
 	if(connect(_mysocket, (sockaddr*)&_sin, sizeof(sockaddr_in)) == SOCKET_ERROR){
 		cout << "connecttion failed" << endl;
 		closesocket(_mysocket);
+		WSACleanup();
+		return 1;
 	}
 	else{
 		cout << "successfully connected" << endl; 
