@@ -10,4 +10,8 @@
 4. 开始学习TLS，完成了OpenSSL的下载安装，服务端和客户端安全证书的配置以及server的大部分TLS改造
 ### 2025/7/3
 1. 完成了server和client的TLS改造
-2. 学习WireShark抓包
+![alt text](./pictures/250703_1.png)
+![alt text](./pictures/250703_2.png)
+2. 实现了WireShark抓包
+![alt text](./pictures/250703_3.png)
+![alt text](./pictures/250703_4.png)
