@@ -7,6 +7,8 @@
 #include <openssl/err.h>
 #include <iostream>
 #include <string>
+#include <stdio.h>
+#include <stdlib.h>
 
 #pragma comment(lib,"ws2_32.lib")//链接此动态链接库 windows特有 
 #pragma comment(lib, "libssl.lib")
@@ -32,6 +34,15 @@ const char* CA_CERT_PATH = "certs/server.crt";
 const char* CLIENT_CERT_PATH = "certs/client.crt";
 const char* CLIENT_KEY_PATH = "certs/client.key";
 
+static FILE* ssl_keylog_file = NULL;
+void ssl_keylog_callback(const SSL* ssl, const char* line){
+	if(ssl_keylog_file){
+		fprintf(ssl_keylog_file, "%s\n", line);
+		fflush(ssl_keylog_file);
+	}
+}
+
+
 SSL_CTX* InitSSLContext(){
 	SSL_CTX *ctx = nullptr;
 
@@ -46,6 +57,12 @@ SSL_CTX* InitSSLContext(){
 	}
 
 	SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+
+	ssl_keylog_file = fopen("sslkeylog.txt", "a");
+	if(!ssl_keylog_file){
+		cerr << "[WARNING] keylog file open failed" << strerror(errno) << endl;
+	}
+	SSL_CTX_set_keylog_callback(ctx, ssl_keylog_callback);
 
 	// load CA certificate
 	if(SSL_CTX_load_verify_locations(ctx, CA_CERT_PATH, nullptr) != 1){
