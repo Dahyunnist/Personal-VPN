@@ -9,6 +9,12 @@
 #include <string>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fstream>
+#include <memory>
+#include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/ssl.hpp>
 
 #pragma comment(lib,"ws2_32.lib")//链接此动态链接库 windows特有 
 #pragma comment(lib, "libssl.lib")
