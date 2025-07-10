@@ -33,3 +33,12 @@
 >   6. 从client端收数据包，然后将数据包写入到tun设备
 
 ### 2025/7/8
+1. 安装了Wintun，并在WSL上安装了tun设备
+2. 完成了client代码部分（不含添加路由功能）
+
+### 2025/7/9
+1. 通过在MSYS2_MSYS中重装Boost库解决了client程序的编译问题
+2. 在无服务端的情况下运行client程序，验证了TUN设备创建；
+3. 手动添加路由，使用ping命令测试并通过Wireshark抓包验证
+![](./pictures/250709_1.png)
+![](./pictures/250709_2.png)
