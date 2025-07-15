@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <array>
+#include <fstream>
 /*compile command:
 g++ server.cpp -o server -lboost_system -lboost_thread -lpthread -lssl -lcrypto
 */
@@ -28,17 +29,21 @@ namespace ssl = boost::asio::ssl;  // SSL命名空间
 using tcp = boost::asio::ip::tcp;
 
 // === 配置参数 ===
+// 注释掉TUN相关配置
+/*
 const std::string TUN_DEV = "tun0";               // TUN设备名称
 const std::string SERVER_TUN_IP = "10.8.0.1";     // 服务端TUN IP
 const std::string TUN_MASK = "255.255.255.0";     // 子网掩码
 const std::string TUN_NETWORK = "10.8.0.0/24";    // TUN子网（用于NAT）
 const std::string PHYSICAL_NIC = "eth0";          // WSL物理网卡（通过`ip addr`查看）
+*/
 const size_t BUFFER_SIZE = 4096;                  // 缓冲区大小
 // TLS配置（需替换为你的证书路径）
 const std::string CERTIFICATE_PATH = "certs/server.crt";  // SSL证书路径
 const std::string PRIVATE_KEY_PATH = "certs/server.key";  // SSL私钥路径
 
-// === TUN设备管理类（不变） ===
+// === 注释掉TUN设备管理类 ===
+/*
 class TunDevice {
 public:
     TunDevice(const std::string& dev_name) : fd_(-1) {
@@ -70,12 +75,6 @@ public:
     }
 
     ssize_t write(const uint8_t* raw_data, size_t raw_size) {
-        // uint32_t tun_header = htonl(0x0800);
-        // std::vector<uint8_t> tun_packet;
-        // tun_packet.resize(4 + raw_size);
-        // memcpy(tun_packet.data(), &tun_header, 4);
-        // memcpy(tun_packet.data() + 4, raw_data, raw_size);
-        // ssize_t written = ::write(fd_, tun_packet.data(), tun_packet.size());
         ssize_t written = ::write(fd_, raw_data, raw_size);
         if(written < 0){
             std::cerr << "TUN write failed: expected " << raw_size << " bytes, " << written << " bytes actually" << std::endl;
@@ -90,13 +89,14 @@ public:
 private:
     int fd_;
 };
+*/
 
-// === 会话管理类（TLS加密版）===
+// === 会话管理类 ===
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    // 使用SSL流替代原始socket
-    Session(ssl::stream<tcp::socket> socket, TunDevice& tun) 
-        : socket_(std::move(socket)), tun_(tun) {}
+    // 移除了tun参数
+    Session(ssl::stream<tcp::socket> socket) 
+        : socket_(std::move(socket)) {}
 
     void start() {
         // 执行TLS握手
@@ -111,52 +111,28 @@ private:
             [this, self](const boost::system::error_code& ec) {
                 if (!ec) {
                     std::cout << "客户端已连接（TLS加密）: " << socket_.lowest_layer().remote_endpoint() << std::endl;
-                    // 握手成功后启动双向转发
-                    tun_to_client();
-                    client_to_tun();
+                    // 握手成功后只启动数据接收
+                    client_receive();
                 } else {
                     std::cerr << "TLS握手失败: " << ec.message() << std::endl;
                 }
             });
     }
 
-    // TUN -> 客户端（加密发送）
-    void tun_to_client() {
-        auto self(shared_from_this());
-        std::thread([this, self]() {
-            std::array<uint8_t, BUFFER_SIZE> buffer;
-            while (true) {
-                ssize_t n = tun_.read(buffer.data(), buffer.size());
-                if (n <= 0) {
-                    std::cerr << "TUN读取失败: " << std::string(strerror(errno)) << std::endl;
-                    break;
-                }
-                // 通过SSL流异步发送
-                asio::async_write(socket_, asio::buffer(buffer.data(), n),
-                    [this, self, n](boost::system::error_code ec, std::size_t /*length*/) {
-                        if (ec) {
-                            std::cerr << "加密发送失败: " << ec.message() << std::endl;
-                        } else {
-                            std::cout << "TUN -> 客户端（加密）: " << n << " bytes" << std::endl;
-                        }
-                    });
-            }
-        }).detach();
-    }
-
-    // 客户端 -> TUN（解密接收）
-    void client_to_tun() {
+    // 客户端数据接收
+    void client_receive() {
         auto self(shared_from_this());
         socket_.async_read_some(asio::buffer(buffer_),  // SSL流读取（自动解密）
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (!ec) {
-                    ssize_t n = tun_.write(buffer_.data(), length);
-                    if (n != length) {
-                        std::cerr << "TUN写入失败: 预期" << length << "bytes，实际" << n << "bytes" << std::endl;
-                    } else {
-                        std::cout << "客户端（加密） -> TUN: " << length << " bytes" << std::endl;
+                    // 只打印接收到的数据，不转发到TUN
+                    std::cout << "接收到客户端数据(" << length << " bytes): ";
+                    for(size_t i = 0; i < std::min(length, static_cast<std::size_t>(16)); i++) {
+                        printf("%02x ", buffer_[i]);
                     }
-                    client_to_tun();  // 继续读取
+                    std::cout << std::endl;
+                    
+                    client_receive();  // 继续读取
                 } else {
                     std::cerr << "客户端断开连接: " << ec.message() << std::endl;
                 }
@@ -164,16 +140,15 @@ private:
     }
 
     ssl::stream<tcp::socket> socket_;  // SSL加密流
-    TunDevice& tun_;
     std::array<uint8_t, BUFFER_SIZE> buffer_;
 };
 
-// === 服务器类（TLS加密版）===
+// === 服务器类（简化版）===
 class Server {
 public:
-    Server(asio::io_context& io_context, short port, TunDevice& tun, ssl::context& ssl_ctx)
+    // 移除了tun参数
+    Server(asio::io_context& io_context, short port, ssl::context& ssl_ctx)
         : acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), 
-          tun_(tun), 
           ssl_ctx_(ssl_ctx) {
         start_accept();
     }
@@ -184,19 +159,19 @@ private:
         acceptor_.async_accept(
             [this](boost::system::error_code ec, tcp::socket socket) {
                 if (!ec) {
-                    // 将TCP socket包装为SSL流并创建会话
-                    std::make_shared<Session>(ssl::stream<tcp::socket>(std::move(socket), ssl_ctx_), tun_)->start();
+                    // 将TCP socket包装为SSL流并创建会话（不传递tun参数）
+                    std::make_shared<Session>(ssl::stream<tcp::socket>(std::move(socket), ssl_ctx_))->start();
                 }
                 start_accept();  // 继续接受下一个连接
             });
     }
 
     tcp::acceptor acceptor_;
-    TunDevice& tun_;
     ssl::context& ssl_ctx_;  // SSL上下文（包含证书配置）
 };
 
-// === 系统配置工具类（不变）===
+// === 注释掉系统配置工具类 ===
+/*
 class SystemConfig {
 public:
     static void run_command(const std::string& cmd) {
@@ -227,7 +202,14 @@ public:
         std::cout << "iptables NAT规则配置完成: " << network << " -> " << nic << std::endl;
     }
 };
-
+*/
+void ssl_key_log_callback(const SSL* ssl, const char* line) {
+    static std::ofstream key_log_file("sslkeylog.txt", std::ios::app);
+    if (key_log_file.is_open()) {
+        key_log_file << line << std::endl;
+        key_log_file.flush();
+    }
+}
 // === SSL上下文配置函数 ===
 ssl::context create_ssl_context() {
     ssl::context ctx(ssl::context::tls_server);  // 服务端TLS上下文
@@ -244,6 +226,7 @@ ssl::context create_ssl_context() {
             ssl::context::no_tlsv1 |
             ssl::context::no_tlsv1_1  // 仅允许TLSv1.2及以上
         );
+        SSL_CTX_set_keylog_callback(ctx.native_handle(), ssl_key_log_callback);
         std::cout << "SSL上下文配置成功" << std::endl;
     } catch (std::exception& e) {
         std::cerr << "SSL证书加载失败: " << e.what() << std::endl;
@@ -253,31 +236,32 @@ ssl::context create_ssl_context() {
     return ctx;
 }
 
-// === 主函数 ===
+// === 主函数（简化版）===
 int main(int argc, char* argv[]) {
     try {
         if (argc != 2) {
             std::cerr << "用法: " << argv[0] << " <监听端口>" << std::endl;
             return 1;
         }
-
-        // 1. 配置系统环境（IP转发、NAT等）
+        // setenv("SSLKEYLOGFILE", "/tmp/sslkeylog.txt", 1);
+        // 注释掉系统配置
+        /*
         SystemConfig::enable_ip_forward();
-
-        // 2. 创建并配置TUN设备
         TunDevice tun(TUN_DEV);
         SystemConfig::configure_tun(TUN_DEV, SERVER_TUN_IP, TUN_MASK);
         SystemConfig::setup_iptables_nat(TUN_NETWORK, PHYSICAL_NIC);
+        */
 
-        // 3. 创建SSL上下文（加载证书）
+        // 创建SSL上下文（加载证书）
         ssl::context ssl_ctx = create_ssl_context();
-
-        // 4. 启动TLS加密服务器
+        
+        // 启动TLS加密服务器（不传递tun参数）
         asio::io_context io_context;
-        Server server(io_context, std::atoi(argv[1]), tun, ssl_ctx);
+        // asio::io_context::work work_guard(io_context);
+        Server server(io_context, std::atoi(argv[1]), ssl_ctx);
         std::cout << "TLS服务器已启动，监听端口: " << argv[1] << std::endl;
 
-        // 5. 运行IO服务（多线程支持）
+        // 运行IO服务（多线程支持）
         std::vector<std::thread> threads;
         for (size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
             threads.emplace_back([&io_context]() { io_context.run(); });

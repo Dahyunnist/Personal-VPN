@@ -244,61 +244,6 @@ void print_hex_ascii(const void* data, size_t size) {
 
 
 
-
-
-void tun_to_ssl_thread(ssl::stream<ip::tcp::socket>& socket) {
-    HANDLE tun_event = WintunGetReadWaitEvent(tun_session);
-    if (!tun_event) {
-        std::cerr << "Failed to get TUN read event. Error: " << GetLastError() << std::endl;
-        have_quit = true;
-        return;
-    }
-    while (!have_quit) {
-        // Wait until TUN data is available
-        DWORD wait_result = WaitForSingleObject(tun_event, 100);
-        if (have_quit){
-            break;
-        }
-        if (wait_result != WAIT_OBJECT_0){
-            continue;
-        }
-        // read TUN data
-        DWORD packet_size; //DWORD means double word
-        BYTE* packet = WintunReceivePacket(tun_session, &packet_size);
-        if (!packet) {
-            if (GetLastError() != ERROR_NO_MORE_ITEMS) {
-                std::cerr << "Failed to receive TUN packet. Error: " << GetLastError() << std::endl;
-                break;
-            }
-            continue;
-        }
-        if (packet_size < 20) {
-            std::cerr << "Invalid TUN packet size: " << packet_size << " bytes (discarded)." << std::endl;
-            WintunReleaseReceivePacket(tun_session, packet);
-            continue;
-        }
-        try {
-            write(socket, buffer(packet, packet_size));
-            std::cout << "Sending to SSL...";
-            std::cout << "TUN -> SSL: Sent " << packet_size << " bytes." << std::endl;
-            std::cout << "            Content: " << std::endl;
-            print_hex_ascii(packet, packet_size);
-        } 
-        catch (const std::exception& e) {
-            std::cerr << "TUN -> SSL: Write failed: " << e.what() << std::endl;
-            WintunReleaseReceivePacket(tun_session, packet);
-            break;
-        }
-        WintunReleaseReceivePacket(tun_session, packet);
-    }
-    have_quit = true;
-    io_svc.stop();
-}
-
-
-
-
-
 // 从 TUN 设备读取包并通过 SSL 发送到服务器
 void tun_to_ssl_thread(SSL* ssl) {
     while (true) {
