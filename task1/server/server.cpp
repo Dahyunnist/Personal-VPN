@@ -131,8 +131,14 @@ private:
                         printf("%02x ", buf[i]);
                     }
                     std::cout << std::endl;
-                    
-                    client_receive();  // 继续读取
+                    asio::async_write(socket_, asio::buffer(buf, length),
+                        [this, self](boost::system::error_code ec, size_t) {
+                            if (ec) {
+                                std::cerr << "Write failed: " << ec.message() << std::endl;
+                                return;
+                            }
+                            client_receive();  // 继续接收下一包
+                        });
                 } else {
                     std::cerr << "客户端断开连接: " << ec.message() << std::endl;
                 }

@@ -41,6 +41,9 @@ route print | findstr "110.242.68.66"
 #include <chrono>
 #include <thread>
 #include <iomanip>
+#include <boost/beast/core.hpp>
+#include <boost/beast/ssl.hpp>
+#include "wintun.h"
 
 // libs needed: -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
 #pragma comment(lib, "ws2_32.lib")
@@ -48,13 +51,10 @@ route print | findstr "110.242.68.66"
 #pragma comment(lib, "libssl.lib")
 #pragma comment(lib, "libcrypto.lib")
 
-#include "wintun.h"
-// 客户端核心代码：持续读取 TUN 设备所有包，无条件转发到 SSL 隧道
-#include <openssl/ssl.h>
-#include <openssl/bio.h>
-
-using namespace boost::asio;
-using namespace boost::system;
+namespace asio = boost::asio;
+namespace ssl = asio::ssl;
+namespace beast = boost::beast;
+using tcp = asio::ip::tcp; 
 
 #define TUN_DEVICE_NAME L"VPNTunnel"
 #define TUN_POOL_NAME L"VPNPool"
@@ -66,7 +66,6 @@ using namespace boost::system;
 3. Load wintun.dll with `LoadLibraryEx()`, get a handle(base address of mirrored wintun in memory) as return
 4. Use `GetProcAddress()`(need handle and function name as parameter) to assign function pointers with corresponding procedure address in wintun.dll
 */
-
 
 // Declare Wintun function pointers
 static WINTUN_CREATE_ADAPTER_FUNC *WintunCreateAdapter;
@@ -84,19 +83,22 @@ static WINTUN_RELEASE_RECEIVE_PACKET_FUNC *WintunReleaseReceivePacket;
 static WINTUN_ALLOCATE_SEND_PACKET_FUNC *WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC *WintunSendPacket;
 
+
 static HMODULE wintun_module = NULL;
 static WINTUN_ADAPTER_HANDLE tun_adapter = NULL; //creates and handles virtual NIC
 static WINTUN_SESSION_HANDLE tun_session = NULL; //creates and handles data transmit on virtual NIC
 static NET_LUID tun_luid;  // Locally Unique Identifier for local network interface
 static std::atomic_bool have_quit(false);
-static io_context io_svc; //handle I/O events
-static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_executor()}; //manually add undone count to keep io_context running even when no async operation undone
+static asio::io_context io_ctx; //handle I/O events
+static asio::executor_work_guard<asio::io_context::executor_type> work_guard{io_ctx.get_executor()}; //manually add undone count to keep io_context running even when no async operation undone
 static boost::thread_group thread_pool;
-static signal_set signals(io_svc, SIGINT, SIGTERM);
+static asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
+
 
 const std::string CA_CERT_PATH = "certs/server.crt";
 const std::string CLIENT_CERT_PATH = "certs/client.crt";
 const std::string CLIENT_KEY_PATH = "certs/client.key";
+
 
 
 // load Wintun handle to assign fnuction pointers
@@ -119,7 +121,6 @@ bool InitializeWintun() {
 #undef X
     return true;
 }
-
 
 
 void CleanupWintun() {
@@ -199,204 +200,165 @@ bool init_wintun_adapter(const char* ip, int prefix) {
 }
 
 
-bool read_full(ssl::stream<ip::tcp::socket>& socket, char* buf, size_t length) {
-    size_t total_read = 0;
-    while (total_read < length && !have_quit) {
-        boost::system::error_code ec;
-        size_t n = socket.read_some(buffer(buf + total_read, length - total_read), ec);
-        if (ec) {
-            if (ec == ssl::error::stream_truncated || ec == error::eof) {
-                return false;
-            }
-            if (ec != error::would_block) {
-                std::cerr << "Read Error: " << ec.message() << std::endl;
-                return false;
-            }
-            continue;
-        }
-        total_read += n;
-    }
-    return total_read == length;
-}
-
-
-void print_hex_ascii(const void* data, size_t size) {
-    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
-    for (size_t i = 0; i < size; i += 16) { // 每行16字节
-        // 打印地址偏移（可选）
-        std::cout << std::setw(4) << std::setfill('0') << std::hex << i << "  ";
-        // 打印十六进制部分
-        for (size_t j = 0; j < 16; ++j) {
-            if (i + j < size) {
-                std::cout << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i + j]) << " ";
-            } else {
-                std::cout << "   "; // 不足16字节时补空格
-            }
-            if (j == 7) std::cout << " "; // 第8字节后多空一格，对齐
-        }
-        // 打印ASCII部分
-        std::cout << " | ";
-        for (size_t j = 0; j < 16 && i + j < size; ++j) {
-            unsigned char c = bytes[i + j];
-            // std::cout << (isprint(c) ? static_cast<char>(c) : '.');
-        }
-        std::cout << std::dec << std::endl;
-    }
-}
+// void print_hex_ascii(const void* data, size_t size) {
+//     const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
+//     for (size_t i = 0; i < size; i += 16) { // 每行16字节
+//         // 打印地址偏移（可选）
+//         std::cout << std::setw(4) << std::setfill('0') << std::hex << i << "  ";
+//         // 打印十六进制部分
+//         for (size_t j = 0; j < 16; ++j) {
+//             if (i + j < size) {
+//                 std::cout << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i + j]) << " ";
+//             } else {
+//                 std::cout << "   "; // 不足16字节时补空格
+//             }
+//             if (j == 7) std::cout << " "; // 第8字节后多空一格，对齐
+//         }
+//         // 打印ASCII部分
+//         std::cout << " | ";
+//         for (size_t j = 0; j < 16 && i + j < size; ++j) {
+//             unsigned char c = bytes[i + j];
+//             // std::cout << (isprint(c) ? static_cast<char>(c) : '.');
+//         }
+//         std::cout << std::dec << std::endl;
+//     }
+// }
 
 
 
 // 从 TUN 设备读取包并通过 SSL 发送到服务器
-void tun_to_ssl_thread(SSL* ssl) {
+void tun_to_ssl_thread(asio::ssl::stream<tcp::socket>& socket_) {
     std::cout << "=== TUN to SSL thread started... ===" << std::endl;
-    while (!have_quit) {
-        // read packet from TUN
+    
+    
+    int packet_count = 0;
+
+    // read packet from TUN
+    std::function<void()> async_send = [&](){
+        if(have_quit){
+            std::cout << "=== TUN to SSL thread exiting... ===" << std::endl;
+            return;
+        }
+        auto buffer = std::make_shared<std::vector<uint8_t>>(MAX_BUF_SIZE);
         DWORD packet_size;
         BYTE* packet = WintunReceivePacket(tun_session, &packet_size);
-        if (!packet) {
+        if(!packet){
             DWORD err = GetLastError();
-            if (err == ERROR_NO_MORE_ITEMS) {
-                Sleep(10); 
-                continue;
-            }
-            std::cerr << "TUN 读取失败，错误码: " << err << std::endl;
-            break; 
-        }
-        std::cout << "TUN received a packet, size: " << packet_size << " bytes, first 16 bytes: ";
-        for (DWORD i = 0; i < 16 && i < packet_size; ++i) {
-            printf("%02X ", packet[i]); 
-        }
-
-        // send packet to SSL
-        if (ssl) {
-            // check SSL connection
-            if(SSL_get_state(ssl) != TLS_ST_OK){
-                std::cerr << "SSL connection not vaild" << std::endl;
-                WintunReleaseReceivePacket(tun_session, packet);
-                break;
-            }
-            int bytes_sent = SSL_write(ssl, packet, packet_size);
-            if (bytes_sent <= 0) {
-                int ssl_error = SSL_get_error(ssl, bytes_sent);
-                switch(ssl_error){
-                    case SSL_ERROR_WANT_WRITE:
-                    case SSL_ERROR_WANT_READ:
-                        std::cout << "SSL write would block, retrying..." << std::endl;
-                        Sleep(1);
-                        WintunReleaseReceivePacket(tun_session, packet);
-                        continue;
-                    case SSL_ERROR_ZERO_RETURN:
-                        std::cerr << "SSL connection closed by peer" << std::endl;
-                        break;
-                    case SSL_ERROR_SYSCALL:
-                        std::cerr << "SSL syscal error: " << ERR_get_error() << std::endl;
-                        break;
-                    default:
-                        std::cerr << "SSL send failed. Error: " << ssl_error << std::endl;
-                        break;
-                }
-                WintunReleaseReceivePacket(tun_session, packet);
-                break; 
-            }
-            std::cout << "TUN -> SSL: Sent " << bytes_sent << " bytes" << std::endl;
-            std::cout << "            Content: " << std::endl;
-            print_hex_ascii(packet, bytes_sent);
-        } 
-        else {
-            std::cerr << "SSL connection not established, unable to send data to server." << std::endl;
-        }
-        WintunReleaseReceivePacket(tun_session, packet); // 释放 TUN 包缓冲区
-    }
-    std::cout << "=== TUN to SSL thread exiting... ===" << std::endl;
-}
-
-void ssl_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
-    std::cout << "=== SSL to TUN thread started... ===" << std::endl;
-    char buf[MAX_BUF_SIZE];  
-
-    while (!have_quit) {
-        boost::system::error_code ec;
-        size_t bytes_read = socket.read_some(boost::asio::buffer(buf, MAX_BUF_SIZE), ec);
-        if(ec){
-            if(ec == ssl::error::stream_truncated || ec == boost::asio::error::eof){
-                std::cerr << "SSL -> TUN: Connection closed" << std::endl;
-                break;
-            }
-            else if(ec == boost::asio::error::would_block){
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
+            
+            if(err == ERROR_NO_MORE_ITEMS){
+                asio::post(io_ctx, [&]{
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    async_send();
+                });
+                return;
             }
             else{
-                std::cerr << "SSL -> TUN: Read Error: " << ec.message();
-                break;
+                std::cerr << "TUN read error: " << err << std::endl;
+                return;
             }
         }
+        
+        packet_count++;
+        std::cout << "TUN received a packet, " << packet_count << " size: " << packet_size << " bytes: ";
+        for (DWORD i = 0; i < packet_size; ++i) {
+            printf("%02X ", packet[i]); 
+        }
+        std::cout << std::endl;
 
-        if(bytes_read > 0){
-            std::cout << "SSL -> TUN: Received " << bytes_read << " bytes" << std::endl;
-            std::cout << "            Content(first 16 bytes): ";
-            for(size_t i = 0; i < std::min(bytes_read, static_cast<size_t>(16)); i++){
-                printf("%02X", (unsigned char)buf[i]);
+        // send to server
+        memcpy(buffer->data(), packet, packet_size);
+
+        asio::async_write(socket_, asio::buffer(*buffer, packet_size), [&, packet, async_send](boost::system::error_code ec, size_t bytes_sent){
+            WintunReleaseReceivePacket(tun_session, packet);
+            if(!ec){
+                std::cout << "SSL successfully sent to server, size: " << bytes_sent << "bytes" << std::endl;
+                async_send();
             }
-            std::cout << std::endl;
-
-            BYTE* tun_packet = WintunAllocateSendPacket(tun_session, bytes_read);
-            if(tun_packet){
-                std::cerr << "SSL -> TUN: Failed to allocate TUN packet. Error: " << GetLastError() << std::endl;
-                continue;
+            else{
+                std::cerr << "Write error: " << ec.message() << std::endl;
+                if(ec != asio::error::operation_aborted){
+                    have_quit = true;
+                }
             }
+        });
+    };
 
-            memcpy(tun_packet, buf, bytes_read);
-            WintunSendPacket(tun_session, tun_packet);
+    async_send();
+}
 
-            std::cout << "SSL -> TUN: Sent " << bytes_read << " bytes" << std::endl;
-        }        
-    }
-    have_quit = true;
-    io_svc.stop();
-    std::cout << "=== SSL to TUN thread exiting... ===" << std::endl;
+void ssl_to_tun_thread(asio::ssl::stream<asio::ip::tcp::socket>& socket) {
+    std::cout << "=== SSL to TUN thread started (Async) ===" << std::endl;
+    
+    auto buf = std::make_shared<std::vector<uint8_t>>(MAX_BUF_SIZE);
+
+    std::function<void()> async_read = [&, buf]() {
+        if (have_quit) {
+            std::cout << "=== SSL to TUN thread exiting... ===" << std::endl;
+            return;
+        }
+
+        socket.async_read_some(
+            asio::buffer(*buf),
+            [&, buf](boost::system::error_code ec, size_t bytes_read) {
+                if (ec) {
+                    if (ec == ssl::error::stream_truncated || 
+                        ec == boost::asio::error::eof) {
+                        std::cerr << "SSL -> TUN: Graceful shutdown" << std::endl;
+                    } else {
+                        std::cerr << "SSL -> TUN: Read error: " << ec.message() << std::endl;
+                    }
+                    have_quit = true;
+                    return;
+                }
+                static auto last_log = std::chrono::steady_clock::now();
+                if (std::chrono::steady_clock::now() - last_log > std::chrono::seconds(1)) {
+                    std::cout << "SSL -> TUN: " << bytes_read << " bytes | ";
+                    for (size_t i = 0; i < 16; ++i) 
+                        printf("%02X ", (*buf)[i]);
+                    std::cout << std::endl;
+                    last_log = std::chrono::steady_clock::now();
+                }
+                BYTE* tun_packet = WintunAllocateSendPacket(tun_session, bytes_read);
+                if (!tun_packet) {
+                    std::cerr << "Failed to allocate TUN packet (Error: " << GetLastError() << ")" << std::endl;
+                } else {
+                    memcpy(tun_packet, buf->data(), bytes_read);
+                    WintunSendPacket(tun_session, tun_packet);
+                }
+
+                async_read();
+            }
+        );
+    };
+
+    async_read();
 }
 
 
 bool InitSSL(ssl::context& ctx) {
     try {
-        ctx.set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 | ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+        ctx.set_options(
+            ssl::context::default_workarounds | 
+            ssl::context::no_sslv2 | 
+            ssl::context::no_sslv3 | 
+            ssl::context::no_tlsv1 | 
+            ssl::context::no_tlsv1_1
+        );
         ctx.load_verify_file(CA_CERT_PATH);
         ctx.use_certificate_file(CLIENT_CERT_PATH, ssl::context::pem);
         ctx.use_private_key_file(CLIENT_KEY_PATH, ssl::context::pem);
         ctx.set_verify_mode(ssl::verify_peer);
         return true;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         std::cerr << "[SSL] Initialization failed: " << e.what() << std::endl;
         return false;
     }
 }
 
 
-// bool AddRouteToTun(const char* dest_ip, const char* mask, const char* gateway, DWORD ifIndex){
-//     MIB_IPFORWARDROW row;
-//     memset(&row, 0, sizeof(MIB_IPFORWARDROW));
-
-//     inet_pton(AF_INET, dest_ip, &row.dwForwardDest);
-//     inet_pton(AF_INET, mask, &row.dwForwardMask);
-//     inet_pton(AF_INET, gateway, &row.dwForwardNextHop);
-//     row.dwForwardIfIndex = ifIndex;
-//     row.dwForwardType = 3;
-//     row.dwForwardProto = 3;
-//     row.dwForwardMetric1 = 1;
-
-//     DWORD result = CreateIpForwardEntry(&row);
-//     if(result != NO_ERROR && result != ERROR_OBJECT_ALREADY_EXISTS){
-//         std::cerr << "Failed to add route to TUN adapter. Error: " << result << std::endl;
-//         return false;
-//     }
-//     return true;
-
-// }
-
-
 // Main logic of client program
-void vpn_client(const std::string& server_ip, int port) {
+void vpn_client(const std::string& server_ip, int server_port) {
     try {
         std::cout << "=== VPN Client Starting... ===" << std::endl;
         // initialize SSL context
@@ -405,57 +367,44 @@ void vpn_client(const std::string& server_ip, int port) {
             return;
         }
         // connect to server
-        ip::tcp::socket socket(io_svc);
-        ip::tcp::resolver resolver(io_svc);
-        auto endpoints = resolver.resolve(server_ip, std::to_string(port)); //resolve server address
-        std::cout << "Connecting to " << server_ip << ":" << port << "..." << std::endl;
-        connect(socket, endpoints);
-        // SSL connection
-        ssl::stream<ip::tcp::socket> ssl_stream(io_svc, ssl_ctx);
-        ssl_stream.lowest_layer() = std::move(socket);
-        // SSL handshake and error check
-        boost::system::error_code ec;
-        ssl_stream.handshake(ssl::stream_base::client, ec);
-        if(ec){
-            std::cerr << "SSL handshake failed: " << ec.message() << std::endl;
+        asio::ssl::stream<tcp::socket> socket(io_ctx, ssl_ctx);
+        asio::ip::tcp::resolver resolver(io_ctx);
+        auto endpoints = resolver.resolve(server_ip, std::to_string(server_port)); //resolve server address
+        std::cout << "Connecting to " << server_ip << ":" << server_port << "..." << std::endl;
+        boost::system::error_code connect_ec;
+        asio::connect(socket.next_layer(), endpoints, connect_ec);
+        if(connect_ec){
+            std::cerr << "Failed to connect to server: " << connect_ec.message() << std::endl;
+        }
+        boost::system::error_code shake_ec;
+        socket.handshake(asio::ssl::stream_base::client, shake_ec);
+        if(shake_ec){
+            std::cerr << "SSL handshake failed: " << shake_ec.message() << std::endl;
             return;
         }
-        std::cout << "SSL connection established with " << server_ip << ":" << port << std::endl;
-
-        // get SSL pointer and check
-        SSL* raw_ssl = ssl_stream.native_handle();
-        if(!raw_ssl){
-            std::cerr << "Failed to get SSL native handle" << std::endl;
-            return;
-        }
-        // check SSL connection
-        if(SSL_get_state(raw_ssl) != TLS_ST_OK){
-            std::cerr << "SSL connection not in OK state" << std::endl;
-            return;
-        }
-        std::cout << "SSL handle verified, start data forwarding threads..." << std::endl;
-
+        std::cout << "[SSL] SSL connection established with " << server_ip << ":" << server_port << std::endl;
+        std::cout << "  Version: " << SSL_get_version(socket.native_handle());
+        std::cout << "  Cipher: " << SSL_get_cipher_name(socket.native_handle()) << std::endl;
+        
         // start data forwarding
-        boost::thread tun_thread(boost::bind(&tun_to_ssl_thread, raw_ssl));
-        boost::thread ssl_thread(boost::bind(&ssl_to_tun_thread, boost::ref(ssl_stream)));
-        // 处理信号（Ctrl+C退出）
-        signals.async_wait([&](const error_code&, int) {
-            have_quit = true;
-            io_svc.stop();
-        });
+        boost::thread tun_thread(boost::bind(&tun_to_ssl_thread, boost::ref(socket)));
+        boost::thread ssl_thread(boost::bind(&ssl_to_tun_thread, boost::ref(socket)));
+      
         // start I/O service
-        io_svc.run();
+        std::cout << "[Debug] io_context starting..." << std::endl;
+        io_ctx.run();
+        std::cout << "[Debug] io_context exited!" << std::endl;
         // wait for threads to finish
         tun_thread.join();
         ssl_thread.join();
 
-        ssl_stream.shutdown();
+        // ssl_stream.shutdown();
         std::cout << "=== VPN client exiting... ===" << std::endl;
     } 
     catch (const std::exception& e) {
         std::cerr << "VPN client exception: " << e.what() << std::endl;
         have_quit = true;
-        io_svc.stop();
+        // io_ctx.stop();
     }
 }
 
@@ -475,17 +424,18 @@ int main(int argc, char* argv[]) {
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
 
-    // 初始化信号处理
-    signals.async_wait([&](const error_code&, int) {
-        have_quit.store(true);
-        io_svc.stop();
+    // // create two threads for tun_to_ssl and ssl_to_tun
+    // std::cout << "[Debug] io_context starting..." << std::endl;
+    // for (int i = 0; i < 2; ++i) {
+    //     ::thread_pool.create_thread(boost::bind(&asio::io_context::run, &io_ctx));
+    // }
+    // Initialize Wintun and create tun adapter
+    signals.async_wait([](const boost::system::error_code&, int) {
+        std::cout << "Signal received, stopping..." << std::endl;
+        have_quit = true;
+        io_ctx.stop();
     });
 
-    // create two threads for tun_to_ssl and ssl_to_tun
-    for (int i = 0; i < 2; ++i) {
-        ::thread_pool.create_thread(boost::bind(&io_context::run, &io_svc));
-    }
-    // Initialize Wintun and create tun adapter
     if (!InitializeWintun()) {
         WSACleanup();
         return 1;
@@ -499,8 +449,8 @@ int main(int argc, char* argv[]) {
     vpn_client(argv[1], std::stoi(argv[2]));
     // clean up
     CleanupWintun();
-    ::thread_pool.join_all();
-    io_svc.stop();
+    // ::thread_pool.join_all();
+    // io_ctx.stop();
     WSACleanup();
     EVP_cleanup();
 
