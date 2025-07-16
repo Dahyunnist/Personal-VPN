@@ -7,7 +7,7 @@ lws2_32 refers to libws2_32.a in lib directory
 */
 
 /*start program
-client.exe 172.19.36.222 443
+client.exe 172.20.68.63 10043
 */
 
 /*check VPN:
@@ -38,6 +38,9 @@ route print | findstr "110.242.68.66"
 #include <openssl/err.h>
 #include <atomic>
 #include <cstring>
+#include <chrono>
+#include <thread>
+#include <iomanip>
 
 // libs needed: -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
 #pragma comment(lib, "ws2_32.lib")
@@ -231,11 +234,11 @@ void print_hex_ascii(const void* data, size_t size) {
             }
             if (j == 7) std::cout << " "; // 第8字节后多空一格，对齐
         }
-        // 打印ASCII部分（仅显示可打印字符，其余用 '.' 代替）
+        // 打印ASCII部分
         std::cout << " | ";
         for (size_t j = 0; j < 16 && i + j < size; ++j) {
             unsigned char c = bytes[i + j];
-            std::cout << (isprint(c) ? static_cast<char>(c) : '.');
+            // std::cout << (isprint(c) ? static_cast<char>(c) : '.');
         }
         std::cout << std::dec << std::endl;
     }
@@ -245,27 +248,26 @@ void print_hex_ascii(const void* data, size_t size) {
 
 // 从 TUN 设备读取包并通过 SSL 发送到服务器
 void tun_to_ssl_thread(SSL* ssl) {
+    std::cout << "=== TUN to SSL thread started... ===" << std::endl;
     while (!have_quit) {
+        // read packet from TUN
         DWORD packet_size;
         BYTE* packet = WintunReceivePacket(tun_session, &packet_size);
         if (!packet) {
             DWORD err = GetLastError();
             if (err == ERROR_NO_MORE_ITEMS) {
-                Sleep(10); // 无数据时休眠，避免 CPU 占用过高
+                Sleep(10); 
                 continue;
             }
             std::cerr << "TUN 读取失败，错误码: " << err << std::endl;
-            break; // 严重错误，退出线程
+            break; 
+        }
+        std::cout << "TUN received a packet, size: " << packet_size << " bytes, first 16 bytes: ";
+        for (DWORD i = 0; i < 16 && i < packet_size; ++i) {
+            printf("%02X ", packet[i]); 
         }
 
-        // ------------- 关键：打印包信息，确认是否捕获 ICMP 请求 -------------
-        std::cout << "TUN received a packet, size: " << packet_size << " bytes, first 4 bytes: ";
-        for (int i = 0; i < 4 && i < packet_size; ++i) {
-            printf("%02X ", packet[i]); // 十六进制打印前4字节
-        }
-        std::cout << std::endl;
-
-        // ------------- 替换为您的 SSL 发送逻辑 -------------
+        // send packet to SSL
         if (ssl) {
             // check SSL connection
             if(SSL_get_state(ssl) != TLS_ST_OK){
@@ -294,7 +296,7 @@ void tun_to_ssl_thread(SSL* ssl) {
                         break;
                 }
                 WintunReleaseReceivePacket(tun_session, packet);
-                break; // SSL 连接断开，退出线程
+                break; 
             }
             std::cout << "TUN -> SSL: Sent " << bytes_sent << " bytes" << std::endl;
             std::cout << "            Content: " << std::endl;
@@ -305,45 +307,54 @@ void tun_to_ssl_thread(SSL* ssl) {
         }
         WintunReleaseReceivePacket(tun_session, packet); // 释放 TUN 包缓冲区
     }
-    std::cout << "TUN to SSL thread exiting..." << std::endl;
+    std::cout << "=== TUN to SSL thread exiting... ===" << std::endl;
 }
 
 void ssl_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
+    std::cout << "=== SSL to TUN thread started... ===" << std::endl;
     char buf[MAX_BUF_SIZE];  
+
     while (!have_quit) {
-        char ip_header[4];
-        if (!read_full(socket, ip_header, 4)) {
-            std::cerr << "SSL -> TUN: Failed to read IP header. Error: " << GetLastError() << std::endl;
-            break;
+        boost::system::error_code ec;
+        size_t bytes_read = socket.read_some(boost::asio::buffer(buf, MAX_BUF_SIZE), ec);
+        if(ec){
+            if(ec == ssl::error::stream_truncated || ec == boost::asio::error::eof){
+                std::cerr << "SSL -> TUN: Connection closed" << std::endl;
+                break;
+            }
+            else if(ec == boost::asio::error::would_block){
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            else{
+                std::cerr << "SSL -> TUN: Read Error: " << ec.message();
+                break;
+            }
         }
-        // get IP header length
-        uint16_t total_len = ntohs(*reinterpret_cast<const uint16_t*>(ip_header + 2));
-        if (total_len < 20 || total_len > MAX_BUF_SIZE) {
-            std::cerr << "total_len = " << total_len << ", MAX_BUF_SIZE = " << MAX_BUF_SIZE;
-            std::cerr << "SSL -> TUN: Invalid packet length: " << total_len << " bytes (discarded)." << std::endl;
-            break;
-        }
-        // 3. read remaining data
-        if (!read_full(socket, buf + 4, total_len - 4)) {
-            std::cerr << "SSL -> TUN: Failed to read full packet. Error: " << GetLastError() << std::endl;
-            break;
-        }
-        // 4. 拼接完整IP包（前4字节+剩余字节）
-        memcpy(buf, ip_header, 4);
-        // 5. 写入TUN设备
-        BYTE* tun_packet = WintunAllocateSendPacket(tun_session, total_len);
-        if (!tun_packet) {
-            std::cerr << "SSL -> TUN: Failed to allocate TUN packet. Error: " << GetLastError() << std::endl;
-            break;
-        }
-        memcpy(tun_packet, buf, total_len);
-        WintunSendPacket(tun_session, tun_packet);
-        std::cout << "Receiving from SSL...";
-        std::cout << "SSL -> TUN: Received " << total_len << " bytes (written to TUN)." << std::endl;
-        std::cout << "            Content: " << std::string(reinterpret_cast<const char*>(tun_packet), total_len) << std::endl;
+
+        if(bytes_read > 0){
+            std::cout << "SSL -> TUN: Received " << bytes_read << " bytes" << std::endl;
+            std::cout << "            Content(first 16 bytes): ";
+            for(size_t i = 0; i < std::min(bytes_read, static_cast<size_t>(16)); i++){
+                printf("%02X", (unsigned char)buf[i]);
+            }
+            std::cout << std::endl;
+
+            BYTE* tun_packet = WintunAllocateSendPacket(tun_session, bytes_read);
+            if(tun_packet){
+                std::cerr << "SSL -> TUN: Failed to allocate TUN packet. Error: " << GetLastError() << std::endl;
+                continue;
+            }
+
+            memcpy(tun_packet, buf, bytes_read);
+            WintunSendPacket(tun_session, tun_packet);
+
+            std::cout << "SSL -> TUN: Sent " << bytes_read << " bytes" << std::endl;
+        }        
     }
     have_quit = true;
     io_svc.stop();
+    std::cout << "=== SSL to TUN thread exiting... ===" << std::endl;
 }
 
 
@@ -387,6 +398,7 @@ bool InitSSL(ssl::context& ctx) {
 // Main logic of client program
 void vpn_client(const std::string& server_ip, int port) {
     try {
+        std::cout << "=== VPN Client Starting... ===" << std::endl;
         // initialize SSL context
         ssl::context ssl_ctx(ssl::context::tls_client);
         if (!InitSSL(ssl_ctx)){
@@ -438,6 +450,7 @@ void vpn_client(const std::string& server_ip, int port) {
         ssl_thread.join();
 
         ssl_stream.shutdown();
+        std::cout << "=== VPN client exiting... ===" << std::endl;
     } 
     catch (const std::exception& e) {
         std::cerr << "VPN client exception: " << e.what() << std::endl;

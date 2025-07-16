@@ -91,7 +91,7 @@ private:
 };
 */
 
-// === 会话管理类 ===
+
 class Session : public std::enable_shared_from_this<Session> {
 public:
     // 移除了tun参数
@@ -122,13 +122,13 @@ private:
     // 客户端数据接收
     void client_receive() {
         auto self(shared_from_this());
-        socket_.async_read_some(asio::buffer(buffer_),  // SSL流读取（自动解密）
+        socket_.async_read_some(asio::buffer(buf),  // SSL流读取（自动解密）
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (!ec) {
                     // 只打印接收到的数据，不转发到TUN
                     std::cout << "接收到客户端数据(" << length << " bytes): ";
                     for(size_t i = 0; i < std::min(length, static_cast<std::size_t>(16)); i++) {
-                        printf("%02x ", buffer_[i]);
+                        printf("%02x ", buf[i]);
                     }
                     std::cout << std::endl;
                     
@@ -140,7 +140,7 @@ private:
     }
 
     ssl::stream<tcp::socket> socket_;  // SSL加密流
-    std::array<uint8_t, BUFFER_SIZE> buffer_;
+    std::array<uint8_t, BUFFER_SIZE> buf;
 };
 
 // === 服务器类（简化版）===
