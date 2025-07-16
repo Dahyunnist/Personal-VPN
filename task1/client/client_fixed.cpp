@@ -1,27 +1,7 @@
 /*compile command in cmd:
-g++ client.cpp -o client.exe -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
+g++ client_fixed.cpp -o client_fixed.exe -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
 */
 
-/*
-lws2_32 refers to libws2_32.a in lib directory
-*/
-
-/*start program
-client.exe 172.19.36.222 443
-*/
-
-/*check VPN:
-Get-NetAdapter -Name "*VPN*" | Select-Object Name, ifIndex
-*/
-
-/*add route
-route add 110.242.68.66 mask 255.255.255.255 10.8.0.1 metric 1 if 53
-(53 is the ifIndex of VPN)
-*/
-
-/*check route add result
-route print | findstr "110.242.68.66"
-*/
 #include <iostream>
 #include <string>
 #include <boost/asio.hpp>
@@ -42,33 +22,21 @@ route print | findstr "110.242.68.66"
 #include <thread>
 #include <iomanip>
 
-// libs needed: -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "libssl.lib")
 #pragma comment(lib, "libcrypto.lib")
 
 #include "wintun.h"
-// 客户端核心代码：持续读取 TUN 设备所有包，无条件转发到 SSL 隧道
-#include <openssl/ssl.h>
-#include <openssl/bio.h>
 
 using namespace boost::asio;
 using namespace boost::system;
 
 #define TUN_DEVICE_NAME L"VPNTunnel"
 #define TUN_POOL_NAME L"VPNPool"
-#define MAX_BUF_SIZE 65536  // 缓冲区大小（大于MTU=1500）
+#define MAX_BUF_SIZE 65536
 
-/*How to use Wintun(from official readme file): 
-1. Include the wintun.h file and copy the wintun.dll into the same directory with the program
-2. Declare Wintun function pointers, set correspondence with alias predefined in Wintun SDK
-3. Load wintun.dll with `LoadLibraryEx()`, get a handle(base address of mirrored wintun in memory) as return
-4. Use `GetProcAddress()`(need handle and function name as parameter) to assign function pointers with corresponding procedure address in wintun.dll
-*/
-
-
-// Declare Wintun function pointers
+// Wintun function pointers
 static WINTUN_CREATE_ADAPTER_FUNC *WintunCreateAdapter;
 static WINTUN_CLOSE_ADAPTER_FUNC *WintunCloseAdapter;
 static WINTUN_OPEN_ADAPTER_FUNC *WintunOpenAdapter;
@@ -85,12 +53,12 @@ static WINTUN_ALLOCATE_SEND_PACKET_FUNC *WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC *WintunSendPacket;
 
 static HMODULE wintun_module = NULL;
-static WINTUN_ADAPTER_HANDLE tun_adapter = NULL; //creates and handles virtual NIC
-static WINTUN_SESSION_HANDLE tun_session = NULL; //creates and handles data transmit on virtual NIC
-static NET_LUID tun_luid;  // Locally Unique Identifier for local network interface
+static WINTUN_ADAPTER_HANDLE tun_adapter = NULL;
+static WINTUN_SESSION_HANDLE tun_session = NULL;
+static NET_LUID tun_luid;
 static std::atomic_bool have_quit(false);
-static io_context io_svc; //handle I/O events
-static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_executor()}; //manually add undone count to keep io_context running even when no async operation undone
+static io_context io_svc;
+static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_executor()};
 static boost::thread_group thread_pool;
 static signal_set signals(io_svc, SIGINT, SIGTERM);
 
@@ -98,10 +66,6 @@ const std::string CA_CERT_PATH = "certs/server.crt";
 const std::string CLIENT_CERT_PATH = "certs/client.crt";
 const std::string CLIENT_KEY_PATH = "certs/client.key";
 
-// 删除未使用的全局SSL变量
-// SSL* ssl = nullptr;
-
-// load Wintun handle to assign fnuction pointers
 bool InitializeWintun() {
     wintun_module = LoadLibraryExW(L"wintun.dll", NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!wintun_module) {
@@ -122,8 +86,6 @@ bool InitializeWintun() {
     return true;
 }
 
-
-
 void CleanupWintun() {
     if (tun_session) {
         WintunEndSession(tun_session);
@@ -139,10 +101,8 @@ void CleanupWintun() {
     }
 }
 
-
-// load adapter handle and create adapter
 bool init_wintun_adapter(const char* ip, int prefix) {
-    GUID guid; //Global Unique ID
+    GUID guid;
     CoCreateGuid(&guid);
     tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, TUN_DEVICE_NAME, &guid);
     if (!tun_adapter) {
@@ -152,7 +112,7 @@ bool init_wintun_adapter(const char* ip, int prefix) {
             return false;
         }
     }
-    // assign LUID
+
     WintunGetAdapterLUID(tun_adapter, &tun_luid);
     if (tun_luid.Value == 0) {
         std::cerr << "Error: TUN adapter LUID is invalid (Value=0)." << std::endl;
@@ -161,26 +121,28 @@ bool init_wintun_adapter(const char* ip, int prefix) {
         return false;
     }
     std::cout << "TUN adapter LUID: 0x" << std::hex << tun_luid.Value << std::dec << std::endl;
-    // create session handle
+
     tun_session = WintunStartSession(tun_adapter, 0x400000);
     if (!tun_session) {
         std::cerr << "Failed to start WinTUN session. Error: " << GetLastError() << std::endl;
         return false;
     }
-    // assign IP for tun device
+
+    // 配置IP地址
     MIB_UNICASTIPADDRESS_ROW ipRow;
     InitializeUnicastIpAddressEntry(&ipRow);
-    ipRow.InterfaceLuid = tun_luid; //bind tun's luid
-    ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
+    ipRow.InterfaceLuid = tun_luid;
+    ipRow.Address.Ipv4.sin_family = AF_INET;
     inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
-    ipRow.OnLinkPrefixLength = prefix; 
-    ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
+    ipRow.OnLinkPrefixLength = prefix;
+    ipRow.DadState = IpDadStatePreferred;
     DWORD result = CreateUnicastIpAddressEntry(&ipRow);
     if (result != ERROR_SUCCESS && result != ERROR_OBJECT_ALREADY_EXISTS) {
         std::cerr << "Failed to set IP address. Error: " << result << std::endl;
         return false;
     }
-    // add route
+
+    // 添加路由
     MIB_IPFORWARD_ROW2 route;
     InitializeIpForwardEntry(&route);
     route.InterfaceLuid = tun_luid;
@@ -200,78 +162,32 @@ bool init_wintun_adapter(const char* ip, int prefix) {
     return true;
 }
 
-
-// 读取完整数据（保持不变，确保读取指定长度）
-bool read_full(ssl::stream<ip::tcp::socket>& socket, char* buf, size_t length) {
-    size_t total_read = 0;
-    while (total_read < length && !have_quit) {
-        boost::system::error_code ec;
-        size_t n = socket.read_some(buffer(buf + total_read, length - total_read), ec);
-        if (ec) {
-            if (ec == ssl::error::stream_truncated || ec == error::eof) {
-                return false;
-            }
-            if (ec != error::would_block) {
-                std::cerr << "Read Error: " << ec.message() << std::endl;
-                return false;
-            }
-            continue;
-        }
-        total_read += n;
-    }
-    return total_read == length;
-}
-
-
-void print_hex_ascii(const void* data, size_t size) {
-    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
-    for (size_t i = 0; i < size; i += 16) { // 每行16字节
-        // 打印地址偏移（可选）
-        std::cout << std::setw(4) << std::setfill('0') << std::hex << i << "  ";
-        // 打印十六进制部分
-        for (size_t j = 0; j < 16; ++j) {
-            if (i + j < size) {
-                std::cout << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i + j]) << " ";
-            } else {
-                std::cout << "   "; // 不足16字节时补空格
-            }
-            if (j == 7) std::cout << " "; // 第8字节后多空一格，对齐
-        }
-        // 打印ASCII部分（仅显示可打印字符，其余用 '.' 代替）
-        std::cout << " | ";
-        for (size_t j = 0; j < 16 && i + j < size; ++j) {
-            unsigned char c = bytes[i + j];
-            std::cout << (isprint(c) ? static_cast<char>(c) : '.');
-        }
-        std::cout << std::dec << std::endl;
-    }
-}
-
-
-
-// 从 TUN 设备读取包并通过 SSL 发送到服务器
+// TUN → SSL 数据转发（修复版）
 void tun_to_ssl_thread(SSL* ssl) {
+    std::cout << "TUN → SSL 线程启动" << std::endl;
+    
     while (!have_quit) {
         DWORD packet_size;
         BYTE* packet = WintunReceivePacket(tun_session, &packet_size);
         if (!packet) {
             DWORD err = GetLastError();
             if (err == ERROR_NO_MORE_ITEMS) {
-                Sleep(10); // 无数据时休眠，避免 CPU 占用过高
+                Sleep(10);
                 continue;
             }
             std::cerr << "TUN 读取失败，错误码: " << err << std::endl;
-            break; // 严重错误，退出线程
+            break;
         }
 
-        // ------------- 关键：打印包信息，确认是否捕获 ICMP 请求 -------------
-        std::cout << "TUN received a packet, size: " << packet_size << " bytes, first 4 bytes: ";
-        for (int i = 0; i < 4 && i < packet_size; ++i) {
-            printf("%02X ", packet[i]); // 十六进制打印前4字节
+        std::cout << "TUN → SSL: 捕获数据包 " << packet_size << " 字节" << std::endl;
+        
+        // 打印数据包前几个字节
+        std::cout << "数据包内容（前16字节）: ";
+        for (DWORD i = 0; i < std::min(packet_size, static_cast<DWORD>(16)); ++i) {
+            printf("%02X ", packet[i]);
         }
         std::cout << std::endl;
 
-        // ------------- 改进的 SSL 发送逻辑 -------------
         if (ssl) {
             // 验证SSL连接状态
             if (SSL_get_state(ssl) != TLS_ST_OK) {
@@ -280,14 +196,13 @@ void tun_to_ssl_thread(SSL* ssl) {
                 break;
             }
             
-            // 通过 SSL 发送原始 IP 包（无需额外封装，服务器会直接转发）
+            // 发送数据包到服务端
             int bytes_sent = SSL_write(ssl, packet, packet_size);
             if (bytes_sent <= 0) {
                 int ssl_error = SSL_get_error(ssl, bytes_sent);
                 switch (ssl_error) {
                     case SSL_ERROR_WANT_WRITE:
                     case SSL_ERROR_WANT_READ:
-                        // 暂时性错误，重试
                         std::cout << "SSL write would block, retrying..." << std::endl;
                         Sleep(1);
                         WintunReleaseReceivePacket(tun_session, packet);
@@ -295,84 +210,75 @@ void tun_to_ssl_thread(SSL* ssl) {
                     case SSL_ERROR_ZERO_RETURN:
                         std::cerr << "SSL connection closed by peer" << std::endl;
                         break;
-                    case SSL_ERROR_SYSCALL:
-                        std::cerr << "SSL syscall error: " << ERR_get_error() << std::endl;
-                        break;
                     default:
                         std::cerr << "SSL send failed. Error: " << ssl_error << std::endl;
                         break;
                 }
                 WintunReleaseReceivePacket(tun_session, packet);
-                break; // SSL 连接断开，退出线程
+                break;
             }
-            std::cout << "TUN -> SSL: Sent " << bytes_sent << " bytes" << std::endl;
+            std::cout << "TUN → SSL: 成功发送 " << bytes_sent << " 字节到服务端" << std::endl;
         } else {
-            std::cerr << "SSL connection not established, unable to send data to server." << std::endl;
+            std::cerr << "SSL connection not established" << std::endl;
             WintunReleaseReceivePacket(tun_session, packet);
             break;
         }
 
-        WintunReleaseReceivePacket(tun_session, packet); // 释放 TUN 包缓冲区
+        WintunReleaseReceivePacket(tun_session, packet);
     }
-    std::cout << "TUN to SSL thread exiting..." << std::endl;
+    std::cout << "TUN → SSL 线程退出" << std::endl;
 }
 
+// SSL → TUN 数据转发（修复版）
 void ssl_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
-    char buf[MAX_BUF_SIZE];  
+    std::cout << "SSL → TUN 线程启动" << std::endl;
+    char buf[MAX_BUF_SIZE];
+    
     while (!have_quit) {
         boost::system::error_code ec;
-        // 直接读取数据，不按照特定的IP头格式
         size_t bytes_read = socket.read_some(asio::buffer(buf, MAX_BUF_SIZE), ec);
         
         if (ec) {
             if (ec == ssl::error::stream_truncated || ec == asio::error::eof) {
-                std::cerr << "SSL -> TUN: Connection closed by server" << std::endl;
+                std::cerr << "SSL → TUN: 服务端关闭连接" << std::endl;
                 break;
             } else if (ec == asio::error::would_block) {
-                // 非阻塞模式下的正常情况，继续尝试
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             } else {
-                std::cerr << "SSL -> TUN: Read error: " << ec.message() << std::endl;
+                std::cerr << "SSL → TUN: 读取错误: " << ec.message() << std::endl;
                 break;
             }
         }
         
         if (bytes_read > 0) {
-            std::cout << "SSL -> TUN: 接收到 " << bytes_read << " 字节数据" << std::endl;
+            std::cout << "SSL → TUN: 接收到 " << bytes_read << " 字节数据" << std::endl;
             
-            // 验证数据长度
-            if (bytes_read > MAX_BUF_SIZE) {
-                std::cerr << "SSL -> TUN: 数据包过大: " << bytes_read << " bytes (discarded)." << std::endl;
-                continue;
+            // 打印数据包前几个字节
+            std::cout << "数据包内容（前16字节）: ";
+            for (size_t i = 0; i < std::min(bytes_read, static_cast<size_t>(16)); ++i) {
+                printf("%02X ", (unsigned char)buf[i]);
             }
+            std::cout << std::endl;
             
             // 写入TUN设备
             BYTE* tun_packet = WintunAllocateSendPacket(tun_session, bytes_read);
             if (!tun_packet) {
-                std::cerr << "SSL -> TUN: Failed to allocate TUN packet. Error: " << GetLastError() << std::endl;
+                std::cerr << "SSL → TUN: Failed to allocate TUN packet. Error: " << GetLastError() << std::endl;
                 continue;
             }
             
             memcpy(tun_packet, buf, bytes_read);
             WintunSendPacket(tun_session, tun_packet);
             
-            std::cout << "SSL -> TUN: 成功写入 " << bytes_read << " 字节到TUN设备" << std::endl;
-            
-            // 打印数据包的前几个字节用于调试
-            std::cout << "SSL -> TUN: 数据包内容（前16字节）: ";
-            for (size_t i = 0; i < std::min(bytes_read, static_cast<size_t>(16)); ++i) {
-                printf("%02X ", (unsigned char)buf[i]);
-            }
-            std::cout << std::endl;
+            std::cout << "SSL → TUN: 成功写入 " << bytes_read << " 字节到TUN设备" << std::endl;
         }
     }
     
     have_quit = true;
     io_svc.stop();
-    std::cout << "SSL to TUN thread exiting..." << std::endl;
+    std::cout << "SSL → TUN 线程退出" << std::endl;
 }
-
 
 bool InitSSL(ssl::context& ctx) {
     try {
@@ -388,104 +294,85 @@ bool InitSSL(ssl::context& ctx) {
     }
 }
 
-
-// bool AddRouteToTun(const char* dest_ip, const char* mask, const char* gateway, DWORD ifIndex){
-//     MIB_IPFORWARDROW row;
-//     memset(&row, 0, sizeof(MIB_IPFORWARDROW));
-
-//     inet_pton(AF_INET, dest_ip, &row.dwForwardDest);
-//     inet_pton(AF_INET, mask, &row.dwForwardMask);
-//     inet_pton(AF_INET, gateway, &row.dwForwardNextHop);
-//     row.dwForwardIfIndex = ifIndex;
-//     row.dwForwardType = 3;
-//     row.dwForwardProto = 3;
-//     row.dwForwardMetric1 = 1;
-
-//     DWORD result = CreateIpForwardEntry(&row);
-//     if(result != NO_ERROR && result != ERROR_OBJECT_ALREADY_EXISTS){
-//         std::cerr << "Failed to add route to TUN adapter. Error: " << result << std::endl;
-//         return false;
-//     }
-//     return true;
-
-// }
-
-
-// Main logic of client program
+// VPN客户端主逻辑（修复版）
 void vpn_client(const std::string& server_ip, int port) {
     try {
-        // initialize SSL context
+        std::cout << "=== VPN客户端启动 ===" << std::endl;
+        
+        // 初始化SSL上下文
         ssl::context ssl_ctx(ssl::context::tls_client);
-        if (!InitSSL(ssl_ctx)){
+        if (!InitSSL(ssl_ctx)) {
             return;
         }
-        // connect to server
+        
+        // 连接到服务器
         ip::tcp::socket socket(io_svc);
         ip::tcp::resolver resolver(io_svc);
-        auto endpoints = resolver.resolve(server_ip, std::to_string(port)); //resolve server address
-        std::cout << "Connecting to " << server_ip << ":" << port << "..." << std::endl;
+        auto endpoints = resolver.resolve(server_ip, std::to_string(port));
+        std::cout << "正在连接到 " << server_ip << ":" << port << "..." << std::endl;
         connect(socket, endpoints);
         
-        // SSL connection
+        // 建立SSL连接
         ssl::stream<ip::tcp::socket> ssl_stream(io_svc, ssl_ctx);
         ssl_stream.lowest_layer() = std::move(socket);
         
-        // 执行SSL握手并添加错误检查
         boost::system::error_code ec;
         ssl_stream.handshake(ssl::stream_base::client, ec);
         if (ec) {
-            std::cerr << "SSL handshake failed: " << ec.message() << std::endl;
+            std::cerr << "SSL握手失败: " << ec.message() << std::endl;
             return;
         }
-        std::cout << "SSL connection established with " << server_ip << ":" << port << std::endl;
+        std::cout << "SSL连接建立成功: " << server_ip << ":" << port << std::endl;
 
-        // 获取底层 OpenSSL SSL* 指针并验证
+        // 获取SSL handle并验证
         SSL* raw_ssl = ssl_stream.native_handle();
         if (!raw_ssl) {
             std::cerr << "Failed to get SSL native handle" << std::endl;
             return;
         }
         
-        // 验证SSL连接状态
         if (SSL_get_state(raw_ssl) != TLS_ST_OK) {
             std::cerr << "SSL connection is not in OK state" << std::endl;
             return;
         }
         
-        std::cout << "SSL handle verified, starting data forwarding threads..." << std::endl;
+        std::cout << "SSL状态验证通过，启动数据转发线程..." << std::endl;
 
-        // start data forwarding
+        // 启动双向数据转发线程
         boost::thread tun_thread(boost::bind(&tun_to_ssl_thread, raw_ssl));
         boost::thread ssl_thread(boost::bind(&ssl_to_tun_thread, boost::ref(ssl_stream)));
         
-        // 处理信号（Ctrl+C退出）
+        // 信号处理
         signals.async_wait([&](const error_code&, int) {
+            std::cout << "接收到退出信号，正在关闭连接..." << std::endl;
             have_quit = true;
             io_svc.stop();
         });
-        // start I/O service
+        
+        // 运行IO服务
         io_svc.run();
-        // wait for threads to finish
+        
+        // 等待线程结束
         tun_thread.join();
         ssl_thread.join();
 
         ssl_stream.shutdown();
+        std::cout << "VPN客户端已退出" << std::endl;
     } 
     catch (const std::exception& e) {
-        std::cerr << "VPN client exception: " << e.what() << std::endl;
+        std::cerr << "VPN客户端异常: " << e.what() << std::endl;
         have_quit = true;
         io_svc.stop();
     }
 }
 
-
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <server_ip> <port>" << std::endl;
+        std::cerr << "用法: " << argv[0] << " <server_ip> <port>" << std::endl;
         return 1;
     }
 
-    // Initialize Winsock and OpenSSL
+    // 初始化Winsock和OpenSSL
     WSADATA wsa_data;
     if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
         std::cerr << "WSAStartup failed. Error: " << WSAGetLastError() << std::endl;
@@ -500,11 +387,12 @@ int main(int argc, char* argv[]) {
         io_svc.stop();
     });
 
-    // create two threads for tun_to_ssl and ssl_to_tun
+    // 创建线程池
     for (int i = 0; i < 2; ++i) {
-        ::thread_pool.create_thread(boost::bind(&io_context::run, &io_svc));
+        thread_pool.create_thread(boost::bind(&io_context::run, &io_svc));
     }
-    // Initialize Wintun and create tun adapter
+
+    // 初始化Wintun
     if (!InitializeWintun()) {
         WSACleanup();
         return 1;
@@ -514,11 +402,13 @@ int main(int argc, char* argv[]) {
         WSACleanup();
         return 1;
     }
-    // start vpn client
+
+    // 启动VPN客户端
     vpn_client(argv[1], std::stoi(argv[2]));
-    // clean up
+
+    // 清理资源
     CleanupWintun();
-    ::thread_pool.join_all();
+    thread_pool.join_all();
     io_svc.stop();
     WSACleanup();
     EVP_cleanup();
