@@ -95,7 +95,9 @@ const std::string CA_CERT_PATH = "certs/server.crt";
 const std::string CLIENT_CERT_PATH = "certs/client.crt";
 const std::string CLIENT_KEY_PATH = "certs/client.key";
 
-SSL* ssl = nullptr;
+// 删除未使用的全局SSL变量
+// SSL* ssl = nullptr;
+
 // load Wintun handle to assign fnuction pointers
 bool InitializeWintun() {
     wintun_module = LoadLibraryExW(L"wintun.dll", NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -246,7 +248,7 @@ void print_hex_ascii(const void* data, size_t size) {
 
 // 从 TUN 设备读取包并通过 SSL 发送到服务器
 void tun_to_ssl_thread(SSL* ssl) {
-    while (true) {
+    while (!have_quit) {
         DWORD packet_size;
         BYTE* packet = WintunReceivePacket(tun_session, &packet_size);
         if (!packet) {
@@ -266,21 +268,50 @@ void tun_to_ssl_thread(SSL* ssl) {
         }
         std::cout << std::endl;
 
-        // ------------- 替换为您的 SSL 发送逻辑 -------------
+        // ------------- 改进的 SSL 发送逻辑 -------------
         if (ssl) {
+            // 验证SSL连接状态
+            if (SSL_get_state(ssl) != TLS_ST_OK) {
+                std::cerr << "SSL connection is not in valid state" << std::endl;
+                WintunReleaseReceivePacket(tun_session, packet);
+                break;
+            }
+            
             // 通过 SSL 发送原始 IP 包（无需额外封装，服务器会直接转发）
             int bytes_sent = SSL_write(ssl, packet, packet_size);
             if (bytes_sent <= 0) {
-                std::cerr << "SSL send failed. Error: " << SSL_get_error(ssl, bytes_sent) << std::endl;
+                int ssl_error = SSL_get_error(ssl, bytes_sent);
+                switch (ssl_error) {
+                    case SSL_ERROR_WANT_WRITE:
+                    case SSL_ERROR_WANT_READ:
+                        // 暂时性错误，重试
+                        std::cout << "SSL write would block, retrying..." << std::endl;
+                        Sleep(1);
+                        WintunReleaseReceivePacket(tun_session, packet);
+                        continue;
+                    case SSL_ERROR_ZERO_RETURN:
+                        std::cerr << "SSL connection closed by peer" << std::endl;
+                        break;
+                    case SSL_ERROR_SYSCALL:
+                        std::cerr << "SSL syscall error: " << ERR_get_error() << std::endl;
+                        break;
+                    default:
+                        std::cerr << "SSL send failed. Error: " << ssl_error << std::endl;
+                        break;
+                }
+                WintunReleaseReceivePacket(tun_session, packet);
                 break; // SSL 连接断开，退出线程
             }
             std::cout << "TUN -> SSL: Sent " << bytes_sent << " bytes" << std::endl;
         } else {
             std::cerr << "SSL connection not established, unable to send data to server." << std::endl;
+            WintunReleaseReceivePacket(tun_session, packet);
+            break;
         }
 
         WintunReleaseReceivePacket(tun_session, packet); // 释放 TUN 包缓冲区
     }
+    std::cout << "TUN to SSL thread exiting..." << std::endl;
 }
 
 void ssl_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
@@ -373,18 +404,39 @@ void vpn_client(const std::string& server_ip, int port) {
         auto endpoints = resolver.resolve(server_ip, std::to_string(port)); //resolve server address
         std::cout << "Connecting to " << server_ip << ":" << port << "..." << std::endl;
         connect(socket, endpoints);
+        
         // SSL connection
         ssl::stream<ip::tcp::socket> ssl_stream(io_svc, ssl_ctx);
         ssl_stream.lowest_layer() = std::move(socket);
-        ssl_stream.handshake(ssl::stream_base::client);
+        
+        // 执行SSL握手并添加错误检查
+        boost::system::error_code ec;
+        ssl_stream.handshake(ssl::stream_base::client, ec);
+        if (ec) {
+            std::cerr << "SSL handshake failed: " << ec.message() << std::endl;
+            return;
+        }
         std::cout << "SSL connection established with " << server_ip << ":" << port << std::endl;
 
-        // 获取底层 OpenSSL SSL* 指针
+        // 获取底层 OpenSSL SSL* 指针并验证
         SSL* raw_ssl = ssl_stream.native_handle();
+        if (!raw_ssl) {
+            std::cerr << "Failed to get SSL native handle" << std::endl;
+            return;
+        }
+        
+        // 验证SSL连接状态
+        if (SSL_get_state(raw_ssl) != TLS_ST_OK) {
+            std::cerr << "SSL connection is not in OK state" << std::endl;
+            return;
+        }
+        
+        std::cout << "SSL handle verified, starting data forwarding threads..." << std::endl;
 
         // start data forwarding
         boost::thread tun_thread(boost::bind(&tun_to_ssl_thread, raw_ssl));
         boost::thread ssl_thread(boost::bind(&ssl_to_tun_thread, boost::ref(ssl_stream)));
+        
         // 处理信号（Ctrl+C退出）
         signals.async_wait([&](const error_code&, int) {
             have_quit = true;
