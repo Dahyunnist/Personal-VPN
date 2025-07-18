@@ -138,7 +138,7 @@ void CleanupWintun() {
 
 
 // load adapter handle and create adapter
-bool init_wintun_adapter(const char* ip, int prefix) {
+bool init_wintun_adapter(const char* ip, int prefix, char* target_ip) {
     GUID guid; //Global Unique ID
     CoCreateGuid(&guid);
     tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, TUN_DEVICE_NAME, &guid);
@@ -182,18 +182,18 @@ bool init_wintun_adapter(const char* ip, int prefix) {
     InitializeIpForwardEntry(&route);
     route.InterfaceLuid = tun_luid;
     route.DestinationPrefix.Prefix.si_family = AF_INET;
-    inet_pton(AF_INET, "8.8.8.8", &route.DestinationPrefix.Prefix.Ipv4.sin_addr);
+    inet_pton(AF_INET, target_ip, &route.DestinationPrefix.Prefix.Ipv4.sin_addr);
     route.DestinationPrefix.PrefixLength = 32;
     inet_pton(AF_INET, "10.8.0.1", &route.NextHop.Ipv4.sin_addr);
     route.Metric = 1;
     route.Protocol = static_cast<NL_ROUTE_PROTOCOL>(3);
     DWORD route_result = CreateIpForwardEntry2(&route);
     if(route_result != ERROR_SUCCESS && route_result != ERROR_OBJECT_ALREADY_EXISTS){
-        std::cerr << "Failed to add route for 8.8.8.8 Error: " << route_result << std::endl;
+        std::cerr << "Failed to add route for " << target_ip << " Error: " << route_result << std::endl;
         return false;
     }
     FlushIpPathTable(AF_INET);
-    std::cout << "Route added for 8.8.8.8 -> " << ip << "(via TUN)" << std::endl;
+    std::cout << "Route added for " << target_ip << " -> " << ip << "(via TUN)" << std::endl;
     return true;
 }
 
@@ -400,8 +400,8 @@ void vpn_client(const std::string& server_ip, int port) {
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <server_ip> <port>" << std::endl;
+    if (argc != 4) {
+        std::cerr << "Usage: " << argv[0] << " <server_ip> <port> <ip you would like to route to>" << std::endl;
         return 1;
     }
 
@@ -429,7 +429,7 @@ int main(int argc, char* argv[]) {
         WSACleanup();
         return 1;
     }
-    if (!init_wintun_adapter("10.8.0.2", 24)) {
+    if (!init_wintun_adapter("10.8.0.2", 24, argv[3])) {
         CleanupWintun();
         WSACleanup();
         return 1;
