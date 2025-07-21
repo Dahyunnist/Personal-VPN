@@ -94,9 +94,9 @@ static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_exec
 static boost::thread_group thread_pool;
 static signal_set signals(io_svc, SIGINT, SIGTERM);
 
-const std::string CA_CERT_PATH = "certs/server.crt";
-const std::string CLIENT_CERT_PATH = "certs/client.crt";
-const std::string CLIENT_KEY_PATH = "certs/client.key";
+const std::string CA_CERT_PATH = "C:/tasks/task1/client/certs/server.crt";
+const std::string CLIENT_CERT_PATH = "C:/tasks/task1/client/certs/client.crt";
+const std::string CLIENT_KEY_PATH = "C:/tasks/task1/client/certs/client.key";
 
 
 // load Wintun handle to assign fnuction pointers
