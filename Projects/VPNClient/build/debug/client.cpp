@@ -94,21 +94,21 @@ static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_exec
 static boost::thread_group thread_pool;
 static signal_set signals(io_svc, SIGINT, SIGTERM);
 
-const std::string CA_CERT_PATH = "C:/tasks/task1/client/certs/server.crt";
-const std::string CLIENT_CERT_PATH = "C:/tasks/task1/client/certs/client.crt";
-const std::string CLIENT_KEY_PATH = "C:/tasks/task1/client/certs/client.key";
-// const std::string CA_CERT_PATH = [](){
-//     const char* path = std::getenv("CA_CERT_PATH");
-//     return path ? std::string(path) : "";
-// }();
-// const std::string CLIENT_CERT_PATH = [](){
-//     const char* path = std::getenv("CLIENT_CERT_PATH");
-//     return path ? std::string(path) : "";
-// }();
-// const std::string CLIENT_KEY_PATH = [](){
-//     const char* path = std::getenv("CLIENT_KEY_PATH");
-//     return path ? std::string(path) : "";
-// }();
+// const std::string CA_CERT_PATH = "C:/tasks/task1/client/certs/server.crt";
+// const std::string CLIENT_CERT_PATH = "C:/tasks/task1/client/certs/client.crt";
+// const std::string CLIENT_KEY_PATH = "C:/tasks/task1/client/certs/client.key";
+const std::string CA_CERT_PATH = [](){
+    const char* path = std::getenv("CA_CERT_PATH");
+    return path ? std::string(path) : "";
+}();
+const std::string CLIENT_CERT_PATH = [](){
+    const char* path = std::getenv("CLIENT_CERT_PATH");
+    return path ? std::string(path) : "";
+}();
+const std::string CLIENT_KEY_PATH = [](){
+    const char* path = std::getenv("CLIENT_KEY_PATH");
+    return path ? std::string(path) : "";
+}();
 
 // load Wintun handle to assign fnuction pointers
 bool InitializeWintun() {
