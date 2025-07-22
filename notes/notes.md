@@ -9,7 +9,7 @@
 
 # UCB CS 168：Introduction to the Internet: Architecture and Protocols
 ## Introduction
-### Introduction to the Interner:
+### Introduction to the Internet:
 1. Internet:
    - federated system
    - operates at enormour scale
@@ -25,7 +25,7 @@
 
 ### Layers of the Internet
 #### Layer 1: Physical Layer(postman)
-1. physical technology to move bits across space"
+1. physical technology to move bits across space:
    - voltages on electrical wire
    - light signals on optical fiber
    - wireless radio waves
