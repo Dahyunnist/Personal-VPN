@@ -44,21 +44,32 @@ route print | findstr "110.242.68.66"
 #include "wintun.h"
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
+#include <uuids.h>
+#include <sstream>
+#include <random>
 
 // libs needed: -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "libssl.lib")
 #pragma comment(lib, "libcrypto.lib")
+#pragma comment(lib, "ole32.lib")
 
 
 using namespace boost::asio;
 using namespace boost::system;
 
 
-#define TUN_DEVICE_NAME L"VPNTunnel"
-#define TUN_POOL_NAME L"VPNPool"
+#define TUN_DEVICE_NAME L"VPNClientTunnel"
+#define TUN_POOL_NAME L"VPNClientPool"
 #define MAX_BUF_SIZE 65536  // 缓冲区大小（大于MTU=1500）
+
+#define VIRTUAL_SUBNET "10.8.0."
+#define START_IP_SUFFIX 2
+#define MAX_IP_SUFFIX 254
+static int ip_counter = START_IP_SUFFIX;
+
+
 
 /*How to use Wintun(from official readme file): 
 1. Include the wintun.h file and copy the wintun.dll into the same directory with the program
@@ -148,13 +159,64 @@ void CleanupWintun() {
 }
 
 
+std::wstring generate_unique_tun_name(){
+    auto now = std::chrono::system_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(1000, 9999);
+    int rand_num = dist(gen);
+
+    std::wstringstream wss;
+    wss << TUN_DEVICE_NAME << L"_" << ms  << L"_" << rand_num;
+    return wss.str();
+}
+
+bool is_ip_in_use(const char* ip) {
+    MIB_UNICASTIPADDRESS_TABLE* ip_table = NULL;
+
+    DWORD result = GetUnicastIpAddressTable(AF_INET, &ip_table);
+    
+    if(result != ERROR_SUCCESS){
+        std::cerr << "GetUnicastIpAddressTable failed. Error: " << result << std::endl;
+        // if(ip_table){
+        LocalFree(ip_table);
+        return false;
+        // }
+    }
+
+    bool ip_used = false;
+    IN_ADDR target_addr;
+    if(inet_pton(AF_INET, ip, &target_addr) != 1){
+        std::cerr << "Invalid IP address: " << ip << std::endl;
+        LocalFree(ip_table);
+        return true;
+    }
+
+    for(DWORD i = 0; i < ip_table->NumEntries; i++){
+        MIB_UNICASTIPADDRESS_ROW row = ip_table->Table[i];
+        if(row.Address.Ipv4.sin_family != AF_INET){
+            continue;
+        }
+        if(memcmp(&row.Address.Ipv4.sin_addr, &target_addr, sizeof(IN_ADDR)) == 0){
+            ip_used = true;
+            break;
+        }
+    }
+    LocalFree(ip_table);
+    return ip_used;
+}
+
 // load adapter handle and create adapter
-bool init_wintun_adapter(const char* ip, int prefix, char* target_ip) {
+bool init_wintun_adapter(int prefix, char* target_ip) {
     GUID guid; //Global Unique ID
     CoCreateGuid(&guid);
-    tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, TUN_DEVICE_NAME, &guid);
+
+    std::wstring tun_device_name = generate_unique_tun_name();
+    tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, tun_device_name.c_str(), &guid);
     if (!tun_adapter) {
-        tun_adapter = WintunOpenAdapter(TUN_DEVICE_NAME);
+        // tun_adapter = WintunOpenAdapter(tun_device_name.c_str());
         if (!tun_adapter) {
             std::cerr << "Failed to create/open WinTUN adapter. Error: " << GetLastError() << std::endl;
             return false;
@@ -175,17 +237,49 @@ bool init_wintun_adapter(const char* ip, int prefix, char* target_ip) {
         std::cerr << "Failed to start WinTUN session. Error: " << GetLastError() << std::endl;
         return false;
     }
+
+    std::cout << "Created TUN device: " << tun_device_name.c_str() << std::endl;
+
     // assign IP for tun device
-    MIB_UNICASTIPADDRESS_ROW ipRow;
-    InitializeUnicastIpAddressEntry(&ipRow);
-    ipRow.InterfaceLuid = tun_luid; //bind tun's luid
-    ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
-    inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
-    ipRow.OnLinkPrefixLength = prefix; 
-    ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
-    DWORD result = CreateUnicastIpAddressEntry(&ipRow);
-    if (result != ERROR_SUCCESS && result != ERROR_OBJECT_ALREADY_EXISTS) {
-        std::cerr << "Failed to set IP address. Error: " << result << std::endl;
+    bool ip_assigned = false;
+    std::string assigned_ip;
+    int original_ip_counter = ip_counter;
+    while(ip_counter <= MAX_IP_SUFFIX){
+        std::stringstream ss;
+        ss << VIRTUAL_SUBNET << ip_counter;
+        std::string current_ip = ss.str();
+        const char* ip = ss.str().c_str();
+        if(is_ip_in_use(ip)){
+            std::cout << "IP " << current_ip << "is in use, trying next..." << std::endl;
+            ip_counter++;
+            continue;
+        }
+        MIB_UNICASTIPADDRESS_ROW ipRow;
+        InitializeUnicastIpAddressEntry(&ipRow);
+        ipRow.InterfaceLuid = tun_luid; //bind tun's luid
+        ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
+        inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
+        ipRow.OnLinkPrefixLength = prefix; 
+        ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
+        DWORD result = CreateUnicastIpAddressEntry(&ipRow);
+        if(result == ERROR_SUCCESS){
+            assigned_ip = current_ip;
+            ip_assigned = true;
+            ip_counter++;
+            std::cout << "Successfully assigned IP: " << assigned_ip << std::endl;
+            break;
+        }
+        else if(result == ERROR_OBJECT_ALREADY_EXISTS){
+            std::cout << "IP " << current_ip << " conflict detected, trying next..." << std::endl;
+            ip_counter++;
+        }
+        else{
+            std::cerr << "Failed to set IP address. Error: " << result << std::endl;
+            return false; 
+        }
+    }
+    if(!ip_assigned){
+        std::cerr << "IP assignment failed: exceed max IP suffix " << MAX_IP_SUFFIX << std::endl;
         return false;
     }
     // add route
@@ -204,7 +298,7 @@ bool init_wintun_adapter(const char* ip, int prefix, char* target_ip) {
         return false;
     }
     FlushIpPathTable(AF_INET);
-    std::cout << "Route added for " << target_ip << " -> " << ip << "(via TUN)" << std::endl;
+    std::cout << "Route added for " << target_ip << " -> " << assigned_ip << "(via TUN)" << std::endl;
     return true;
 }
 
@@ -440,7 +534,7 @@ int main(int argc, char* argv[]) {
         WSACleanup();
         return 1;
     }
-    if (!init_wintun_adapter("10.8.0.2", 24, argv[3])) {
+    if (!init_wintun_adapter(24, argv[3])) {
         CleanupWintun();
         WSACleanup();
         return 1;
