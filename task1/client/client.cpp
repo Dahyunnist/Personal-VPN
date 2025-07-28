@@ -64,10 +64,10 @@ using namespace boost::system;
 #define TUN_POOL_NAME L"VPNClientPool"
 #define MAX_BUF_SIZE 65536  // 缓冲区大小（大于MTU=1500）
 
-#define VIRTUAL_SUBNET "10.8.0."
-#define START_IP_SUFFIX 2
-#define MAX_IP_SUFFIX 254
-static int ip_counter = START_IP_SUFFIX;
+// #define VIRTUAL_SUBNET "10.8.0."
+// #define START_IP_SUFFIX 2
+// #define MAX_IP_SUFFIX 254
+// static int ip_counter = START_IP_SUFFIX;
 
 
 
@@ -209,14 +209,12 @@ bool is_ip_in_use(const char* ip) {
 }
 
 // load adapter handle and create adapter
-bool init_wintun_adapter(int prefix, char* target_ip) {
+bool init_wintun_adapter(const char* ip, int prefix, char* target_ip) {
     GUID guid; //Global Unique ID
     CoCreateGuid(&guid);
-
-    std::wstring tun_device_name = generate_unique_tun_name();
-    tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, tun_device_name.c_str(), &guid);
+    tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, TUN_DEVICE_NAME, &guid);
     if (!tun_adapter) {
-        // tun_adapter = WintunOpenAdapter(tun_device_name.c_str());
+        tun_adapter = WintunOpenAdapter(TUN_DEVICE_NAME);
         if (!tun_adapter) {
             std::cerr << "Failed to create/open WinTUN adapter. Error: " << GetLastError() << std::endl;
             return false;
@@ -237,49 +235,17 @@ bool init_wintun_adapter(int prefix, char* target_ip) {
         std::cerr << "Failed to start WinTUN session. Error: " << GetLastError() << std::endl;
         return false;
     }
-
-    std::cout << "Created TUN device: " << tun_device_name.c_str() << std::endl;
-
     // assign IP for tun device
-    bool ip_assigned = false;
-    std::string assigned_ip;
-    int original_ip_counter = ip_counter;
-    while(ip_counter <= MAX_IP_SUFFIX){
-        std::stringstream ss;
-        ss << VIRTUAL_SUBNET << ip_counter;
-        std::string current_ip = ss.str();
-        const char* ip = ss.str().c_str();
-        if(is_ip_in_use(ip)){
-            std::cout << "IP " << current_ip << "is in use, trying next..." << std::endl;
-            ip_counter++;
-            continue;
-        }
-        MIB_UNICASTIPADDRESS_ROW ipRow;
-        InitializeUnicastIpAddressEntry(&ipRow);
-        ipRow.InterfaceLuid = tun_luid; //bind tun's luid
-        ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
-        inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
-        ipRow.OnLinkPrefixLength = prefix; 
-        ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
-        DWORD result = CreateUnicastIpAddressEntry(&ipRow);
-        if(result == ERROR_SUCCESS){
-            assigned_ip = current_ip;
-            ip_assigned = true;
-            ip_counter++;
-            std::cout << "Successfully assigned IP: " << assigned_ip << std::endl;
-            break;
-        }
-        else if(result == ERROR_OBJECT_ALREADY_EXISTS){
-            std::cout << "IP " << current_ip << " conflict detected, trying next..." << std::endl;
-            ip_counter++;
-        }
-        else{
-            std::cerr << "Failed to set IP address. Error: " << result << std::endl;
-            return false; 
-        }
-    }
-    if(!ip_assigned){
-        std::cerr << "IP assignment failed: exceed max IP suffix " << MAX_IP_SUFFIX << std::endl;
+    MIB_UNICASTIPADDRESS_ROW ipRow;
+    InitializeUnicastIpAddressEntry(&ipRow);
+    ipRow.InterfaceLuid = tun_luid; //bind tun's luid
+    ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
+    inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
+    ipRow.OnLinkPrefixLength = prefix; 
+    ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
+    DWORD result = CreateUnicastIpAddressEntry(&ipRow);
+    if (result != ERROR_SUCCESS && result != ERROR_OBJECT_ALREADY_EXISTS) {
+        std::cerr << "Failed to set IP address. Error: " << result << std::endl;
         return false;
     }
     // add route
@@ -298,9 +264,10 @@ bool init_wintun_adapter(int prefix, char* target_ip) {
         return false;
     }
     FlushIpPathTable(AF_INET);
-    std::cout << "Route added for " << target_ip << " -> " << assigned_ip << "(via TUN)" << std::endl;
+    std::cout << "Route added for " << target_ip << " -> " << ip << "(via TUN)" << std::endl;
     return true;
 }
+
 
 
 
@@ -440,6 +407,9 @@ bool InitSSL(ssl::context& ctx) {
         ctx.use_certificate_file(CLIENT_CERT_PATH, ssl::context::pem);
         ctx.use_private_key_file(CLIENT_KEY_PATH, ssl::context::pem);
         ctx.set_verify_mode(ssl::verify_peer);
+        std::cout << "[SSL] Initialized with CA cert: " << CA_CERT_PATH << std::endl;
+        std::cout << "[SSL] Initialized with client cert: " << CLIENT_CERT_PATH << std::endl;
+        std::cout << "[SSL] Initialized with client key: " << CLIENT_KEY_PATH << std::endl;
         return true;
     } catch (const std::exception& e) {
         std::cerr << "[SSL] Initialization failed: " << e.what() << std::endl;
@@ -449,7 +419,7 @@ bool InitSSL(ssl::context& ctx) {
 
 
 // Main logic of client program
-void vpn_client(const std::string& server_ip, int port) {
+void vpn_client(const std::string& server_ip, int port, char* target_ip) {
     try {
         std::cout << "=== VPN Client Starting... ===" << std::endl;
         // initialize SSL context
@@ -474,6 +444,40 @@ void vpn_client(const std::string& server_ip, int port) {
             return;
         }
         std::cout << "SSL connection established with " << server_ip << ":" << port << std::endl;
+        // create tun device and assign IP
+        char buf[MAX_BUF_SIZE];
+        boost::system::error_code ecode;
+        size_t bytes_read = ssl_stream.read_some(boost::asio::buffer(buf, MAX_BUF_SIZE), ecode);
+        if(ecode){
+            if(ecode == ssl::error::stream_truncated || ecode == boost::asio::error::eof){
+                std::cerr << "Connection closed" << std::endl;
+                return;
+            }
+            else if(ecode == boost::asio::error::would_block){
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            else{
+                std::cerr << "Read Error: " << ecode.message();
+                return;
+            }
+        }
+        if(bytes_read > 0){
+            std::cout << "Received IP to assign to TUN device from server: " << bytes_read << " bytes" << std::endl;
+            
+            if (bytes_read > 0 && bytes_read <= 128) {
+                std::cout << "            Content: ";
+                for(size_t i = 0; i < bytes_read; i++){
+                    printf("%02X", (unsigned char)buf[i]);
+                }
+                std::cout << std::endl;
+            }
+        }
+        if(!init_wintun_adapter(buf, 24, target_ip)) {
+            std::cerr << "Failed to create TUN adapter and assign IP." << std::endl;
+            CleanupWintun();
+            WSACleanup();
+            return;
+        }
 
         // start data forwarding threads
         boost::thread send_thread(boost::bind(&tun_to_tls_thread, boost::ref(ssl_stream)));
@@ -495,7 +499,7 @@ void vpn_client(const std::string& server_ip, int port) {
         // 关闭SSL连接
         ssl_stream.shutdown();
         std::cout << "=== VPN client exiting... ===" << std::endl;
-    } 
+    }
     catch (const std::exception& e) {
         std::cerr << "VPN client exception: " << e.what() << std::endl;
         have_quit = true;
@@ -534,13 +538,14 @@ int main(int argc, char* argv[]) {
         WSACleanup();
         return 1;
     }
-    if (!init_wintun_adapter(24, argv[3])) {
-        CleanupWintun();
-        WSACleanup();
-        return 1;
-    }
+    // if (!init_wintun_adapter(24, argv[3])) {
+    //     CleanupWintun();
+    //     WSACleanup();
+    //     return 1;
+    // }
+    
     // start vpn client
-    vpn_client(argv[1], std::stoi(argv[2]));
+    vpn_client(argv[1], std::stoi(argv[2]), argv[3]);
     // clean up
     CleanupWintun();
     ::thread_pool.join_all();
