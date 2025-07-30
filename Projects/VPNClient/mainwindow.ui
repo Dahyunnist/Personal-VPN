@@ -28,7 +28,7 @@
         <item>
          <widget class="QGroupBox" name="serverGroup">
           <property name="title">
-           <string>服务器设置</string>
+           <string>设备配置</string>
           </property>
           <layout class="QFormLayout" name="formLayout">
            <item row="0" column="0">
@@ -41,7 +41,7 @@
            <item row="0" column="1">
             <widget class="QLineEdit" name="serverIp">
              <property name="text">
-              <string>172.20.68.63</string>
+              <string/>
              </property>
             </widget>
            </item>
@@ -55,18 +55,32 @@
            <item row="1" column="1">
             <widget class="QLineEdit" name="serverPort">
              <property name="text">
-              <string>10043</string>
+              <string/>
              </property>
             </widget>
            </item>
            <item row="2" column="0">
+            <widget class="QLabel" name="label">
+             <property name="text">
+              <string>客户端TUN设备IP:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QLineEdit" name="tunIp">
+             <property name="text">
+              <string/>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
             <widget class="QLabel" name="label_3">
              <property name="text">
               <string>路由IP:</string>
              </property>
             </widget>
            </item>
-           <item row="2" column="1">
+           <item row="3" column="1">
             <widget class="QLineEdit" name="routeIp">
              <property name="text">
               <string>1.1.1.1</string>
@@ -79,65 +93,23 @@
         <item>
          <widget class="QGroupBox" name="certGroup">
           <property name="title">
-           <string>证书配置</string>
+           <string>配置导入</string>
           </property>
           <layout class="QFormLayout" name="formLayout_2">
            <item row="0" column="0">
             <widget class="QLabel" name="label_4">
              <property name="text">
-              <string>CA证书:</string>
+              <string>配置文件:</string>
              </property>
             </widget>
            </item>
            <item row="0" column="1">
             <layout class="QHBoxLayout" name="horizontalLayout">
              <item>
-              <widget class="QLineEdit" name="caCertPath"/>
+              <widget class="QLineEdit" name="configPath"/>
              </item>
              <item>
-              <widget class="QPushButton" name="browseCaCert">
-               <property name="text">
-                <string>浏览</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="label_5">
-             <property name="text">
-              <string>客户端证书:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <layout class="QHBoxLayout" name="horizontalLayout_2">
-             <item>
-              <widget class="QLineEdit" name="clientCertPath"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="browseClientCert">
-               <property name="text">
-                <string>浏览</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="label_6">
-             <property name="text">
-              <string>客户端密钥:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="1">
-            <layout class="QHBoxLayout" name="horizontalLayout_3">
-             <item>
-              <widget class="QLineEdit" name="clientKeyPath"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="browseClientKey">
+              <widget class="QPushButton" name="browseConfigPath">
                <property name="text">
                 <string>浏览</string>
                </property>
@@ -148,25 +120,7 @@
           </layout>
          </widget>
         </item>
-        <item>
-         <widget class="QGroupBox" name="tunGroup">
-          <property name="title">
-           <string>TUN设备</string>
-          </property>
-          <layout class="QHBoxLayout" name="horizontalLayout_4">
-           <item>
-            <widget class="QComboBox" name="tunInterface"/>
-           </item>
-           <item>
-            <widget class="QPushButton" name="refreshInterfaces">
-             <property name="text">
-              <string>刷新</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
+        
         <item>
          <layout class="QHBoxLayout" name="horizontalLayout_5">
           <item>
@@ -256,5 +210,4 @@
   <widget class="QStatusBar" name="statusBar"/>
  </widget>
  <resources/>
- <connections/>
 </ui>

@@ -39,13 +39,10 @@ namespace {
 struct qt_meta_stringdata_CLASSMainWindowENDCLASS_t {};
 static constexpr auto qt_meta_stringdata_CLASSMainWindowENDCLASS = QtMocHelpers::stringData(
     "MainWindow",
-    "on_browseCaCert_clicked",
-    "",
-    "on_browseClientCert_clicked",
-    "on_browseClientKey_clicked",
     "on_connectButton_clicked",
+    "",
     "on_disconnectButton_clicked",
-    "on_refreshInterfaces_clicked",
+    "on_browseConfigPath_clicked",
     "readProcessOutput",
     "processFinished",
     "exitCode",
@@ -57,53 +54,44 @@ static constexpr auto qt_meta_stringdata_CLASSMainWindowENDCLASS = QtMocHelpers:
 );
 #else  // !QT_MOC_HAS_STRING_DATA
 struct qt_meta_stringdata_CLASSMainWindowENDCLASS_t {
-    uint offsetsAndSizes[32];
+    uint offsetsAndSizes[26];
     char stringdata0[11];
-    char stringdata1[24];
+    char stringdata1[25];
     char stringdata2[1];
     char stringdata3[28];
-    char stringdata4[27];
-    char stringdata5[25];
-    char stringdata6[28];
-    char stringdata7[29];
-    char stringdata8[18];
-    char stringdata9[16];
-    char stringdata10[9];
+    char stringdata4[28];
+    char stringdata5[18];
+    char stringdata6[16];
+    char stringdata7[9];
+    char stringdata8[21];
+    char stringdata9[11];
+    char stringdata10[29];
     char stringdata11[21];
-    char stringdata12[11];
-    char stringdata13[29];
-    char stringdata14[21];
-    char stringdata15[23];
+    char stringdata12[23];
 };
 #define QT_MOC_LITERAL(ofs, len) \
     uint(sizeof(qt_meta_stringdata_CLASSMainWindowENDCLASS_t::offsetsAndSizes) + ofs), len 
 Q_CONSTINIT static const qt_meta_stringdata_CLASSMainWindowENDCLASS_t qt_meta_stringdata_CLASSMainWindowENDCLASS = {
     {
         QT_MOC_LITERAL(0, 10),  // "MainWindow"
-        QT_MOC_LITERAL(11, 23),  // "on_browseCaCert_clicked"
-        QT_MOC_LITERAL(35, 0),  // ""
-        QT_MOC_LITERAL(36, 27),  // "on_browseClientCert_clicked"
-        QT_MOC_LITERAL(64, 26),  // "on_browseClientKey_clicked"
-        QT_MOC_LITERAL(91, 24),  // "on_connectButton_clicked"
-        QT_MOC_LITERAL(116, 27),  // "on_disconnectButton_clicked"
-        QT_MOC_LITERAL(144, 28),  // "on_refreshInterfaces_clicked"
-        QT_MOC_LITERAL(173, 17),  // "readProcessOutput"
-        QT_MOC_LITERAL(191, 15),  // "processFinished"
-        QT_MOC_LITERAL(207, 8),  // "exitCode"
-        QT_MOC_LITERAL(216, 20),  // "QProcess::ExitStatus"
-        QT_MOC_LITERAL(237, 10),  // "exitStatus"
-        QT_MOC_LITERAL(248, 28),  // "on_testConnectionBtn_clicked"
-        QT_MOC_LITERAL(277, 20),  // "on_testProcessOutput"
-        QT_MOC_LITERAL(298, 22)   // "on_testProcessFinished"
+        QT_MOC_LITERAL(11, 24),  // "on_connectButton_clicked"
+        QT_MOC_LITERAL(36, 0),  // ""
+        QT_MOC_LITERAL(37, 27),  // "on_disconnectButton_clicked"
+        QT_MOC_LITERAL(65, 27),  // "on_browseConfigPath_clicked"
+        QT_MOC_LITERAL(93, 17),  // "readProcessOutput"
+        QT_MOC_LITERAL(111, 15),  // "processFinished"
+        QT_MOC_LITERAL(127, 8),  // "exitCode"
+        QT_MOC_LITERAL(136, 20),  // "QProcess::ExitStatus"
+        QT_MOC_LITERAL(157, 10),  // "exitStatus"
+        QT_MOC_LITERAL(168, 28),  // "on_testConnectionBtn_clicked"
+        QT_MOC_LITERAL(197, 20),  // "on_testProcessOutput"
+        QT_MOC_LITERAL(218, 22)   // "on_testProcessFinished"
     },
     "MainWindow",
-    "on_browseCaCert_clicked",
-    "",
-    "on_browseClientCert_clicked",
-    "on_browseClientKey_clicked",
     "on_connectButton_clicked",
+    "",
     "on_disconnectButton_clicked",
-    "on_refreshInterfaces_clicked",
+    "on_browseConfigPath_clicked",
     "readProcessOutput",
     "processFinished",
     "exitCode",
@@ -123,7 +111,7 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSMainWindowENDCLASS[] = {
       11,       // revision
        0,       // classname
        0,    0, // classinfo
-      11,   14, // methods
+       8,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
@@ -131,30 +119,24 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSMainWindowENDCLASS[] = {
        0,       // signalCount
 
  // slots: name, argc, parameters, tag, flags, initial metatype offsets
-       1,    0,   80,    2, 0x08,    1 /* Private */,
-       3,    0,   81,    2, 0x08,    2 /* Private */,
-       4,    0,   82,    2, 0x08,    3 /* Private */,
-       5,    0,   83,    2, 0x08,    4 /* Private */,
-       6,    0,   84,    2, 0x08,    5 /* Private */,
-       7,    0,   85,    2, 0x08,    6 /* Private */,
-       8,    0,   86,    2, 0x08,    7 /* Private */,
-       9,    2,   87,    2, 0x08,    8 /* Private */,
-      13,    0,   92,    2, 0x08,   11 /* Private */,
-      14,    0,   93,    2, 0x08,   12 /* Private */,
-      15,    2,   94,    2, 0x08,   13 /* Private */,
+       1,    0,   62,    2, 0x08,    1 /* Private */,
+       3,    0,   63,    2, 0x08,    2 /* Private */,
+       4,    0,   64,    2, 0x08,    3 /* Private */,
+       5,    0,   65,    2, 0x08,    4 /* Private */,
+       6,    2,   66,    2, 0x08,    5 /* Private */,
+      10,    0,   71,    2, 0x08,    8 /* Private */,
+      11,    0,   72,    2, 0x08,    9 /* Private */,
+      12,    2,   73,    2, 0x08,   10 /* Private */,
 
  // slots: parameters
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
+    QMetaType::Void, QMetaType::Int, 0x80000000 | 8,    7,    9,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void, QMetaType::Int, 0x80000000 | 11,   10,   12,
-    QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void, QMetaType::Int, 0x80000000 | 11,   10,   12,
+    QMetaType::Void, QMetaType::Int, 0x80000000 | 8,    7,    9,
 
        0        // eod
 };
@@ -168,17 +150,11 @@ Q_CONSTINIT const QMetaObject MainWindow::staticMetaObject = { {
     qt_incomplete_metaTypeArray<qt_meta_stringdata_CLASSMainWindowENDCLASS_t,
         // Q_OBJECT / Q_GADGET
         QtPrivate::TypeAndForceComplete<MainWindow, std::true_type>,
-        // method 'on_browseCaCert_clicked'
-        QtPrivate::TypeAndForceComplete<void, std::false_type>,
-        // method 'on_browseClientCert_clicked'
-        QtPrivate::TypeAndForceComplete<void, std::false_type>,
-        // method 'on_browseClientKey_clicked'
-        QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'on_connectButton_clicked'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'on_disconnectButton_clicked'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
-        // method 'on_refreshInterfaces_clicked'
+        // method 'on_browseConfigPath_clicked'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'readProcessOutput'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
@@ -204,17 +180,14 @@ void MainWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         auto *_t = static_cast<MainWindow *>(_o);
         (void)_t;
         switch (_id) {
-        case 0: _t->on_browseCaCert_clicked(); break;
-        case 1: _t->on_browseClientCert_clicked(); break;
-        case 2: _t->on_browseClientKey_clicked(); break;
-        case 3: _t->on_connectButton_clicked(); break;
-        case 4: _t->on_disconnectButton_clicked(); break;
-        case 5: _t->on_refreshInterfaces_clicked(); break;
-        case 6: _t->readProcessOutput(); break;
-        case 7: _t->processFinished((*reinterpret_cast< std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast< std::add_pointer_t<QProcess::ExitStatus>>(_a[2]))); break;
-        case 8: _t->on_testConnectionBtn_clicked(); break;
-        case 9: _t->on_testProcessOutput(); break;
-        case 10: _t->on_testProcessFinished((*reinterpret_cast< std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast< std::add_pointer_t<QProcess::ExitStatus>>(_a[2]))); break;
+        case 0: _t->on_connectButton_clicked(); break;
+        case 1: _t->on_disconnectButton_clicked(); break;
+        case 2: _t->on_browseConfigPath_clicked(); break;
+        case 3: _t->readProcessOutput(); break;
+        case 4: _t->processFinished((*reinterpret_cast< std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast< std::add_pointer_t<QProcess::ExitStatus>>(_a[2]))); break;
+        case 5: _t->on_testConnectionBtn_clicked(); break;
+        case 6: _t->on_testProcessOutput(); break;
+        case 7: _t->on_testProcessFinished((*reinterpret_cast< std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast< std::add_pointer_t<QProcess::ExitStatus>>(_a[2]))); break;
         default: ;
         }
     }
@@ -239,13 +212,13 @@ int MainWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 11)
+        if (_id < 8)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 11;
+        _id -= 8;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 11)
+        if (_id < 8)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 11;
+        _id -= 8;
     }
     return _id;
 }

@@ -14,6 +14,12 @@ HEADERS += \
 FORMS += \
     mainwindow.ui
 
+# INCLUDEPATH += C:/msys64/mingw64/include
+
+# LIBS += -LC:/msys64/mingw64/lib
+
+# LIBS += -lzip
+
 # 部署规则（保持默认）
 qnx: target.path = /tmp/$${TARGET}/bin else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
