@@ -47,6 +47,9 @@ route print | findstr "110.242.68.66"
 #include <uuids.h>
 #include <sstream>
 #include <random>
+#include <openssl/pem.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 // libs needed: -lws2_32 -liphlpapi -lole32 -lssl -lcrypto -lboost_thread-mt
 #pragma comment(lib, "ws2_32.lib")
@@ -59,15 +62,17 @@ route print | findstr "110.242.68.66"
 using namespace boost::asio;
 using namespace boost::system;
 
+using json = nlohmann::json;
+
 
 #define TUN_DEVICE_NAME L"VPNClientTunnel"
 #define TUN_POOL_NAME L"VPNClientPool"
 #define MAX_BUF_SIZE 65536  // 缓冲区大小（大于MTU=1500）
 
-#define VIRTUAL_SUBNET "10.8.0."
-#define START_IP_SUFFIX 2
-#define MAX_IP_SUFFIX 254
-static int ip_counter = START_IP_SUFFIX;
+// #define VIRTUAL_SUBNET "10.8.0."
+// #define START_IP_SUFFIX 2
+// #define MAX_IP_SUFFIX 254
+// static int ip_counter = START_IP_SUFFIX;
 
 
 
@@ -105,9 +110,18 @@ static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_exec
 static boost::thread_group thread_pool;
 static signal_set signals(io_svc, SIGINT, SIGTERM);
 
-const std::string CA_CERT_PATH = "C:/tasks/task1/client/certs/server.crt";
-const std::string CLIENT_CERT_PATH = "C:/tasks/task1/client/certs/client.crt";
-const std::string CLIENT_KEY_PATH = "C:/tasks/task1/client/certs/client.key";
+/*
+    ****Read Certificates from cert files****
+*/
+/*
+           ****Fixed Path****
+*/
+// const std::string CA_CERT_PATH = "C:/tasks/task1/client/certs/server.crt";
+// const std::string CLIENT_CERT_PATH = "C:/tasks/task1/client/certs/client.crt";
+// const std::string CLIENT_KEY_PATH = "C:/tasks/task1/client/certs/client.key";
+/*
+        ****Environment Path****
+*/
 // const std::string CA_CERT_PATH = [](){
 //     const char* path = std::getenv("CA_CERT_PATH");
 //     return path ? std::string(path) : "";
@@ -121,7 +135,26 @@ const std::string CLIENT_KEY_PATH = "C:/tasks/task1/client/certs/client.key";
 //     return path ? std::string(path) : "";
 // }();
 
-// load Wintun handle to assign fnuction pointers
+
+/*
+    ****Read Certificates from only one config file's content****
+*/
+/*
+           ****Fixed path****
+*/
+// const std::string CONFIG_PATH = "config.json";
+/*
+        ****Environment Path****
+*/
+const std::string CONFIG_PATH = [](){
+    const char* path = std::getenv("CONFIG_PATH");
+    return path ? std::string(path) : "";
+}();
+
+
+
+
+// load Wintun handle to assign function pointers
 bool InitializeWintun() {
     wintun_module = LoadLibraryExW(L"wintun.dll", NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!wintun_module) {
@@ -173,50 +206,15 @@ std::wstring generate_unique_tun_name(){
     return wss.str();
 }
 
-bool is_ip_in_use(const char* ip) {
-    MIB_UNICASTIPADDRESS_TABLE* ip_table = NULL;
-
-    DWORD result = GetUnicastIpAddressTable(AF_INET, &ip_table);
-    
-    if(result != ERROR_SUCCESS){
-        std::cerr << "GetUnicastIpAddressTable failed. Error: " << result << std::endl;
-        // if(ip_table){
-        LocalFree(ip_table);
-        return false;
-        // }
-    }
-
-    bool ip_used = false;
-    IN_ADDR target_addr;
-    if(inet_pton(AF_INET, ip, &target_addr) != 1){
-        std::cerr << "Invalid IP address: " << ip << std::endl;
-        LocalFree(ip_table);
-        return true;
-    }
-
-    for(DWORD i = 0; i < ip_table->NumEntries; i++){
-        MIB_UNICASTIPADDRESS_ROW row = ip_table->Table[i];
-        if(row.Address.Ipv4.sin_family != AF_INET){
-            continue;
-        }
-        if(memcmp(&row.Address.Ipv4.sin_addr, &target_addr, sizeof(IN_ADDR)) == 0){
-            ip_used = true;
-            break;
-        }
-    }
-    LocalFree(ip_table);
-    return ip_used;
-}
 
 // load adapter handle and create adapter
-bool init_wintun_adapter(int prefix, char* target_ip) {
+bool init_wintun_adapter(const char* ip, int prefix, char* target_ip) {
     GUID guid; //Global Unique ID
     CoCreateGuid(&guid);
-
-    std::wstring tun_device_name = generate_unique_tun_name();
-    tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, tun_device_name.c_str(), &guid);
+    auto tun_name = generate_unique_tun_name();
+    tun_adapter = WintunCreateAdapter(TUN_POOL_NAME, tun_name.c_str(), &guid);
     if (!tun_adapter) {
-        // tun_adapter = WintunOpenAdapter(tun_device_name.c_str());
+        tun_adapter = WintunOpenAdapter(tun_name.c_str());
         if (!tun_adapter) {
             std::cerr << "Failed to create/open WinTUN adapter. Error: " << GetLastError() << std::endl;
             return false;
@@ -237,49 +235,17 @@ bool init_wintun_adapter(int prefix, char* target_ip) {
         std::cerr << "Failed to start WinTUN session. Error: " << GetLastError() << std::endl;
         return false;
     }
-
-    std::cout << "Created TUN device: " << tun_device_name.c_str() << std::endl;
-
     // assign IP for tun device
-    bool ip_assigned = false;
-    std::string assigned_ip;
-    int original_ip_counter = ip_counter;
-    while(ip_counter <= MAX_IP_SUFFIX){
-        std::stringstream ss;
-        ss << VIRTUAL_SUBNET << ip_counter;
-        std::string current_ip = ss.str();
-        const char* ip = ss.str().c_str();
-        if(is_ip_in_use(ip)){
-            std::cout << "IP " << current_ip << "is in use, trying next..." << std::endl;
-            ip_counter++;
-            continue;
-        }
-        MIB_UNICASTIPADDRESS_ROW ipRow;
-        InitializeUnicastIpAddressEntry(&ipRow);
-        ipRow.InterfaceLuid = tun_luid; //bind tun's luid
-        ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
-        inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
-        ipRow.OnLinkPrefixLength = prefix; 
-        ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
-        DWORD result = CreateUnicastIpAddressEntry(&ipRow);
-        if(result == ERROR_SUCCESS){
-            assigned_ip = current_ip;
-            ip_assigned = true;
-            ip_counter++;
-            std::cout << "Successfully assigned IP: " << assigned_ip << std::endl;
-            break;
-        }
-        else if(result == ERROR_OBJECT_ALREADY_EXISTS){
-            std::cout << "IP " << current_ip << " conflict detected, trying next..." << std::endl;
-            ip_counter++;
-        }
-        else{
-            std::cerr << "Failed to set IP address. Error: " << result << std::endl;
-            return false; 
-        }
-    }
-    if(!ip_assigned){
-        std::cerr << "IP assignment failed: exceed max IP suffix " << MAX_IP_SUFFIX << std::endl;
+    MIB_UNICASTIPADDRESS_ROW ipRow;
+    InitializeUnicastIpAddressEntry(&ipRow);
+    ipRow.InterfaceLuid = tun_luid; //bind tun's luid
+    ipRow.Address.Ipv4.sin_family = AF_INET; //declare Ipv4
+    inet_pton(AF_INET, ip, &ipRow.Address.Ipv4.sin_addr);
+    ipRow.OnLinkPrefixLength = prefix; 
+    ipRow.DadState = IpDadStatePreferred; //duplicate address detection, set Preferred for virtual NIC
+    DWORD result = CreateUnicastIpAddressEntry(&ipRow);
+    if (result != ERROR_SUCCESS && result != ERROR_OBJECT_ALREADY_EXISTS) {
+        std::cerr << "Failed to set IP address. Error: " << result << std::endl;
         return false;
     }
     // add route
@@ -298,10 +264,9 @@ bool init_wintun_adapter(int prefix, char* target_ip) {
         return false;
     }
     FlushIpPathTable(AF_INET);
-    std::cout << "Route added for " << target_ip << " -> " << assigned_ip << "(via TUN)" << std::endl;
+    std::cout << "Route added for " << target_ip << " -> " << ip << "(via TUN)" << std::endl;
     return true;
 }
-
 
 
 void print_hex_ascii(const void* data, size_t size) {
@@ -322,14 +287,14 @@ void print_hex_ascii(const void* data, size_t size) {
         std::cout << " | ";
         for (size_t j = 0; j < 16 && i + j < size; ++j) {
             unsigned char c = bytes[i + j];
-            // std::cout << (isprint(c) ? static_cast<char>(c) : '.');
+            std::cout << (isprint(c) ? static_cast<char>(c) : '.');
         }
         std::cout << std::dec << std::endl;
     }
 }
 
 
-
+// Get Packet through TUN and send to Server
 void tun_to_tls_thread(ssl::stream<ip::tcp::socket>& ssl_stream) {
     std::cout << "=== TUN to SSL thread started... ===" << std::endl;
     
@@ -361,8 +326,7 @@ void tun_to_tls_thread(ssl::stream<ip::tcp::socket>& ssl_stream) {
                 std::cout << "            Content: " << std::endl;
                 print_hex_ascii(packet, bytes_written);
             }
-        } 
-        catch (const boost::system::system_error& e) {
+        } catch (const boost::system::system_error& e) {
             if (e.code() == boost::asio::error::eof || e.code() == boost::asio::error::connection_reset) {
                 std::cerr << "SSL connection closed" << std::endl;
             } 
@@ -381,7 +345,7 @@ void tun_to_tls_thread(ssl::stream<ip::tcp::socket>& ssl_stream) {
 }
 
 
-
+// Read from Server and send out through TUN
 void tls_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
     std::cout << "=== SSL to TUN thread started... ===" << std::endl;
     char buf[MAX_BUF_SIZE];  
@@ -403,7 +367,6 @@ void tls_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
                 break;
             }
         }
-
         if(bytes_read > 0){
             std::cout << "SSL -> TUN: Received " << bytes_read << " bytes" << std::endl;
             
@@ -436,11 +399,61 @@ void tls_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
 bool InitSSL(ssl::context& ctx) {
     try {
         ctx.set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 | ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-        ctx.load_verify_file(CA_CERT_PATH);
-        ctx.use_certificate_file(CLIENT_CERT_PATH, ssl::context::pem);
-        ctx.use_private_key_file(CLIENT_KEY_PATH, ssl::context::pem);
+        /* 
+            Read from cert files
+        */
+        // ctx.load_verify_file(CA_CERT_PATH);
+        // ctx.use_certificate_file(CLIENT_CERT_PATH, ssl::context::pem);
+        // ctx.use_private_key_file(CLIENT_KEY_PATH, ssl::context::pem);
+        // ctx.set_verify_mode(ssl::verify_peer);
+        // std::cout << "[SSL] Initialized with CA cert: " << CA_CERT_PATH << std::endl;
+        // std::cout << "[SSL] Initialized with client cert: " << CLIENT_CERT_PATH << std::endl;
+        // std::cout << "[SSL] Initialized with client key: " << CLIENT_KEY_PATH << std::endl;
+        // return true;
+
+        /*
+            Read from config.json
+        */
+        std::ifstream config_file(CONFIG_PATH);
+        if(!config_file){
+            throw std::runtime_error("config.json not found");
+        }
+        json config;
+        config_file >> config;
+
+        const std::string& ca_cert = config["certs"]["server_crt"];
+        const std::string& client_cert = config["certs"]["client_crt"];
+        const std::string& client_key = config["certs"]["client_key"];
+
+        BIO* bio_ca = BIO_new_mem_buf(ca_cert.data(), ca_cert.size());
+        X509_STORE* store = SSL_CTX_get_cert_store(ctx.native_handle());
+        X509* x509 = PEM_read_bio_X509(bio_ca, NULL, NULL, NULL);
+        if(!x509 || !X509_STORE_add_cert(store, x509)){
+            BIO_free(bio_ca);
+            X509_free(x509);
+            throw std::runtime_error("Failed to load CA cert");
+        }
+
+        BIO* bio_crt = BIO_new_mem_buf(client_cert.data(), client_cert.size());
+        BIO* bio_key = BIO_new_mem_buf(client_key.data(), client_key.size());
+        X509* cert = PEM_read_bio_X509(bio_crt, NULL, NULL, NULL);
+        EVP_PKEY* key = PEM_read_bio_PrivateKey(bio_key, NULL, NULL, NULL);
+
+        if(!cert || !key || !SSL_CTX_use_certificate(ctx.native_handle(), cert) || !SSL_CTX_use_PrivateKey(ctx.native_handle(), key)){
+            throw std::runtime_error("Failed to load client cert/key");
+        }
+
+        BIO_free(bio_ca);
+        BIO_free(bio_crt);
+        BIO_free(bio_key);
+        X509_free(x509);
+        X509_free(cert);
+        EVP_PKEY_free(key);
+
         ctx.set_verify_mode(ssl::verify_peer);
+        std::cout << "[SSL] Certificates loaded from config.json\n";
         return true;
+
     } catch (const std::exception& e) {
         std::cerr << "[SSL] Initialization failed: " << e.what() << std::endl;
         return false;
@@ -488,14 +501,14 @@ void vpn_client(const std::string& server_ip, int port) {
         // start io service
         io_svc.run();
         
-        // 等待线程结束
+        // wait for thread to finish
         send_thread.join();
         receive_thread.join();
 
-        // 关闭SSL连接
+        // shut down SSL connection
         ssl_stream.shutdown();
         std::cout << "=== VPN client exiting... ===" << std::endl;
-    } 
+    }
     catch (const std::exception& e) {
         std::cerr << "VPN client exception: " << e.what() << std::endl;
         have_quit = true;
@@ -505,10 +518,31 @@ void vpn_client(const std::string& server_ip, int port) {
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        std::cerr << "Usage: " << argv[0] << " <server_ip> <port> <ip you would like to route to>" << std::endl;
+    /*
+        Read from cert files and manually set connection options
+    */
+    // if (argc != 5) {
+    //     std::cerr << "Usage: " << argv[0] << " <server_ip> <port> <ip to assign for tun device> <ip you would like to route to>" << std::endl;
+    //     return 1;
+    // }
+
+    /*
+        Read everything needed(except route ip which requires user to choose) from config.json
+    */
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <ip you would like to route to>" << std::endl;
         return 1;
     }
+    std::ifstream config_file(CONFIG_PATH);
+    if(!config_file){
+        std::cerr << "无法打开config.json" << std::endl;
+        return -1;
+    }
+    json config;
+    config_file >> config;
+    const std::string server_ip = config["server"]["ip"];
+    const int port = config["server"]["port"];
+    const std::string tun_ip = config["tun"]["ip"];
 
     // Initialize Winsock and OpenSSL
     WSADATA wsa_data;
@@ -519,7 +553,6 @@ int main(int argc, char* argv[]) {
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
 
-    // 初始化信号处理
     signals.async_wait([&](const error_code&, int) {
         have_quit.store(true);
         io_svc.stop();
@@ -534,13 +567,14 @@ int main(int argc, char* argv[]) {
         WSACleanup();
         return 1;
     }
-    if (!init_wintun_adapter(24, argv[3])) {
+    if (!init_wintun_adapter(tun_ip.c_str(), 24, argv[1])) {
         CleanupWintun();
         WSACleanup();
         return 1;
     }
+
     // start vpn client
-    vpn_client(argv[1], std::stoi(argv[2]));
+    vpn_client(server_ip, port);
     // clean up
     CleanupWintun();
     ::thread_pool.join_all();

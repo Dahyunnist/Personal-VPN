@@ -235,7 +235,7 @@ public:
         label1->setText(QCoreApplication::translate("MainWindow", "\345\256\242\346\210\267\347\253\257TUN\350\256\276\345\244\207IP:", nullptr));
         tunIp->setText(QString());
         label_3->setText(QCoreApplication::translate("MainWindow", "\350\267\257\347\224\261IP:", nullptr));
-        routeIp->setText(QCoreApplication::translate("MainWindow", "1.1.1.1", nullptr));
+        routeIp->setText(QString());
         certGroup->setTitle(QCoreApplication::translate("MainWindow", "\351\205\215\347\275\256\345\257\274\345\205\245", nullptr));
         label_4->setText(QCoreApplication::translate("MainWindow", "\351\205\215\347\275\256\346\226\207\344\273\266:", nullptr));
         browseConfigPath->setText(QCoreApplication::translate("MainWindow", "\346\265\217\350\247\210", nullptr));

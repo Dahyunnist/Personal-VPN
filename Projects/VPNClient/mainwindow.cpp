@@ -32,7 +32,13 @@ MainWindow::MainWindow(QWidget *parent)
     // tempExtractDir = QDir::tempPath() + "/vpn_config_temp_" + QString::number(QCoreApplication::applicationPid());
     // QDir().mkpath(tempExtractDir);
 
-    loadSettings();
+    ui->serverIp->setEnabled(false);
+    ui->serverPort->setEnabled(false);
+    ui->tunIp->setEnabled(false);
+    ui->configPath->setEnabled(false);
+    ui->routeIp->setEnabled(true);
+
+    // loadSettings();
     // updateInterfaceList();
     setConnectedState(false);
 
@@ -161,7 +167,7 @@ void MainWindow::loadSettings(){
     // ui->clientCertPath->setText(settings.value("clientCertPath", "").toString());
     // ui->clientKeyPath->setText(settings.value("clientKeyPath", "").toString());
     ui->routeIp->setText(settings.value("routeIp", "1.1.1.1").toString());
-    ui->routeIp->setText(settings.value("tunIp", "").toString());
+    ui->tunIp->setText(settings.value("tunIp", "").toString());
 }
 
 void MainWindow::setConnectedState(bool connected){
@@ -169,10 +175,11 @@ void MainWindow::setConnectedState(bool connected){
     ui->connectButton->setEnabled(!connected);
     ui->disconnectButton->setEnabled(connected);
     ui->testConnectionBtn->setEnabled(connected);
-    ui->serverIp->setEnabled(!connected);
-    ui->serverPort->setEnabled(!connected);
-    ui->tunIp->setEnabled(!connected);
+    ui->serverIp->setEnabled(false);
+    ui->serverPort->setEnabled(false);
+    ui->tunIp->setEnabled(false);
     ui->routeIp->setEnabled(!connected);
+    ui->configPath->setEnabled(false);
     ui->browseConfigPath->setEnabled(!connected);
     // ui->browseClientCert->setEnabled(!connected);
     // ui->browseClientKey->setEnabled(!connected);
