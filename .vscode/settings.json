@@ -59,6 +59,13 @@
         "xmemory": "cpp",
         "xstring": "cpp",
         "xtr1common": "cpp",
-        "xutility": "cpp"
+        "xutility": "cpp",
+        "algorithm": "cpp",
+        "fstream": "cpp",
+        "list": "cpp",
+        "mutex": "cpp",
+        "random": "cpp",
+        "unordered_set": "cpp",
+        "xhash": "cpp"
     }
 }

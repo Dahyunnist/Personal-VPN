@@ -1,0 +1,1 @@
+服务端程序现已更名为vpn_server，原来的server.cpp因为体量庞大被拆分为多个.h和.cpp文件，放在src/和include/文件夹中，主函数放在/src/vpn_server.cpp中。同时在older_version/文件夹中仍保留了server.cpp，但已不作编译使用。
