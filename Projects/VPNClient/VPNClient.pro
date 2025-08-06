@@ -6,27 +6,43 @@ CONFIG += c++17
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    client_thread.cpp \
+    client.cpp
 
 HEADERS += \
-    mainwindow.h
+    mainwindow.h \
+    client_thread.h \
+    client.h
 
 FORMS += \
     mainwindow.ui
 
-# INCLUDEPATH += C:/msys64/mingw64/include
+INCLUDEPATH += $$PWD   
 
-# LIBS += -LC:/msys64/mingw64/lib
 
-# LIBS += -lzip
+ 
+LIBS += -L$$PWD/lib 
+LIBS += -lws2_32      # 网络核心（Winsock API：htonl, socket, send 等）
+LIBS += -ladvapi32    # 高级 API（服务控制、注册表，OpenSSL 依赖）
+LIBS += -liphlpapi    # IP 配置（已添加）
+LIBS += -lole32       # COM 组件（已添加）
+LIBS += -lcrypt32     # 证书存储（已添加，解决 Cert* 函数）
+LIBS += -lwsock32     # 兼容旧 Winsock（部分 OpenSSL 版本依赖）
+  
 
-# 部署规则（保持默认）
+LIBS += -lboost_thread-mt       
+
+LIBS += -lssl
+LIBS += -lcrypto
+
+
+
 qnx: target.path = /tmp/$${TARGET}/bin else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 QMAKE_PROJECT_DEPTH = 0
 
 win32 {
-    # 核心：通过 .rc 资源文件嵌入 manifest（彻底绕过 Qt 链接选项）
-    RC_FILE += app.rc  # 指定资源文件，Qt 会自动调用 rc.exe 编译
+    RC_FILE += app.rc  # 管理员权限等资源配置
 }

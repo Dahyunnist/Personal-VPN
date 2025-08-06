@@ -26,6 +26,8 @@ route print | findstr "110.242.68.66"
 #include "client.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <atomic>
+#include <chrono>
 
 
 #include <iostream>
@@ -71,6 +73,8 @@ using namespace boost::system;
 
 using json = nlohmann::json;
 
+using namespace std::chrono_literals;
+
 
 #define TUN_DEVICE_NAME L"VPNClientTunnel"
 #define TUN_POOL_NAME L"VPNClientPool"
@@ -111,7 +115,7 @@ static HMODULE wintun_module = NULL;
 static WINTUN_ADAPTER_HANDLE tun_adapter = NULL; //create and handle virtual NIC
 static WINTUN_SESSION_HANDLE tun_session = NULL; //create and handle data transmit on virtual NIC
 static NET_LUID tun_luid;  // Locally Unique Identifier for local network interface
-static std::atomic_bool have_quit(false);
+std::atomic_bool have_quit(false);
 static io_context io_svc; //handle I/O events
 static executor_work_guard<io_context::executor_type> work_guard{io_svc.get_executor()}; //manually add undone count to keep io_context running even when no async operation undone
 static boost::thread_group thread_pool;
@@ -160,6 +164,8 @@ static signal_set signals(io_svc, SIGINT, SIGTERM);
 //     return path ? std::string(path) : "";
 // }();
 
+
+// std::atomic<bool> g_vpn_quit_flag(false);
 
 
 
@@ -363,7 +369,7 @@ void tls_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
         boost::system::error_code ec;
         size_t bytes_read = socket.read_some(boost::asio::buffer(buf, MAX_BUF_SIZE), ec);
         if(ec){
-            if(ec == ssl::error::stream_truncated || ec == boost::asio::error::eof){
+            if(ec == ssl::error::stream_truncated || ec == boost::asio::error::eof || have_quit){
                 std::cerr << "SSL -> TUN: Connection closed" << std::endl;
                 break;
             }
@@ -399,8 +405,6 @@ void tls_to_tun_thread(ssl::stream<ip::tcp::socket>& socket) {
             std::cout << "SSL -> TUN: Received and sent " << bytes_read << " bytes" << std::endl;
         }        
     }
-    have_quit = true;
-    io_svc.stop();
     std::cout << "=== SSL to TUN thread exiting... ===" << std::endl;
 }
 
@@ -515,12 +519,12 @@ void vpn_client(const std::string& server_ip, int port, const std::string& tun_i
             io_svc.stop();
         });
         
-        // start io service
         io_svc.run();
         
         // wait for thread to finish
         send_thread.join();
         receive_thread.join();
+        std::cout << "Read and Send threads stopped" << std::endl;
 
         // shut down SSL connection
         ssl_stream.shutdown();
@@ -565,10 +569,25 @@ int start_vpn_client(const char* config_path, const char* route_ip){
         io_svc.stop();
     });
 
-    // create two threads for tun_to_ssl and ssl_to_tun
-    for (int i = 0; i < 2; ++i) {
-        ::thread_pool.create_thread(boost::bind(&io_context::run, &io_svc));
-    }
+    have_quit = false;
+    steady_timer quit_timer(io_svc);
+    std::function<void(const boost::system::error_code&)> check_quit; 
+    check_quit = [&](const boost::system::error_code& ec){
+        if(ec){
+            return;
+        }
+        if(have_quit){
+            std::cerr << "Detected Exit signal, closing io service..." << std::endl;
+            io_svc.stop();
+            return;
+        }
+        quit_timer.expires_after(100ms);
+        quit_timer.async_wait(check_quit);
+    };
+
+    quit_timer.expires_after(0ms);
+    quit_timer.async_wait(check_quit);
+
     // Initialize Wintun and create tun adapter
     if (!InitializeWintun()) {
         WSACleanup();
@@ -582,18 +601,25 @@ int start_vpn_client(const char* config_path, const char* route_ip){
 
     // start vpn client
     vpn_client(server_ip, port, tun_ip, config_path);
+    std::cout << "Cleaned vpn_client" << std::endl;
     // clean up
     CleanupWintun();
-    ::thread_pool.join_all();
-    io_svc.stop();
+    // ::thread_pool.join_all();
+    // io_svc.stop();
+    std::cout << "Cleaned Wintun" << std::endl;
     WSACleanup();
+    std::cout << "Cleaned WSA" << std::endl;
     EVP_cleanup();
+    std::cout << "Cleaned EVP" << std::endl;
 
     return 0;
 }
 
 
-
+void stop_vpn_client(){
+    have_quit.store(true);
+    std::cout << "Closing VPN Client ..." << std::endl;
+}
 
 
 // int main(int argc, char* argv[]) {

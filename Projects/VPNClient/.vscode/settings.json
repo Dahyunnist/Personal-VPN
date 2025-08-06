@@ -74,6 +74,12 @@
         "flat_map": "cpp",
         "expected": "cpp",
         "regex": "cpp",
-        "complex": "cpp"
+        "complex": "cpp",
+        "barrier": "cpp",
+        "latch": "cpp",
+        "flat_set": "cpp",
+        "forward_list": "cpp",
+        "any": "cpp",
+        "qmessagebox": "cpp"
     }
 }

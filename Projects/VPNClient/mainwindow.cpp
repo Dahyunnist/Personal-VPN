@@ -9,28 +9,24 @@
 #include <QJsonObject>
 #include <QDir>
 #include <QUuid>
+#include <QDateTime>
+#include <QCoreApplication>
+#include "client.h"
+#include <future>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , vpnProcess(new QProcess(this))
+    , vpnProcess(nullptr)
     , testProcess(new QProcess(this))
     , isConnected(false)
-    , testTarget("") 
-    // , tempExtractDir("")
+    , testTarget("")
 {
     ui->setupUi(this);
-    // ui->refreshInterfaces->hide();
 
-    // connect(ui->importConfigBtn, &QPushButton::clicked, this, &MainWindow::on_importConfig_clicked);
-    connect(vpnProcess, &QProcess::readyReadStandardOutput, this, &MainWindow::readProcessOutput);
-    connect(vpnProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::processFinished);
     connect(testProcess, &QProcess::readyReadStandardOutput, this, &MainWindow::on_testProcessOutput);
     connect(testProcess, &QProcess::readyReadStandardError, this, &MainWindow::on_testProcessOutput);
     connect(testProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::on_testProcessFinished);
-
-    // tempExtractDir = QDir::tempPath() + "/vpn_config_temp_" + QString::number(QCoreApplication::applicationPid());
-    // QDir().mkpath(tempExtractDir);
 
     ui->serverIp->setEnabled(false);
     ui->serverPort->setEnabled(false);
@@ -38,14 +34,12 @@ MainWindow::MainWindow(QWidget *parent)
     ui->configPath->setEnabled(false);
     ui->routeIp->setEnabled(true);
 
-    // loadSettings();
-    // updateInterfaceList();
     setConnectedState(false);
-
-    // ui->tunInterface->hide();
 
     ui->testOutput->clear();
     ui->testStatus->setText("未测试");
+
+    loadSettings();
 }
 
 MainWindow::~MainWindow()
@@ -55,18 +49,11 @@ MainWindow::~MainWindow()
         testProcess->terminate();
         testProcess->waitForFinished(1000);
     }
-    // if(!tempExtractDir.isEmpty() && QDir(tempExtractDir).exists()){
-    //     QDir(tempExtractDir).removeRecursively();
-    // }
-
-    disconnect(vpnProcess, nullptr, this, nullptr);
+    
     disconnect(testProcess, nullptr, this, nullptr);
 
     delete testProcess;
     testProcess = nullptr;
-    delete vpnProcess;
-    vpnProcess = nullptr;
-
     delete ui;
 }
 
@@ -80,20 +67,17 @@ void MainWindow::on_browseConfigPath_clicked(){
     QFile configFile(config_path);
     if(!configFile.open(QIODevice::ReadOnly)){
         QMessageBox::critical(this, "导入失败", "无法读取config.json");
-        // QDir(tempExtractDir).removeRecursively();
         return;
     }
     QJsonParseError jsonErr;
     QJsonDocument jsonDoc = QJsonDocument::fromJson(configFile.readAll(), &jsonErr);
     if(jsonErr.error != QJsonParseError::NoError){
         QMessageBox::critical(this, "导入失败", "config.json格式错误：" + jsonErr.errorString());
-        // QDir(tempExtractDir).removeRecursively();
         return;
     }
 
     QJsonObject root = jsonDoc.object();
     QJsonObject server = root["server"].toObject();
-    // QJsonObject certPaths = root["cert_paths"].toObject();
     QJsonObject tun = root["tun"].toObject();
 
     QString server_ip = server["ip"].toString();
@@ -101,7 +85,6 @@ void MainWindow::on_browseConfigPath_clicked(){
     QString tun_ip = tun["ip"].toString();
     if(server_ip.isEmpty() || server_port.isEmpty() || tun_ip.isEmpty()){
         QMessageBox::critical(this, "导入失败", "config.json中配置信息缺失");
-        // QDir(tempExtractDir).removeRecursively();
         return;
     }
 
@@ -117,8 +100,6 @@ void MainWindow::on_connectButton_clicked(){
     if(ui->serverIp->text().isEmpty() ||
         ui->serverPort->text().isEmpty() ||
         ui->configPath->text().isEmpty() ||
-        // ui->clientCertPath->text().isEmpty() ||
-        // ui->clientKeyPath->text().isEmpty() ||
         ui->routeIp->text().isEmpty() ||
         ui->tunIp->text().isEmpty()){
             QMessageBox::warning(this, "信息不完整", "请填写所有必填字段");
@@ -129,14 +110,6 @@ void MainWindow::on_connectButton_clicked(){
 
 void MainWindow::on_disconnectButton_clicked(){
     stopVPNClient();
-}
-
-// void MainWindow::on_refreshInterfaces_clicked(){
-//     updateInterfaceList();
-// }
-
-void MainWindow::readProcessOutput(){
-    ui->logOutput->appendPlainText(vpnProcess->readAllStandardOutput());
 }
 
 void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus){
@@ -150,8 +123,6 @@ void MainWindow::saveSettings(){
     settings.setValue("serverIp", ui->serverIp->text());
     settings.setValue("serverPort", ui->serverPort->text());
     settings.setValue("configPath", ui->configPath->text());
-    // settings.setValue("clientCertPath", ui->clientCertPath->text());
-    // settings.setValue("clientKeyPath", ui->clientKeyPath->text());
     settings.setValue("routeIp", ui->routeIp->text());
     settings.setValue("tunIp", ui->tunIp->text());
     ui->serverIp->setEnabled(false);
@@ -164,8 +135,7 @@ void MainWindow::loadSettings(){
     ui->serverIp->setText(settings.value("serverIp", "").toString());
     ui->serverPort->setText(settings.value("serverPort", "").toString());
     ui->configPath->setText(settings.value("configPath", "").toString());
-    // ui->clientCertPath->setText(settings.value("clientCertPath", "").toString());
-    // ui->clientKeyPath->setText(settings.value("clientKeyPath", "").toString());
+    
     ui->routeIp->setText(settings.value("routeIp", "1.1.1.1").toString());
     ui->tunIp->setText(settings.value("tunIp", "").toString());
 }
@@ -181,61 +151,64 @@ void MainWindow::setConnectedState(bool connected){
     ui->routeIp->setEnabled(!connected);
     ui->configPath->setEnabled(false);
     ui->browseConfigPath->setEnabled(!connected);
-    // ui->browseClientCert->setEnabled(!connected);
-    // ui->browseClientKey->setEnabled(!connected);
 }
 
 void MainWindow::startVPNClient(){
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("CONFIG_PATH", ui->configPath->text());
-    // env.insert("CLIENT_CERT_PATH", ui->clientCertPath->text());
-    // env.insert("CLIENT_KEY_PATH", ui->clientKeyPath->text());
-    vpnProcess->setProcessEnvironment(env);
+    stopVPNClient();
+    vpnProcess = new QProcess(this);
+    connect(vpnProcess, &QProcess::readyReadStandardOutput, this, [this](){
+        QString log = vpnProcess->readAllStandardOutput();
+        ui->logOutput->appendPlainText(log.trimmed());
+    });
+    connect(vpnProcess, &QProcess::readyReadStandardError, this, [this](){
+        QString err = vpnProcess->readAllStandardError();
+        ui->logOutput->appendPlainText("[错误] " + err.trimmed());
+    });
+    connect(vpnProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [this](int exitCode, QProcess::ExitStatus){
+        ui->logOutput->appendPlainText(QString("VPN子进程退出，代码：%1").arg(exitCode));
+        setConnectedState(false);
+        vpnProcess->deleteLater();
+        vpnProcess = nullptr;
+    });
+    connect(vpnProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error){
+        ui->logOutput->appendPlainText("[错误] VPN子进程启动失败：" + vpnProcess->errorString());
+        vpnProcess->deleteLater();
+        vpnProcess = nullptr;
+        setConnectedState(false);
+    });
 
+    QString program = QCoreApplication::applicationFilePath();
     QStringList args;
-    args << ui->routeIp->text();
-    
-    QString vpnExePath = "client.exe";
-    if(!QFile::exists(vpnExePath)){
-        QMessageBox::critical(this, "错误", "未找到VPN客户端程序：" + vpnExePath);
-        return;
-    }
-    
-    vpnProcess->start(vpnExePath, args);
-
-    if(!vpnProcess->waitForStarted()){
-        QMessageBox::critical(this, "错误", "无法启动VPN客户端进程");
+    args << "--vpn-service" << ui->configPath->text() << ui->routeIp->text();
+    vpnProcess->start(program, args);
+    if(!vpnProcess->waitForStarted(1000)){
+        QMessageBox::critical(this, "启动失败", "VPN子进程启动超时，请检查配置");
+        vpnProcess->deleteLater();
+        vpnProcess = nullptr;
         return;
     }
     setConnectedState(true);
-    ui->logOutput->appendPlainText("VPN客户端已启动");
-    saveSettings();
+    QString currentTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+    ui->logOutput->appendPlainText(QString("[%1] VPN子进程已启动(PID: ").arg(currentTime) + QString::number(vpnProcess->processId()) + ") ");
 }
 
 void MainWindow::stopVPNClient(){
-    if(vpnProcess->state() == QProcess::NotRunning){
-        return;
-    }
-    vpnProcess->terminate();
-    if(!vpnProcess->waitForFinished(2000)){
+    if(vpnProcess && vpnProcess->state() == QProcess::Running){
+        QString currentTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+        ui->logOutput->appendPlainText(QString("[%1] 正在停止VPN子进程...").arg(currentTime));
         vpnProcess->kill();
-        vpnProcess->waitForFinished(1000);
+        if(vpnProcess->waitForFinished(2000)){
+            ui->logOutput->appendPlainText("VPN子进程已停止");
+        }
+        else{
+            ui->logOutput->appendPlainText("VPN子进程强制终止失败，可能已崩溃");
+        }
+        vpnProcess->deleteLater();
+        vpnProcess = nullptr;
     }
     setConnectedState(false);
 }
 
-// void MainWindow::updateInterfaceList(){
-//     ui->tunInterface->clear();
-//     foreach(const QNetworkInterface &interface, QNetworkInterface::allInterfaces()){
-//         if(interface.name().contains("VPN") || interface.name().contains("TAP") || interface.name().contains("TUN")){
-//             ui->tunInterface->addItem(interface.name());
-//         }
-//     }
-//     if(ui->tunInterface->count() == 0){
-//         ui->tunInterface->addItem("未找到TUN设备");
-//         ui->tunInterface->setEnabled(false);
-//     }
-// }
 
 void MainWindow::on_testConnectionBtn_clicked(){
     if(!isConnected){
