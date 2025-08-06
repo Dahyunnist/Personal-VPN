@@ -5,7 +5,6 @@
 #include <QProcess>
 #include <QFileDialog>
 #include <QDir>
-#include "client_thread.h"
 #include <future>
 #include <thread>
 #include <atomic>
