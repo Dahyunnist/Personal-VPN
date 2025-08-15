@@ -44,7 +44,6 @@
 g++ server.cpp -static -o server -lboost_system -lboost_thread -lpthread -lssl -lcrypto
 */
 
-
 // === 配置参数 ===
 // const std::string TUN_DEV = "tun0";
 // const std::string SERVER_TUN_IP = "10.8.0.1";
@@ -67,15 +66,11 @@ g++ server.cpp -static -o server -lboost_system -lboost_thread -lpthread -lssl -
 // const std::string IP_POOL_END = "10.8.0.254";
 // unsigned short port = 0;
 
-
-
-
 // uint32_t ip_to_uint(const std::string& ip_str){
 //     in_addr addr;
 //     inet_pton(AF_INET, ip_str.c_str(), &addr);
 //     return ntohl(addr.s_addr);
 // }
-
 
 // std::string uint_to_ip(uint32_t ip){
 //     in_addr addr;
@@ -85,25 +80,23 @@ g++ server.cpp -static -o server -lboost_system -lboost_thread -lpthread -lssl -
 //     return buf;
 // }
 
-
 // std::string get_vm_ip() {
 //     int fd;
 //     struct ifreq ifr;
 //     const char* iface = vpn_config::PHYSICAL_NIC.c_str(); // 使用配置中的物理网卡名称
-    
+
 //     fd = socket(AF_INET, SOCK_DGRAM, 0);
 //     ifr.ifr_addr.sa_family = AF_INET;
 //     strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
-    
+
 //     if (ioctl(fd, SIOCGIFADDR, &ifr) == -1) {
 //         close(fd);
 //         throw std::runtime_error("无法获取网卡 " + std::string(iface) + " 的IP地址");
 //     }
-    
+
 //     close(fd);
 //     return inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
 // }
-
 
 // class IpPoolManager{
 // public:
@@ -113,7 +106,6 @@ g++ server.cpp -static -o server -lboost_system -lboost_thread -lpthread -lssl -
 //         std::lock_guard<std::mutex> lock(ip_mutex);
 //         used_ips.insert(ip);
 //     }
-
 
 //     void release_ip(const std::string& ip){
 //         std::lock_guard<std::mutex> lock(ip_mutex);
@@ -181,22 +173,25 @@ g++ server.cpp -static -o server -lboost_system -lboost_thread -lpthread -lssl -
 
 // IpPoolManager ip_pool(vpn_config::IP_POOL_START, vpn_config::IP_POOL_END);
 
-
 // std::atomic<bool> running(true);
 // std::mutex cmd_mutex;
 
-void command_handle(){
+void command_handle()
+{
     std::string cmd;
-    while(vpn_global::running){
+    while (vpn_global::running)
+    {
         std::unique_lock<std::mutex> lock(vpn_global::cmd_mutex);
         std::getline(std::cin, cmd);
         lock.unlock();
 
-        if(cmd == "genconfig"){
+        if (cmd == "genconfig")
+        {
             std::lock_guard<std::mutex> ip_lock(vpn_global::cmd_mutex);
             vpn_global::ip_pool.generate_config_file();
         }
-        else if(cmd == "quit"){
+        else if (cmd == "quit")
+        {
             vpn_global::running = false;
             break;
         }
@@ -242,8 +237,8 @@ void command_handle(){
 //         return written;
 //     }
 
-//     int fd() const { 
-//         return fd_; 
+//     int fd() const {
+//         return fd_;
 //     }
 
 //     TunDevice(const TunDevice&) = delete;
@@ -252,7 +247,6 @@ void command_handle(){
 // private:
 //     int fd_;
 // };
-
 
 // struct ipv4_header{
 //     uint8_t version : 4;
@@ -267,8 +261,6 @@ void command_handle(){
 //     uint32_t src_ip;
 //     uint32_t dest_ip;
 // };
-
-
 
 // class Server;
 
@@ -303,8 +295,8 @@ void command_handle(){
 // class Server {
 // public:
 //     Server(asio::io_context& io_context, short port, TunDevice& tun, ssl::context& ssl_ctx)
-//         : acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), 
-//           tun_(tun), 
+//         : acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
+//           tun_(tun),
 //           ssl_ctx_(ssl_ctx),
 //           io_context_(io_context) {
 //         // init_ip_pool();
@@ -320,7 +312,7 @@ void command_handle(){
 //             session->stop();
 //         }
 //         sessions_.clear();
-        
+
 //         // 停止TUN读取线程
 //         running_ = false;
 //         if (tun_to_client_thread_.joinable()) {
@@ -382,9 +374,9 @@ void command_handle(){
 //     void tun_read_loop() {
 //         std::vector<uint8_t> buf(vpn_config::BUFFER_SIZE);
 //         running_ = true;
-        
+
 //         std::cout << "=== TUN读取线程启动 ===" << std::endl;
-        
+
 //         while (running_) {
 //             // 从TUN设备读取数据
 //             ssize_t n = tun_.read(buf.data(), buf.size());
@@ -415,10 +407,10 @@ void command_handle(){
 //                 }
 //             });
 //         }
-        
+
 //         std::cout << "TUN读取线程停止" << std::endl;
 //     }
-    
+
 //     // 接受新客户端连接
 //     void start_accept() {
 //         auto socket = std::make_shared<tcp::socket>(io_context_);
@@ -447,12 +439,11 @@ void command_handle(){
 //     std::thread tun_to_client_thread_;
 //     std::atomic<bool> running_{false};
 //     // ip pool and session map
-//     std::unordered_map<std::string, std::shared_ptr<Session>> ip_to_session_;   
+//     std::unordered_map<std::string, std::shared_ptr<Session>> ip_to_session_;
 //     std::mutex session_mutex_;
 // };
 
-
-// Session::Session(ssl::stream<tcp::socket> socket, TunDevice& tun, Server& server) 
+// Session::Session(ssl::stream<tcp::socket> socket, TunDevice& tun, Server& server)
 //     : socket_(std::move(socket)), tun_(tun), server_(server), active_(true){}
 
 // void Session::start() {
@@ -470,13 +461,13 @@ void command_handle(){
 // }
 
 // bool Session::is_active() const{
-//     return active_; 
+//     return active_;
 // }
 
 // // 写入数据到VPN隧道（发送给客户端）
 // void Session::async_write(const uint8_t* data, size_t size) {
 //     if (!active_) return;
-    
+
 //     auto self(shared_from_this());
 //     asio::async_write(socket_, asio::buffer(data, size),
 //         [this, self](boost::system::error_code ec, std::size_t /*length*/) {
@@ -515,7 +506,7 @@ void command_handle(){
 // // 从VPN隧道读取数据（客户端发来的）
 // void Session::start_reading(){
 //     if (!active_) return;
-    
+
 //     auto self(shared_from_this());
 //     socket_.async_read_some(asio::buffer(buffer_),
 //         [this, self](boost::system::error_code ec, std::size_t length) {
@@ -524,13 +515,13 @@ void command_handle(){
 //                 ssize_t n = tun_.write(buffer_.data(), length);
 //                 if(n != static_cast<ssize_t>(length)){
 //                     std::cerr << "TUN写入失败: 预期" << length << "字节，实际" << n << "字节" << std::endl;
-//                 } 
+//                 }
 //                 else{
 //                     std::cout << "客户端 -> TUN: " << length << "字节" << std::endl;
 //                 }
 //                 // 继续读取
 //                 start_reading();
-//             } 
+//             }
 //             else{
 //                 if(ec){
 //                     std::cerr << "客户端断开连接: " << ec.message() << std::endl;
@@ -601,17 +592,20 @@ void command_handle(){
 std::unique_ptr<Server> server;
 std::unique_ptr<TunDevice> tun_device;
 
-void handle_signal(int signum) {
+void handle_signal(int signum)
+{
     std::cout << "\n收到信号 " << signum << "，正在关闭服务器..." << std::endl;
     vpn_global::running = false;
-    server.reset();  // 销毁服务器
+    server.reset();    // 销毁服务器
     tun_device.reset();
     exit(0);
 }
 
 // === 主函数 ===
-int main(int argc, char* argv[]) {
-    if(argc != 2){
+int main(int argc, char* argv[])
+{
+    if (argc != 2)
+    {
         std::cerr << "用法: " << argv[0] << " <监听端口>" << std::endl;
         return 1;
     }
@@ -622,14 +616,14 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    try {
+    try
+    {
         std::thread cmd_thread(command_handle);
         // cmd_thread.detach();
 
-
         // 1. 配置系统环境
         SystemConfig::enable_ip_forward();
-        
+
         // 2. 创建并配置TUN设备
         tun_device = std::make_unique<TunDevice>(vpn_config::TUN_DEV);
         SystemConfig::configure_tun(vpn_config::TUN_DEV, vpn_config::SERVER_TUN_IP, vpn_config::TUN_MASK);
@@ -644,35 +638,44 @@ int main(int argc, char* argv[]) {
         std::cout << "VPN服务器已启动, 监听端口: " << argv[1] << std::endl;
 
         // 5. 运行IO服务
-        const size_t thread_count = std::thread::hardware_concurrency() > 0 
-                                  ? std::thread::hardware_concurrency() : 2;
+        const size_t thread_count = std::thread::hardware_concurrency() > 0 ? std::thread::hardware_concurrency() : 2;
         std::vector<std::thread> threads;
-        
-        for(size_t i = 0; i < thread_count; ++i){
-            threads.emplace_back([&io_context]() { 
-                try {
-                    io_context.run(); 
-                } catch (const std::exception& e) {
-                    std::cerr << "IO上下文异常: " << e.what() << std::endl;
-                }
-            });
+
+        for (size_t i = 0; i < thread_count; ++i)
+        {
+            threads.emplace_back(
+                [&io_context]()
+                {
+                    try
+                    {
+                        io_context.run();
+                    }
+                    catch (const std::exception& e)
+                    {
+                        std::cerr << "IO上下文异常: " << e.what() << std::endl;
+                    }
+                });
         }
-        
-        for(auto& t : threads){
-            if (t.joinable()) t.join();
+
+        for (auto& t : threads)
+        {
+            if (t.joinable())
+                t.join();
         }
 
         vpn_global::running = false;
-        if(cmd_thread.joinable()){
+        if (cmd_thread.joinable())
+        {
             pthread_kill(cmd_thread.native_handle(), SIGUSR1);
             cmd_thread.join();
         }
-    } 
-    catch (std::exception& e){
+    }
+    catch (std::exception& e)
+    {
         vpn_global::running = false;
         std::cerr << "异常: " << e.what() << std::endl;
         return 1;
     }
-    
+
     return 0;
 }

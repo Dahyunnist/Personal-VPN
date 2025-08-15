@@ -10,7 +10,8 @@
 #include <atomic>
 
 QT_BEGIN_NAMESPACE
-namespace Ui {
+namespace Ui
+{
 class MainWindow;
 }
 QT_END_NAMESPACE
@@ -19,11 +20,11 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
 
-public:
+   public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-private slots:
+   private slots:
     // connect and disconnect
     void on_connectButton_clicked();
     void on_disconnectButton_clicked();
@@ -38,7 +39,7 @@ private slots:
     void on_testProcessOutput();
     void on_testProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
 
-private:
+   private:
     Ui::MainWindow *ui;
     QProcess *vpnProcess;
     QProcess *testProcess;

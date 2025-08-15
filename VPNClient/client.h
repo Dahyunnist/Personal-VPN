@@ -5,10 +5,9 @@
 #include <atomic>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
-
-
 
     extern std::atomic_bool have_quit;
 

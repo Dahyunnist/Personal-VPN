@@ -40,13 +40,13 @@
 #include "config.h"
 class Server;
 
-
 namespace asio = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = boost::asio::ip::tcp;
 
-class Session : public std::enable_shared_from_this<Session> {
-public:
+class Session : public std::enable_shared_from_this<Session>
+{
+   public:
     Session(ssl::stream<tcp::socket> socket, TunDevice& tun, Server& server);
     void start();
     void stop();
@@ -55,14 +55,14 @@ public:
     void async_write(const uint8_t* data, size_t size);
     const std::string& client_ip() const;
 
-private:
+   private:
     // TLS握手
     void do_handshake();
     void handle_assigned_ip(const std::string& assigned_ip);
     // 从VPN隧道读取数据（客户端发来的）
     void start_reading();
 
-    ssl::stream<tcp::socket> socket_;  // SSL加密流
+    ssl::stream<tcp::socket> socket_;    // SSL加密流
     TunDevice& tun_;
     class Server& server_;
     std::array<uint8_t, vpn_config::BUFFER_SIZE> buffer_;
@@ -70,8 +70,5 @@ private:
     std::string client_ip_;
     friend class Server;
 };
-
-
-
 
 #endif

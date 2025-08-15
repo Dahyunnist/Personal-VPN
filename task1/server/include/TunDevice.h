@@ -1,7 +1,6 @@
 #ifndef TUNDEVICE_H
 #define TUNDEVICE_H
 
-
 // #include <iostream>
 // #include <string>
 // #include <vector>
@@ -37,30 +36,24 @@
 // #include <mutex>
 // #include <nlohmann/json.hpp>
 
-
-
-class TunDevice {
-public:
+class TunDevice
+{
+   public:
     TunDevice(const std::string& dev_name);
 
     ~TunDevice();
 
-    ssize_t read(uint8_t* buffer, size_t size){
-        return ::read(fd_, buffer, size);
-    }
+    ssize_t read(uint8_t* buffer, size_t size) { return ::read(fd_, buffer, size); }
 
     ssize_t write(const uint8_t* raw_data, size_t raw_size);
 
-    int fd() const { 
-        return fd_; 
-    }
+    int fd() const { return fd_; }
 
     TunDevice(const TunDevice&) = delete;
     TunDevice& operator=(const TunDevice&) = delete;
 
-private:
+   private:
     int fd_;
 };
-
 
 #endif

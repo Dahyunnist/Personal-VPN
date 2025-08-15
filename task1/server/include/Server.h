@@ -1,7 +1,6 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-
 // #include <iostream>
 // #include <string>
 // #include <vector>
@@ -51,8 +50,8 @@ namespace asio = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = boost::asio::ip::tcp;
 
-
-struct ipv4_header{
+struct ipv4_header
+{
     uint8_t version : 4;
     uint8_t ihl : 4;
     uint8_t tos;
@@ -67,8 +66,9 @@ struct ipv4_header{
 };
 
 // === 服务器类 ===
-class Server {
-public:
+class Server
+{
+   public:
     Server(asio::io_context& io_context, short port, TunDevice& tun, ssl::context& ssl_ctx);
 
     ~Server();
@@ -77,10 +77,10 @@ public:
 
     void release_client_ip(std::shared_ptr<Session> session);
 
-private:
+   private:
     // 从TUN设备读取数据（来自互联网的响应）
     void tun_read_loop();
-    
+
     // 接受新客户端连接
     void start_accept();
 
@@ -88,11 +88,11 @@ private:
     TunDevice& tun_;
     ssl::context& ssl_ctx_;
     asio::io_context& io_context_;
-    std::vector<std::shared_ptr<Session>> sessions_;  // 客户端会话列表
+    std::vector<std::shared_ptr<Session>> sessions_;    // 客户端会话列表
     std::thread tun_to_client_thread_;
     std::atomic<bool> running_{false};
     // ip pool and session map
-    std::unordered_map<std::string, std::shared_ptr<Session>> ip_to_session_;   
+    std::unordered_map<std::string, std::shared_ptr<Session>> ip_to_session_;
     std::mutex session_mutex_;
 };
 

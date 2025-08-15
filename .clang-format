@@ -1,0 +1,17 @@
+---
+Language:        Cpp
+BasedOnStyle:  Google
+AllowShortBlocksOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+BreakBeforeBraces: Allman
+IndentWidth:     4
+SortIncludes:    false
+SortUsingDeclarations: false
+SpacesBeforeTrailingComments: 4
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+BinPackParameters: false
+BinPackArguments: false
+BraceWrapping:
+  AfterCaseLabel:  true
+
+ColumnLimit: 200

@@ -28,7 +28,7 @@ QT_BEGIN_NAMESPACE
 
 class Ui_MainWindow
 {
-public:
+   public:
     QWidget *centralWidget;
     QVBoxLayout *verticalLayout;
     QTabWidget *tabWidget;
@@ -122,7 +122,6 @@ public:
 
         formLayout->setWidget(3, QFormLayout::FieldRole, routeIp);
 
-
         verticalLayout_3->addWidget(serverGroup);
 
         certGroup = new QGroupBox(tab);
@@ -146,9 +145,7 @@ public:
 
         horizontalLayout->addWidget(browseConfigPath);
 
-
         formLayout_2->setLayout(0, QFormLayout::FieldRole, horizontalLayout);
-
 
         verticalLayout_3->addWidget(certGroup);
 
@@ -166,7 +163,6 @@ public:
         disconnectButton->setStyleSheet(QString::fromUtf8("background-color: rgb(239, 71, 111);"));
 
         horizontalLayout_5->addWidget(disconnectButton);
-
 
         verticalLayout_3->addLayout(horizontalLayout_5);
 
@@ -208,7 +204,6 @@ public:
 
         verticalLayout_2->addWidget(testOutput);
 
-
         verticalLayout->addWidget(testGroup);
 
         MainWindow->setCentralWidget(centralWidget);
@@ -220,9 +215,8 @@ public:
 
         tabWidget->setCurrentIndex(0);
 
-
         QMetaObject::connectSlotsByName(MainWindow);
-    } // setupUi
+    }    // setupUi
 
     void retranslateUi(QMainWindow *MainWindow)
     {
@@ -246,14 +240,16 @@ public:
         testGroup->setTitle(QCoreApplication::translate("MainWindow", "\347\275\221\347\273\234\350\277\236\351\200\232\346\265\213\350\257\225", nullptr));
         testConnectionBtn->setText(QCoreApplication::translate("MainWindow", "\346\265\213\350\257\225\350\277\236\351\200\232", nullptr));
         testStatus->setText(QCoreApplication::translate("MainWindow", "\346\234\252\346\265\213\350\257\225", nullptr));
-    } // retranslateUi
-
+    }    // retranslateUi
 };
 
-namespace Ui {
-    class MainWindow: public Ui_MainWindow {};
-} // namespace Ui
+namespace Ui
+{
+class MainWindow : public Ui_MainWindow
+{
+};
+}    // namespace Ui
 
 QT_END_NAMESPACE
 
-#endif // UI_MAINWINDOW_H
+#endif    // UI_MAINWINDOW_H

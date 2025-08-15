@@ -38,11 +38,10 @@
 // #include <nlohmann/json.hpp>
 // #include "BasicFunc.h"
 
-
-
-class IpPoolManager{
-public:
-    IpPoolManager(const std::string& start, const std::string&end);
+class IpPoolManager
+{
+   public:
+    IpPoolManager(const std::string& start, const std::string& end);
 
     void mark_ip_used(const std::string& ip);
 
@@ -54,7 +53,7 @@ public:
 
     size_t get_available_ip_size();
 
-private:
+   private:
     std::unordered_set<std::string> used_ips;
     std::mutex ip_mutex;
     const std::string start_ip;

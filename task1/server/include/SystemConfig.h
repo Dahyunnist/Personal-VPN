@@ -1,7 +1,6 @@
 #ifndef SYSTEM_CONFIG_H
 #define SYSTEM_CONFIG_H
 
-
 // #include <iostream>
 // #include <string>
 // #include <vector>
@@ -39,9 +38,9 @@
 
 #include "config.h"
 
-
-class SystemConfig {
-public:
+class SystemConfig
+{
+   public:
     static void run_command(const std::string& cmd);
 
     static void configure_tun(const std::string& dev, const std::string& ip, const std::string& mask);
@@ -50,6 +49,5 @@ public:
 
     static void setup_iptables_nat(const std::string& network, const std::string& nic);
 };
-
 
 #endif
