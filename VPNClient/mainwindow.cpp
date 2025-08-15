@@ -246,8 +246,8 @@ void MainWindow::on_testProcessFinished(int exitCode, QProcess::ExitStatus exitS
     // resolve test result
     QString output = ui->testOutput->toPlainText();
     bool ping_success = output.contains(QRegularExpression("TTL=|往返行程的估计时间|Average =", QRegularExpression::CaseInsensitiveOption));
-    // bool curl_success = output.contains(QRegularExpression("HTTP/\\d+\\.\\d+ (200|301|302)", QRegularExpression::CaseInsensitiveOption));
-    bool curl_success = true;
+    bool curl_success = output.contains(QRegularExpression("HTTP/\\d+\\.\\d+ (200|301|302)", QRegularExpression::CaseInsensitiveOption));
+    // bool curl_success = true;
     parseTestResult(ping_success, curl_success);
 }
 

@@ -80,6 +80,7 @@
         "flat_set": "cpp",
         "forward_list": "cpp",
         "any": "cpp",
-        "qmessagebox": "cpp"
+        "qmessagebox": "cpp",
+        "qsettings": "cpp"
     }
 }

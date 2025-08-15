@@ -7,12 +7,10 @@ CONFIG += c++17
 SOURCES += \
     main.cpp \
     mainwindow.cpp \
-    client_thread.cpp \
     client.cpp
 
 HEADERS += \
     mainwindow.h \
-    client_thread.h \
     client.h
 
 FORMS += \
