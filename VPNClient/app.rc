@@ -1,2 +1,2 @@
 // app.rc（Windows 资源文件，用于嵌入 manifest）
-2 24 "app.manifest"  // 资源类型 24 表示 manifest，1 是资源 ID，"app.manifest" 是文件路径
+1 24 "app.manifest"  // 资源类型 24 表示 manifest，1 是资源 ID，"app.manifest" 是文件路径

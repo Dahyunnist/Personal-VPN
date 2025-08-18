@@ -5,10 +5,8 @@
 #include <atomic>
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
-
     extern std::atomic_bool have_quit;
 
     int start_vpn_client(const char* config_path, const char* route_ip);

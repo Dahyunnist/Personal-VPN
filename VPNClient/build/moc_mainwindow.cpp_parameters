@@ -1,0 +1,4 @@
+-DWIN32
+-o
+C:/Projects/VPNClient/build/moc_mainwindow.cpp
+C:/Projects/VPNClient/mainwindow.h

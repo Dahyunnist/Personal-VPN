@@ -1,0 +1,11 @@
+# ninja log v7
+9	1382	7772070611030412	VPNClient_autogen/timestamp	ec2c75002135a9f9
+9	1382	7772070611030412	C:/Projects/VPNClient/build/VPNClient_autogen/timestamp	ec2c75002135a9f9
+1383	1677	7772070617406692	moc_mainwindow.cpp	265fb85ae224412e
+1383	1677	7772070617406692	C:/Projects/VPNClient/build/moc_mainwindow.cpp	265fb85ae224412e
+2623	3860	7772070626907909	CMakeFiles/VPNClient.dir/app.rc.obj	cfaa1e9ab9cbbeaa
+1678	4177	7772070617447884	CMakeFiles/VPNClient.dir/main.cpp.obj	5e6cc1f8628af4f0
+1918	5044	7772070619865108	CMakeFiles/VPNClient.dir/mainwindow.cpp.obj	4a72ca41202d2949
+3002	5309	7772070630668617	CMakeFiles/VPNClient.dir/moc_mainwindow.cpp.obj	a31d39cbe3f3819
+2293	8922	7772070623536104	CMakeFiles/VPNClient.dir/client.cpp.obj	a33d7fc6b373be06
+8929	10114	7772070689910278	VPNClient.exe	7ed17b1a248a7a4b

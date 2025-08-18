@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Projects/VPNClient/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
