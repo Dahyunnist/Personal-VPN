@@ -16,20 +16,13 @@ HEADERS += \
 FORMS += \
     mainwindow.ui
 
-# INCLUDEPATH += $$PWD   
- 
-# LIBS += -L$$PWD/lib 
 LIBS += -lws2_32      # 网络核心（Winsock API：htonl, socket, send 等）
-# LIBS += -ladvapi32    # 高级 API（服务控制、注册表，OpenSSL 依赖）
-LIBS += -liphlpapi    # IP 配置（已添加）
-LIBS += -lole32       # COM 组件（已添加）
-LIBS += -lcrypt32     # 证书存储（已添加，解决 Cert* 函数）
-# LIBS += -lwsock32     # 兼容旧 Winsock（部分 OpenSSL 版本依赖）
+LIBS += -liphlpapi    # IP 配置
+LIBS += -lole32       # COM 组件
+LIBS += -lcrypt32     # 证书存储
 LIBS += -lboost_thread-mt       
 LIBS += -lssl
 LIBS += -lcrypto
-
-
 
 qnx: target.path = /tmp/$${TARGET}/bin else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target

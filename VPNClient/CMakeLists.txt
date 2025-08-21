@@ -5,7 +5,7 @@ set(CMAKE_PREFIX_PATH "C:/Qt/6.5.3/mingw_64" CACHE PATH "Qt安装路径")
 
 project(VPNClient VERSION 1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 查找Qt模块，自动添加头文件路径
@@ -19,7 +19,7 @@ set(PROJECT_SOURCES
     client.cpp
     mainwindow.h
     client.h
-    app.rc
+    app.rc # 设置管理员权限
 )
 
 # .ui文件（绝对路径）
@@ -28,15 +28,11 @@ set(UI_FILES
 )
 
 # 添加可执行文件
-qt_add_executable(VPNClient
-    MANUAL_FINALIZATION
+add_executable(VPNClient
+    # MANUAL_FINALIZATION
     ${PROJECT_SOURCES}
     ${UI_FILES}  # 显式传入.ui文件
 )
-
-# 设置管理员权限
-set(MANIFEST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/app.manifest)
-# target_sources(VPNClient PRIVATE ${MANIFEST_FILE})
 
 # 手动生成moc_mainwindow.cpp
 set(HEADER_FILES mainwindow.h)  # 包含Q_OBJECT的头文件
@@ -45,7 +41,6 @@ target_sources(VPNClient PRIVATE ${MOC_SOURCES})  # 添加到目标
 
 # 手动强制生成ui_mainwindow.h
 set_target_properties(VPNClient PROPERTIES
-    # LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:${MANIFEST_FILE}"
     AUTOUIC ON  # 启用.ui自动编译
     AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}  # 搜索.ui文件的目录
     WIN32_EXECUTABLE ON
@@ -53,7 +48,7 @@ set_target_properties(VPNClient PROPERTIES
     SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
-# include包含ui_mainwindow.h所在的build目录
+# 使include包含ui_mainwindow.h所在的build目录
 target_include_directories(VPNClient PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # 链接库
@@ -75,7 +70,6 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WINTUN_DLL_PATH}" "${DEST_DLL_PATH}"
     COMMENT "Copying wintun.dll to build directory..."
 )
-
 
 qt_finalize_executable(VPNClient)
 
