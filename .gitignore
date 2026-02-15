@@ -63,7 +63,7 @@ cmake_install.cmake
 # 测试文件
 boost_test.exe
 a.exe
-client
+# client
 vpn_server
 
 # SSL 密钥日志
