@@ -1,5 +1,0 @@
-C:/Projects/VPNClient/build/CMakeFiles/VPNClient.dir
-C:/Projects/VPNClient/build/CMakeFiles/edit_cache.dir
-C:/Projects/VPNClient/build/CMakeFiles/rebuild_cache.dir
-C:/Projects/VPNClient/build/CMakeFiles/VPNClient_autogen_timestamp_deps.dir
-C:/Projects/VPNClient/build/CMakeFiles/VPNClient_autogen.dir
