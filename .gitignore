@@ -1,7 +1,0 @@
-*.exe
-*.obj
-.vscode/
-NUL
-nul
-*/build/
-*.o
