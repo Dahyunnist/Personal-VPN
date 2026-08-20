@@ -1,0 +1,43 @@
+[Unit]
+Description=Personal-VPN mutually authenticated tunnel server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=personal-vpn
+Group=personal-vpn
+ExecStart=/usr/local/bin/personal-vpn-server \
+  --listen-address 0.0.0.0 \
+  --port 8443 \
+  --tun-name pvpn0 \
+  --server-cert /etc/personal-vpn/pki/server.crt \
+  --server-key /etc/personal-vpn/pki/server.key \
+  --client-ca /etc/personal-vpn/pki/client-ca.crt \
+  --lease-start 10.8.0.2 \
+  --lease-end 10.8.0.254 \
+  --gateway 10.8.0.1 \
+  --prefix-length 24 \
+  --mtu 1400 \
+  --threads 4 \
+  --max-sessions 1024
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+DevicePolicy=closed
+DeviceAllow=/dev/net/tun rw
+
+[Install]
+WantedBy=multi-user.target

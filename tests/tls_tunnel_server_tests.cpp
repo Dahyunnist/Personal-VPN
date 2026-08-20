@@ -15,6 +15,7 @@
 
 #include <array>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -190,12 +191,15 @@ void run_multi_client_server(const std::vector<std::string>& paths)
                         24U,
                         1'400U,
                         60s);
+    std::atomic<int> shutdown_notifications{0};
     auto server = std::make_shared<TlsTunnelServer>(server_io,
                                                     tcp::endpoint(tcp::v4(), 0U),
                                                     server_context,
                                                     leases,
                                                     tun_device,
-                                                    3U);
+                                                    3U,
+                                                    [&shutdown_notifications]
+                                                    { ++shutdown_notifications; });
     server->start();
     std::vector<std::thread> server_threads;
     for (std::size_t index = 0U; index < 4U; ++index)
@@ -299,6 +303,8 @@ void run_multi_client_server(const std::vector<std::string>& paths)
     {
         server_thread.join();
     }
+    check(shutdown_notifications.load() == 1,
+          "runtime publishes exactly one graceful shutdown notification");
     ::close(descriptors[1]);
 }
 

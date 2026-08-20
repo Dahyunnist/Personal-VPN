@@ -5,13 +5,18 @@ Personal-VPN is an educational cross-platform IP tunnel prototype written in C++
 > [!WARNING]
 > The current branch is undergoing a correctness and security redesign. It is not ready for production deployment. Do not reuse credentials from earlier revisions of this repository.
 
-## Current scope
+## Current redesign status
 
-- Windows client and ImGui desktop UI
-- Linux TUN server and IPv4 forwarding
-- Selective `/32` routing through Wintun
-- TLS-protected client-to-server transport
-- Multi-client prototype and virtual IP pool
+- Versioned, bounded binary tunnel framing
+- Server-authoritative, generation-isolated IPv4 leases
+- Mutual TLS with certificate-fingerprint client identities
+- Serialized asynchronous TLS and Linux TUN I/O with backpressure
+- Multi-client Linux server runtime with admission control
+- Cross-platform core tests and Linux end-to-end integration tests
+
+The redesigned Linux server now builds as `personal-vpn-server`. Host interface,
+forwarding, and firewall configuration remain explicit deployment responsibilities;
+see [docs/deployment/linux-server.md](docs/deployment/linux-server.md).
 
 ## Enterprise upgrade
 
@@ -24,6 +29,22 @@ The active redesign focuses on:
 5. Reproducible builds, automated tests, CI, and benchmarks
 
 See [vpn_base/README.md](vpn_base/README.md) for the legacy prototype instructions. Those instructions will be replaced as each upgrade phase becomes runnable.
+
+## Build and test
+
+On Linux with CMake, Ninja, Boost, and OpenSSL development packages:
+
+```bash
+cmake -S . -B out/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build out/release
+ctest --test-dir out/release --output-on-failure
+```
+
+Show the server's validated command-line options without requiring root access:
+
+```bash
+out/release/personal-vpn-server --help
+```
 
 ## Repository layout
 

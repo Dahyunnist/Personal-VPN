@@ -97,6 +97,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(tls_tunnel_server_tests PRIVATE cxx_std_17)
     target_compile_options(tls_tunnel_server_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
+    add_executable(server_config_tests server_config_tests.cpp)
+    target_link_libraries(server_config_tests PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(server_config_tests PRIVATE cxx_std_17)
+    target_compile_options(server_config_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
+    add_test(NAME server_config_tests COMMAND server_config_tests)
+
     add_test(
         NAME generate_test_pki
         COMMAND "${BASH_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/generate-dev-pki.sh"

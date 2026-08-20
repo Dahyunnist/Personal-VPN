@@ -13,13 +13,15 @@ TlsTunnelServer::TlsTunnelServer(boost::asio::io_context& io_context,
                                  boost::asio::ssl::context& tls_context,
                                  core::LeaseManager& lease_manager,
                                  std::shared_ptr<LinuxTunDevice> tun_device,
-                                 const std::size_t maximum_sessions)
+                                 const std::size_t maximum_sessions,
+                                 ShutdownHandler shutdown_handler)
     : strand_(boost::asio::make_strand(io_context)),
       acceptor_(io_context),
       tls_context_(tls_context),
       lease_manager_(lease_manager),
       tun_device_(std::move(tun_device)),
-      maximum_sessions_(maximum_sessions)
+      maximum_sessions_(maximum_sessions),
+      shutdown_handler_(std::move(shutdown_handler))
 {
     if (!tun_device_)
     {
@@ -189,6 +191,11 @@ void TlsTunnelServer::stop_on_strand()
     for (const auto& session : sessions_)
     {
         session->stop();
+    }
+    if (shutdown_handler_)
+    {
+        auto handler = std::move(shutdown_handler_);
+        handler();
     }
 }
 

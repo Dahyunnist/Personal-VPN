@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_set>
@@ -22,13 +23,15 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
 {
    public:
     using Tcp = boost::asio::ip::tcp;
+    using ShutdownHandler = std::function<void()>;
 
     TlsTunnelServer(boost::asio::io_context& io_context,
                     Tcp::endpoint listen_endpoint,
                     boost::asio::ssl::context& tls_context,
                     core::LeaseManager& lease_manager,
                     std::shared_ptr<LinuxTunDevice> tun_device,
-                    std::size_t maximum_sessions = 1'024U);
+                    std::size_t maximum_sessions = 1'024U,
+                    ShutdownHandler shutdown_handler = {});
 
     void start();
     void stop();
@@ -55,6 +58,7 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
     core::LeaseManager& lease_manager_;
     std::shared_ptr<LinuxTunDevice> tun_device_;
     const std::size_t maximum_sessions_;
+    ShutdownHandler shutdown_handler_;
     core::TunnelRouter router_;
     std::unordered_set<std::shared_ptr<TlsTunnelSession>> sessions_;
     std::atomic<std::size_t> active_session_count_{0U};

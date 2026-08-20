@@ -31,6 +31,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 
     add_library(personal_vpn_server_transport
         src/server/linux_tun_device.cpp
+        src/server/server_config.cpp
         src/server/tls_tunnel_server.cpp
         src/server/tls_security.cpp
         src/server/tls_tunnel_session.cpp
@@ -53,6 +54,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 
     target_compile_features(personal_vpn_server_transport PUBLIC cxx_std_17)
     target_compile_options(personal_vpn_server_transport PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
+    add_executable(personal-vpn-server src/server/main.cpp)
+    target_link_libraries(personal-vpn-server PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(personal-vpn-server PRIVATE cxx_std_17)
+    target_compile_options(personal-vpn-server PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    install(TARGETS personal-vpn-server RUNTIME DESTINATION bin)
 endif()
 
 add_library(personal_vpn_core
