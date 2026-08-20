@@ -45,6 +45,9 @@ class LeaseManager
     [[nodiscard]] Lease acquire(const std::string& identity, TimePoint now = Clock::now());
     [[nodiscard]] std::optional<Lease> find_by_identity(const std::string& identity,
                                                         TimePoint now = Clock::now());
+    [[nodiscard]] std::optional<Lease> renew(const std::string& identity,
+                                            const Ipv4Address& expected_address,
+                                            TimePoint now = Clock::now());
     [[nodiscard]] bool owns(const std::string& identity,
                             const Ipv4Address& address,
                             TimePoint now = Clock::now());

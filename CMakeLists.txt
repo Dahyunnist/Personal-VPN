@@ -26,6 +26,7 @@ endif()
 
 add_library(personal_vpn_core
     src/core/lease_manager.cpp
+    src/core/session_controller.cpp
 )
 
 add_library(PersonalVPN::Core ALIAS personal_vpn_core)

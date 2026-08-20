@@ -53,6 +53,14 @@ Control-message payload schemas and the connection state machine will be finaliz
 - A failed decoder cannot resume without an explicit reset and a new transport session.
 - The transport integration must bound its read buffers and outbound queues independently of the wire-format limit.
 
+## Server session state
+
+The first application frame in each authenticated TLS session must be `CLIENT_HELLO` with sequence number 1. The server acquires a lease for the authenticated identity and replies with `IP_ASSIGN`; a client-supplied virtual address is never accepted.
+
+After establishment, every `DATA_IPV4` payload must contain exactly one structurally valid IPv4 packet. Its source address must match the authenticated session lease and its total length must equal the frame payload length. Packets exceeding the negotiated MTU are rejected before they reach TUN.
+
+Sequence numbers increase by one independently in each direction. A gap, duplicate, invalid state transition, malformed control message, or source-address mismatch produces an `ERROR` and closes the transport. This fail-closed policy keeps the v1 state machine deterministic.
+
 ## Security boundary
 
 Framing provides message boundaries and parser limits; it does not authenticate a peer or encrypt data. Authentication and confidentiality are provided by the mTLS transport. Session authorization and virtual IP ownership are enforced above this codec.

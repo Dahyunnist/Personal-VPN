@@ -95,6 +95,22 @@ void test_release_and_expiration_reuse_addresses()
     check(carol.address == alice.address, "expired address is reusable");
 }
 
+void test_renew_requires_identity_and_address_match()
+{
+    auto manager = make_manager(10s);
+    const auto now = LeaseManager::TimePoint{} + 200s;
+    const auto lease = manager.acquire("cert:alice", now);
+    const auto renewed = manager.renew("cert:alice", lease.address, now + 5s);
+    check(renewed.has_value() && renewed->expires_at == now + 15s,
+          "matching identity and address renew lease");
+    check(!manager.renew("cert:bob", lease.address, now + 5s).has_value(),
+          "different identity cannot renew lease");
+    check(!manager.renew("cert:alice", parse_ipv4_address("10.8.0.9"), now + 5s).has_value(),
+          "different address cannot renew lease");
+    check(!manager.renew("cert:alice", lease.address, now + 16s).has_value(),
+          "expired lease cannot be revived by renewal");
+}
+
 void test_pool_exhaustion()
 {
     LeaseManager manager(parse_ipv4_address("10.8.0.2"),
@@ -208,6 +224,7 @@ int main()
     test_ipv4_conversion();
     test_authoritative_allocation_and_renewal();
     test_release_and_expiration_reuse_addresses();
+    test_renew_requires_identity_and_address_match();
     test_pool_exhaustion();
     test_concurrent_acquisition_is_unique();
     test_assignment_is_server_derived();

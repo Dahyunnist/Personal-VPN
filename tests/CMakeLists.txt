@@ -33,3 +33,15 @@ else()
 endif()
 
 add_test(NAME lease_manager_tests COMMAND lease_manager_tests)
+
+add_executable(session_controller_tests session_controller_tests.cpp)
+target_link_libraries(session_controller_tests PRIVATE PersonalVPN::Core)
+target_compile_features(session_controller_tests PRIVATE cxx_std_17)
+
+if(MSVC)
+    target_compile_options(session_controller_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(session_controller_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
+add_test(NAME session_controller_tests COMMAND session_controller_tests)

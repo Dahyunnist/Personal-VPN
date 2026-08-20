@@ -171,6 +171,21 @@ std::optional<Lease> LeaseManager::find_by_identity(const std::string& identity,
     return lease->second;
 }
 
+std::optional<Lease> LeaseManager::renew(const std::string& identity,
+                                        const Ipv4Address& expected_address,
+                                        const TimePoint now)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    static_cast<void>(reap_expired_locked(now));
+    const auto lease = leases_by_identity_.find(identity);
+    if (lease == leases_by_identity_.end() || lease->second.address != expected_address)
+    {
+        return std::nullopt;
+    }
+    lease->second.expires_at = now + lease_duration_;
+    return lease->second;
+}
+
 bool LeaseManager::owns(const std::string& identity,
                         const Ipv4Address& address,
                         const TimePoint now)
