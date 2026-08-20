@@ -74,10 +74,21 @@ void test_authoritative_allocation_and_renewal()
     check(manager.owns("cert:alice", first.address, now), "identity owns its assigned address");
     check(!manager.owns("cert:bob", first.address, now), "identity cannot claim another address");
 
-    const auto renewed = manager.acquire("cert:alice", now + 30s);
-    check(renewed.address == first.address, "renewal preserves the identity address");
-    check(renewed.expires_at == now + 90s, "renewal extends expiration");
+    const auto renewed = manager.renew(first, now + 30s);
+    check(renewed.has_value() && renewed->address == first.address,
+          "renewal preserves the identity address");
+    check(renewed.has_value() && renewed->expires_at == now + 90s,
+          "renewal extends expiration");
     check(manager.active_count(now + 30s) == 2U, "renewal does not create a duplicate lease");
+
+    try
+    {
+        static_cast<void>(manager.acquire("cert:alice", now + 30s));
+        check(false, "active identity cannot acquire a concurrent lease");
+    }
+    catch (const std::runtime_error&)
+    {
+    }
 }
 
 void test_release_and_expiration_reuse_addresses()
@@ -85,8 +96,8 @@ void test_release_and_expiration_reuse_addresses()
     auto manager = make_manager(10s);
     const auto now = LeaseManager::TimePoint{} + 100s;
     const auto alice = manager.acquire("cert:alice", now);
-    check(manager.release("cert:alice"), "active lease can be released");
-    check(!manager.release("cert:alice"), "released lease cannot be released twice");
+    check(manager.release(alice), "active lease can be released");
+    check(!manager.release(alice), "released lease cannot be released twice");
     const auto bob = manager.acquire("cert:bob", now);
     check(bob.address == alice.address, "released address is reusable");
 
@@ -100,15 +111,34 @@ void test_renew_requires_identity_and_address_match()
     auto manager = make_manager(10s);
     const auto now = LeaseManager::TimePoint{} + 200s;
     const auto lease = manager.acquire("cert:alice", now);
-    const auto renewed = manager.renew("cert:alice", lease.address, now + 5s);
+    const auto renewed = manager.renew(lease, now + 5s);
     check(renewed.has_value() && renewed->expires_at == now + 15s,
           "matching identity and address renew lease");
-    check(!manager.renew("cert:bob", lease.address, now + 5s).has_value(),
+    auto wrong_identity = lease;
+    wrong_identity.identity = "cert:bob";
+    check(!manager.renew(wrong_identity, now + 5s).has_value(),
           "different identity cannot renew lease");
-    check(!manager.renew("cert:alice", parse_ipv4_address("10.8.0.9"), now + 5s).has_value(),
+    auto wrong_address = lease;
+    wrong_address.address = parse_ipv4_address("10.8.0.9");
+    check(!manager.renew(wrong_address, now + 5s).has_value(),
           "different address cannot renew lease");
-    check(!manager.renew("cert:alice", lease.address, now + 16s).has_value(),
+    check(!manager.renew(lease, now + 16s).has_value(),
           "expired lease cannot be revived by renewal");
+}
+
+void test_stale_session_cannot_mutate_reissued_lease()
+{
+    auto manager = make_manager(10s);
+    const auto now = LeaseManager::TimePoint{} + 300s;
+    const auto stale = manager.acquire("cert:alice", now);
+    check(manager.reap_expired(now + 10s) == 1U, "old session lease expires");
+    const auto current = manager.acquire("cert:alice", now + 10s);
+    check(current.lease_id != stale.lease_id, "reissued lease has a new generation");
+    check(!manager.renew(stale, now + 11s).has_value(),
+          "stale session cannot renew a replacement lease");
+    check(!manager.release(stale), "stale session cannot release a replacement lease");
+    check(manager.owns("cert:alice", current.address, now + 11s),
+          "replacement lease survives stale session cleanup");
 }
 
 void test_pool_exhaustion()
@@ -225,6 +255,7 @@ int main()
     test_authoritative_allocation_and_renewal();
     test_release_and_expiration_reuse_addresses();
     test_renew_requires_identity_and_address_match();
+    test_stale_session_cannot_mutate_reissued_lease();
     test_pool_exhaustion();
     test_concurrent_acquisition_is_unique();
     test_assignment_is_server_derived();

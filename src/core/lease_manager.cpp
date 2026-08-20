@@ -63,7 +63,8 @@ std::string format_ipv4_address(const Ipv4Address& address)
 
 bool Lease::operator==(const Lease& other) const noexcept
 {
-    return identity == other.identity && address == other.address && expires_at == other.expires_at;
+    return lease_id == other.lease_id && identity == other.identity &&
+           address == other.address && expires_at == other.expires_at;
 }
 
 LeaseManager::LeaseManager(const Ipv4Address first_address,
@@ -138,15 +139,21 @@ Lease LeaseManager::acquire(const std::string& identity, const TimePoint now)
     const auto existing = leases_by_identity_.find(identity);
     if (existing != leases_by_identity_.end())
     {
-        existing->second.expires_at = now + lease_duration_;
-        return existing->second;
+        throw std::runtime_error("identity already has an active virtual IP lease");
     }
 
     for (std::uint32_t candidate = first_address_;; ++candidate)
     {
         if (identity_by_address_.find(candidate) == identity_by_address_.end())
         {
-            Lease lease{identity, from_integer(candidate), now + lease_duration_};
+            if (next_lease_id_ == 0U)
+            {
+                throw std::runtime_error("virtual IP lease generation is exhausted");
+            }
+            Lease lease{next_lease_id_++,
+                        identity,
+                        from_integer(candidate),
+                        now + lease_duration_};
             leases_by_identity_.emplace(identity, lease);
             identity_by_address_.emplace(candidate, identity);
             return lease;
@@ -171,14 +178,15 @@ std::optional<Lease> LeaseManager::find_by_identity(const std::string& identity,
     return lease->second;
 }
 
-std::optional<Lease> LeaseManager::renew(const std::string& identity,
-                                        const Ipv4Address& expected_address,
+std::optional<Lease> LeaseManager::renew(const Lease& expected_lease,
                                         const TimePoint now)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     static_cast<void>(reap_expired_locked(now));
-    const auto lease = leases_by_identity_.find(identity);
-    if (lease == leases_by_identity_.end() || lease->second.address != expected_address)
+    const auto lease = leases_by_identity_.find(expected_lease.identity);
+    if (lease == leases_by_identity_.end() ||
+        lease->second.lease_id != expected_lease.lease_id ||
+        lease->second.address != expected_lease.address)
     {
         return std::nullopt;
     }
@@ -196,11 +204,13 @@ bool LeaseManager::owns(const std::string& identity,
     return lease != leases_by_identity_.end() && lease->second.address == address;
 }
 
-bool LeaseManager::release(const std::string& identity)
+bool LeaseManager::release(const Lease& expected_lease)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto lease = leases_by_identity_.find(identity);
-    if (lease == leases_by_identity_.end())
+    const auto lease = leases_by_identity_.find(expected_lease.identity);
+    if (lease == leases_by_identity_.end() ||
+        lease->second.lease_id != expected_lease.lease_id ||
+        lease->second.address != expected_lease.address)
     {
         return false;
     }

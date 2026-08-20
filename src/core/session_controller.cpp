@@ -71,7 +71,7 @@ SessionResult SessionController::handle(const protocol::Frame& frame,
 
     if (frame.type == protocol::MessageType::DataIpv4 || frame.type == protocol::MessageType::Ping)
     {
-        const auto renewed = lease_manager_.renew(identity_, lease_->address, now);
+        const auto renewed = lease_manager_.renew(*lease_, now);
         if (!renewed.has_value())
         {
             return fail(SessionErrorCode::LeaseUnavailable,
@@ -167,7 +167,7 @@ std::optional<protocol::Frame> SessionController::make_data_to_client(
     {
         return std::nullopt;
     }
-    const auto renewed = lease_manager_.renew(identity_, lease_->address, now);
+    const auto renewed = lease_manager_.renew(*lease_, now);
     if (!renewed.has_value())
     {
         state_ = SessionState::Closing;
@@ -250,7 +250,7 @@ void SessionController::release_lease() noexcept
 {
     if (lease_)
     {
-        static_cast<void>(lease_manager_.release(identity_));
+        static_cast<void>(lease_manager_.release(*lease_));
         lease_.reset();
     }
 }

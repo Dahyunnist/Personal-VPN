@@ -22,6 +22,7 @@ using Ipv4Address = std::array<std::uint8_t, 4U>;
 
 struct Lease
 {
+    std::uint64_t lease_id{0U};
     std::string identity;
     Ipv4Address address{};
     std::chrono::steady_clock::time_point expires_at{};
@@ -45,13 +46,12 @@ class LeaseManager
     [[nodiscard]] Lease acquire(const std::string& identity, TimePoint now = Clock::now());
     [[nodiscard]] std::optional<Lease> find_by_identity(const std::string& identity,
                                                         TimePoint now = Clock::now());
-    [[nodiscard]] std::optional<Lease> renew(const std::string& identity,
-                                            const Ipv4Address& expected_address,
+    [[nodiscard]] std::optional<Lease> renew(const Lease& expected_lease,
                                             TimePoint now = Clock::now());
     [[nodiscard]] bool owns(const std::string& identity,
                             const Ipv4Address& address,
                             TimePoint now = Clock::now());
-    bool release(const std::string& identity);
+    bool release(const Lease& expected_lease);
     [[nodiscard]] std::size_t reap_expired(TimePoint now = Clock::now());
 
     [[nodiscard]] std::size_t active_count(TimePoint now = Clock::now());
@@ -73,6 +73,7 @@ class LeaseManager
     std::mutex mutex_;
     std::unordered_map<std::string, Lease> leases_by_identity_;
     std::unordered_map<std::uint32_t, std::string> identity_by_address_;
+    std::uint64_t next_lease_id_{1U};
 };
 
 } // namespace personal_vpn::core
