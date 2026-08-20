@@ -45,3 +45,15 @@ else()
 endif()
 
 add_test(NAME session_controller_tests COMMAND session_controller_tests)
+
+add_executable(outbound_frame_queue_tests outbound_frame_queue_tests.cpp)
+target_link_libraries(outbound_frame_queue_tests PRIVATE PersonalVPN::Core)
+target_compile_features(outbound_frame_queue_tests PRIVATE cxx_std_17)
+
+if(MSVC)
+    target_compile_options(outbound_frame_queue_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(outbound_frame_queue_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
+add_test(NAME outbound_frame_queue_tests COMMAND outbound_frame_queue_tests)

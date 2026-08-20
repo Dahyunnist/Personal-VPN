@@ -26,6 +26,7 @@ endif()
 
 add_library(personal_vpn_core
     src/core/lease_manager.cpp
+    src/core/outbound_frame_queue.cpp
     src/core/session_controller.cpp
 )
 
