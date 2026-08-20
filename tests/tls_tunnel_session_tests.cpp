@@ -152,7 +152,9 @@ void run_end_to_end_session(const std::string& ca_file,
                     leases,
                     [&packet_promise](const std::vector<std::uint8_t>& packet)
                     { packet_promise.set_value(packet); },
-                    [&closed_promise] { closed_promise.set_value(); });
+                    TlsTunnelSession::EstablishedHandler{},
+                    [&closed_promise](const std::optional<Ipv4Address>&, const TunnelPeer*)
+                    { closed_promise.set_value(); });
                 session_promise.set_value(session);
                 session->start();
                 server_io.run();

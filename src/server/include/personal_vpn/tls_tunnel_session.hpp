@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -28,11 +29,15 @@ class TlsTunnelSession final : public core::TunnelPeer,
     using Tcp = boost::asio::ip::tcp;
     using TlsStream = boost::asio::ssl::stream<Tcp::socket>;
     using PacketSink = std::function<void(const std::vector<std::uint8_t>&)>;
-    using CloseHandler = std::function<void()>;
+    using EstablishedHandler =
+        std::function<bool(const core::Ipv4Address&, const std::shared_ptr<core::TunnelPeer>&)>;
+    using CloseHandler =
+        std::function<void(const std::optional<core::Ipv4Address>&, const core::TunnelPeer*)>;
 
     TlsTunnelSession(TlsStream stream,
                      core::LeaseManager& lease_manager,
                      PacketSink packet_sink,
+                     EstablishedHandler established_handler,
                      CloseHandler close_handler,
                      std::size_t maximum_queued_frames = 256U,
                      std::size_t maximum_queued_bytes = 1U << 20U);
@@ -58,10 +63,12 @@ class TlsTunnelSession final : public core::TunnelPeer,
     boost::asio::strand<boost::asio::any_io_executor> strand_;
     core::LeaseManager& lease_manager_;
     PacketSink packet_sink_;
+    EstablishedHandler established_handler_;
     CloseHandler close_handler_;
     protocol::FrameDecoder decoder_;
     core::OutboundFrameQueue outbound_queue_;
     std::unique_ptr<core::SessionController> controller_;
+    std::optional<core::Ipv4Address> route_address_;
     std::array<std::uint8_t, 64U * 1024U> read_buffer_{};
     bool write_in_progress_{false};
     bool close_after_write_{false};

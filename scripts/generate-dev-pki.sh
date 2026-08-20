@@ -52,6 +52,22 @@ openssl x509 -req -sha256 -days 30 \
     -copy_extensions copy \
     -out "$output_directory/client.crt"
 
+openssl req -new -newkey rsa:3072 -sha256 -nodes \
+    -keyout "$output_directory/client-2.key" \
+    -out "$output_directory/client-2.csr" \
+    -subj "/CN=integration-test-client-2" \
+    -addext "basicConstraints=critical,CA:FALSE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+    -addext "extendedKeyUsage=clientAuth"
+
+openssl x509 -req -sha256 -days 30 \
+    -in "$output_directory/client-2.csr" \
+    -CA "$output_directory/ca.crt" \
+    -CAkey "$output_directory/ca.key" \
+    -CAserial "$output_directory/ca.srl" \
+    -copy_extensions copy \
+    -out "$output_directory/client-2.crt"
+
 chmod 600 "$output_directory"/*.key
 verification_time=$(($(date +%s) + 300))
 openssl verify -CAfile "$output_directory/ca.crt" \
@@ -60,3 +76,6 @@ openssl verify -CAfile "$output_directory/ca.crt" \
 openssl verify -CAfile "$output_directory/ca.crt" \
     -attime "$verification_time" \
     -purpose sslclient "$output_directory/client.crt"
+openssl verify -CAfile "$output_directory/ca.crt" \
+    -attime "$verification_time" \
+    -purpose sslclient "$output_directory/client-2.crt"

@@ -14,6 +14,7 @@ namespace personal_vpn::server
 TlsTunnelSession::TlsTunnelSession(TlsStream stream,
                                    core::LeaseManager& lease_manager,
                                    PacketSink packet_sink,
+                                   EstablishedHandler established_handler,
                                    CloseHandler close_handler,
                                    const std::size_t maximum_queued_frames,
                                    const std::size_t maximum_queued_bytes)
@@ -21,6 +22,7 @@ TlsTunnelSession::TlsTunnelSession(TlsStream stream,
       strand_(boost::asio::make_strand(stream_.get_executor())),
       lease_manager_(lease_manager),
       packet_sink_(std::move(packet_sink)),
+      established_handler_(std::move(established_handler)),
       close_handler_(std::move(close_handler)),
       outbound_queue_(maximum_queued_frames, maximum_queued_bytes)
 {
@@ -131,7 +133,19 @@ void TlsTunnelSession::handle_read(const boost::system::error_code& error,
         const auto frames = decoder_.push(read_buffer_.data(), bytes_transferred);
         for (const auto& frame : frames)
         {
-            apply_result(controller_->handle(frame));
+            auto result = controller_->handle(frame);
+            if (!route_address_ && controller_->state() == core::SessionState::Established &&
+                controller_->lease() != nullptr)
+            {
+                route_address_ = controller_->lease()->address;
+                if (established_handler_ &&
+                    !established_handler_(*route_address_, shared_from_this()))
+                {
+                    close_now();
+                    return;
+                }
+            }
+            apply_result(std::move(result));
             if (stopped_ || close_after_write_)
             {
                 break;
@@ -248,7 +262,7 @@ void TlsTunnelSession::close_now()
     if (close_handler_)
     {
         auto handler = std::move(close_handler_);
-        handler();
+        handler(route_address_, this);
     }
 }
 
