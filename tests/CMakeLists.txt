@@ -67,6 +67,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(tls_security_tests PRIVATE cxx_std_17)
     target_compile_options(tls_security_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
+    add_executable(tls_tunnel_session_tests tls_tunnel_session_tests.cpp)
+    target_link_libraries(tls_tunnel_session_tests PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(tls_tunnel_session_tests PRIVATE cxx_std_17)
+    target_compile_options(tls_tunnel_session_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
     add_test(
         NAME generate_test_pki
         COMMAND "${BASH_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/generate-dev-pki.sh"
@@ -84,4 +89,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
                 "${TEST_PKI_DIRECTORY}/client.key"
     )
     set_tests_properties(tls_security_tests PROPERTIES FIXTURES_REQUIRED test_pki)
+
+    add_test(
+        NAME tls_tunnel_session_tests
+        COMMAND tls_tunnel_session_tests
+                "${TEST_PKI_DIRECTORY}/ca.crt"
+                "${TEST_PKI_DIRECTORY}/server.crt"
+                "${TEST_PKI_DIRECTORY}/server.key"
+                "${TEST_PKI_DIRECTORY}/client.crt"
+                "${TEST_PKI_DIRECTORY}/client.key"
+    )
+    set_tests_properties(tls_tunnel_session_tests PROPERTIES
+        FIXTURES_REQUIRED test_pki
+        TIMEOUT 15
+    )
 endif()

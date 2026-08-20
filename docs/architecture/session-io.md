@@ -28,4 +28,13 @@ The initial limits are 256 frames and 1 MiB per session. A client that cannot dr
 
 ## Current boundary
 
-The transport library is built on Linux in both Debug and Release configurations. TLS handshake, peer-certificate identity extraction, TUN dispatch, and end-to-end loopback tests are added in the following security/server integration phases.
+The transport library is built on Linux in both Debug and Release configurations.
+Before any protocol bytes are accepted, the session completes a server-side mTLS
+handshake and derives its immutable identity from the verified client certificate.
+
+The loopback integration test crosses the real TLS record layer and asynchronous
+transport. It verifies fragmented `CLIENT_HELLO`, server-authoritative `IP_ASSIGN`,
+coalesced `PING` plus `DATA_IPV4`, bidirectional IPv4 delivery, monotonic outbound
+sequence numbers, prompt `CLOSE`, and lease release. Linux TUN ownership and the
+multi-session acceptor remain outside this library and are the next server-runtime
+integration boundary.
