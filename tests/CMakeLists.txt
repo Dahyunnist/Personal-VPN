@@ -58,6 +58,18 @@ endif()
 
 add_test(NAME outbound_frame_queue_tests COMMAND outbound_frame_queue_tests)
 
+add_executable(tunnel_router_tests tunnel_router_tests.cpp)
+target_link_libraries(tunnel_router_tests PRIVATE PersonalVPN::Core)
+target_compile_features(tunnel_router_tests PRIVATE cxx_std_17)
+
+if(MSVC)
+    target_compile_options(tunnel_router_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(tunnel_router_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
+add_test(NAME tunnel_router_tests COMMAND tunnel_router_tests)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     find_program(BASH_EXECUTABLE bash REQUIRED)
     set(TEST_PKI_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-pki")

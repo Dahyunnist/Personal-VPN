@@ -5,6 +5,7 @@
 #include "personal_vpn/outbound_frame_queue.hpp"
 #include "personal_vpn/protocol.hpp"
 #include "personal_vpn/session_controller.hpp"
+#include "personal_vpn/tunnel_router.hpp"
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -20,7 +21,8 @@
 namespace personal_vpn::server
 {
 
-class TlsTunnelSession : public std::enable_shared_from_this<TlsTunnelSession>
+class TlsTunnelSession final : public core::TunnelPeer,
+                               public std::enable_shared_from_this<TlsTunnelSession>
 {
    public:
     using Tcp = boost::asio::ip::tcp;
@@ -36,7 +38,7 @@ class TlsTunnelSession : public std::enable_shared_from_this<TlsTunnelSession>
                      std::size_t maximum_queued_bytes = 1U << 20U);
 
     void start();
-    void send_ipv4_from_tun(std::vector<std::uint8_t> packet);
+    void send_ipv4_from_tun(std::vector<std::uint8_t> packet) override;
     void stop();
 
     [[nodiscard]] TlsStream& stream() noexcept { return stream_; }
