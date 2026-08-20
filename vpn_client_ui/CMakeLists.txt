@@ -1,132 +1,85 @@
-cmake_minimum_required(VERSION 3.21)
+include(FetchContent)
 
-project(VPNClientUI VERSION 1.0 LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# ImGui路径
-set(IMGUI_DIR "D:/imgui/imgui" CACHE PATH "ImGui目录")
-set(IMGUI_BACKENDS_DIR "${IMGUI_DIR}/backends")
-
-# 检查ImGui是否存在
-if(NOT EXISTS "${IMGUI_DIR}/imgui.h")
-    message(FATAL_ERROR "未找到ImGui！请确保ImGui已下载到 D:/imgui/imgui/")
+if(NOT WIN32)
+    message(FATAL_ERROR "The Personal-VPN desktop client is Windows-only")
+endif()
+if(NOT TARGET PersonalVPN::ClientTransport OR NOT TARGET PersonalVPN::WindowsNetwork)
+    message(FATAL_ERROR
+        "Build from the repository root with PERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON")
 endif()
 
-# client路径（已复制到vpn_client_ui目录下）
-set(CLIENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/client")
-
-# ImGui核心源文件
-set(IMGUI_SOURCES
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-)
-
-# ImGui后端（Win32 + DirectX11）
-if(WIN32)
-    set(IMGUI_BACKENDS
-        ${IMGUI_BACKENDS_DIR}/imgui_impl_win32.cpp
-        ${IMGUI_BACKENDS_DIR}/imgui_impl_dx11.cpp
+set(PERSONAL_VPN_IMGUI_DIR "" CACHE PATH "Optional path to a Dear ImGui checkout")
+if(PERSONAL_VPN_IMGUI_DIR)
+    set(imgui_SOURCE_DIR "${PERSONAL_VPN_IMGUI_DIR}")
+else()
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG v1.91.9b
+        GIT_SHALLOW TRUE
     )
-    
-    # 检查后端文件
-    foreach(BACKEND ${IMGUI_BACKENDS})
-        if(NOT EXISTS "${BACKEND}")
-            message(FATAL_ERROR "未找到ImGui后端文件: ${BACKEND}")
-        endif()
-    endforeach()
+    FetchContent_MakeAvailable(imgui)
 endif()
 
-# VPN客户端核心逻辑
-set(VPN_CLIENT_SOURCES
-    vpn_client_core.cpp
-    vpn_client_core.h
+add_library(personal_vpn_imgui STATIC
+    "${imgui_SOURCE_DIR}/imgui.cpp"
+    "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+    "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+    "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
 )
+target_include_directories(personal_vpn_imgui PUBLIC
+    "${imgui_SOURCE_DIR}"
+    "${imgui_SOURCE_DIR}/backends"
+)
+target_compile_features(personal_vpn_imgui PUBLIC cxx_std_17)
+target_link_libraries(personal_vpn_imgui PRIVATE d3d11 dxgi)
 
-# 检查client目录是否存在
-if(NOT EXISTS "${CLIENT_DIR}/client.h")
-    message(FATAL_ERROR "未找到client目录！请确保client目录存在于: ${CLIENT_DIR}")
-endif()
-
-# 项目源文件
-set(PROJECT_SOURCES
+add_executable(personal-vpn-client WIN32
     main.cpp
     ui_main.cpp
     ui_main.h
-    ${VPN_CLIENT_SOURCES}
+    vpn_client_core.cpp
+    vpn_client_core.h
 )
-
-# 添加可执行文件
-add_executable(VPNClientUI
-    ${PROJECT_SOURCES}
-    ${IMGUI_SOURCES}
-    ${IMGUI_BACKENDS}
+target_compile_features(personal-vpn-client PRIVATE cxx_std_17)
+target_compile_definitions(personal-vpn-client PRIVATE
+    _WIN32_WINNT=0x0A00
+    WINVER=0x0A00
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
 )
-
-# 包含目录
-target_include_directories(VPNClientUI PRIVATE
-    ${IMGUI_DIR}
-    ${IMGUI_BACKENDS_DIR}
-    ${CLIENT_DIR}
-)
-
-# 编译vpn_base/client的client.cpp，但排除main函数
-# 由于不能修改原文件，我们创建一个包装文件
-set(CLIENT_CORE_IMPL "${CMAKE_CURRENT_SOURCE_DIR}/client_core_impl.cpp")
-if(NOT EXISTS "${CLIENT_CORE_IMPL}")
-    message(FATAL_ERROR "client_core_impl.cpp not found. Please create it by copying vpn_base/client/client.cpp and excluding main function.")
+if(MSVC)
+    target_compile_options(personal-vpn-client PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(personal-vpn-client PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
-
-# 添加client_core_impl.cpp到编译
-target_sources(VPNClientUI PRIVATE "${CLIENT_CORE_IMPL}")
-target_include_directories(VPNClientUI PRIVATE ${CLIENT_DIR})
-message(STATUS "Using client_core_impl.cpp (copied from client/client.cpp)")
-
-# Windows特定设置
-if(WIN32)
-    set_target_properties(VPNClientUI PROPERTIES
-        WIN32_EXECUTABLE ON
-        VERSION ${PROJECT_VERSION}
-        SOVERSION ${PROJECT_VERSION_MAJOR}
-    )
-endif()
-
-# 链接库
-target_link_libraries(VPNClientUI PRIVATE
-    # Windows系统库（ImGui需要）
+target_link_libraries(personal-vpn-client PRIVATE
+    PersonalVPN::ClientTransport
+    PersonalVPN::WindowsNetwork
+    personal_vpn_imgui
     user32
     gdi32
     d3d11
     dxgi
     dwmapi
     d3dcompiler
-    # VPN客户端需要的库
     ws2_32
-    iphlpapi
-    ole32
-    crypt32
-    advapi32
     shell32
-    # Boost和OpenSSL
-    boost_thread-mt
-    ssl
-    crypto
+    advapi32
 )
 
-# 复制wintun.dll至可执行文件同级目录
-set(WINTUN_DLL_PATH "${CLIENT_DIR}/wintun.dll")
-set(DEST_DLL_PATH "${CMAKE_CURRENT_BINARY_DIR}/wintun.dll")
-if(EXISTS "${WINTUN_DLL_PATH}")
-    add_custom_command(
-        TARGET VPNClientUI
-        POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WINTUN_DLL_PATH}" "${DEST_DLL_PATH}"
-        COMMENT "Copying wintun.dll to build directory..."
+set(PERSONAL_VPN_WINTUN_DLL "" CACHE FILEPATH "Path to a pinned Wintun DLL")
+if(PERSONAL_VPN_WINTUN_DLL)
+    add_custom_command(TARGET personal-vpn-client POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PERSONAL_VPN_WINTUN_DLL}"
+                "$<TARGET_FILE_DIR:personal-vpn-client>/wintun.dll"
+        VERBATIM
     )
 else()
-    message(WARNING "未找到wintun.dll，请确保文件存在于: ${WINTUN_DLL_PATH}")
+    message(WARNING "PERSONAL_VPN_WINTUN_DLL is unset; the client package will not be runnable")
 endif()
 
+install(TARGETS personal-vpn-client RUNTIME DESTINATION bin)

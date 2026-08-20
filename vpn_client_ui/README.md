@@ -1,310 +1,50 @@
-# VPN Client UI 使用说明
+# Personal-VPN Windows client
 
-## 项目简介
+The desktop client is a Win32/DirectX 11/Dear ImGui shell around the redesigned
+`ClientRuntime`. It no longer compiles the legacy duplicated client, accepts embedded
+private keys, asks the user to choose a TUN address, or assumes that one TLS read is
+one IP packet.
 
-VPN Client UI 是一个基于 ImGui 的 Windows VPN 客户端图形界面应用程序。它提供了直观的图形界面来管理 VPN 连接，支持配置导入、连接管理、实时日志查看和连接测试功能。
+## Runtime behavior
 
-## 功能特性
+- The profile is strictly validated before any privileged operation.
+- The exact configured DNS/IP identity is verified during mutual TLS.
+- The server assigns the client address, gateway, prefix, and negotiated MTU.
+- Wintun address, MTU, and all profile routes are applied transactionally.
+- The UI reports real runtime states; a successful `Start` call is not displayed as a
+  successful connection until TLS, protocol assignment, and Windows configuration all
+  complete.
+- Disconnect sends protocol `CLOSE`, interrupts the Wintun wait, joins both runtime
+  threads, and rolls back only network objects created by this connection.
 
-- ✅ **图形化界面**：现代化的 ImGui 界面，支持中文显示
-- ✅ **配置管理**：支持 JSON 格式配置文件导入
-- ✅ **连接管理**：一键连接/断开 VPN
-- ✅ **路由管理**：连接与路由分离，支持快速切换
-- ✅ **实时日志**：实时显示 VPN 客户端运行日志
-- ✅ **连接测试**：内置 ping 和 curl 测试功能
-- ✅ **多次连接**：支持多次连接/断开，无需重新建立连接
+The former shell-based ping/curl test was removed because it combined user-controlled
+text into a command line and did not prove tunnel protocol health. Connection status
+now comes from the authenticated protocol state machine.
 
-## 系统要求
+## Build
 
-- **操作系统**：Windows 7 或更高版本
-- **权限**：需要管理员权限（创建网络适配器）
-- **DirectX**：支持 DirectX 11
-- **依赖库**：
-  - Boost (thread)
-  - OpenSSL
-  - Wintun DLL
+Build from the repository root. A CMake toolchain (for example vcpkg) must provide
+Boost headers and OpenSSL for the selected Windows compiler.
 
-## 快速开始
-
-### 1. 编译项目
-
-#### 前置要求
-
-1. **安装 CMake** (3.21 或更高版本)
-2. **安装 ImGui**：
-   - 下载 ImGui 到 `D:/imgui/imgui/`
-   - 或修改 `CMakeLists.txt` 中的路径
-3. **安装依赖库**：
-   - Boost 库
-   - OpenSSL 库
-   - Windows SDK
-
-#### 编译步骤
-
-```bash
-# 1. 进入项目目录
-cd vpn_client_ui
-
-# 2. 创建构建目录
-mkdir build
-cd build
-
-# 3. 运行 CMake
-cmake ..
-
-# 4. 编译
-cmake --build .
-
-# 5. 确保 wintun.dll 在可执行文件目录
-# (CMake 会自动复制，如果存在)
+```powershell
+cmake -S . -B out/windows-client -A x64 `
+  -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON `
+  -DPERSONAL_VPN_BUILD_WINDOWS_UI=ON `
+  -DPERSONAL_VPN_WINTUN_DLL=C:/deps/wintun/bin/amd64/wintun.dll
+cmake --build out/windows-client --config Release --parallel
 ```
 
-### 2. 准备配置文件
-
-从 VPN 服务器获取 `config.json` 配置文件，格式如下：
-
-```json
-{
-    "server": {
-        "ip": "192.168.10.14",
-        "port": 10043
-    },
-    "tun": {
-        "ip": "10.8.0.2",
-        "mask": "24"
-    },
-    "certs": {
-        "client_crt": "-----BEGIN CERTIFICATE-----\n...",
-        "client_key": "<load from a local credential file; never commit it>",
-        "server_crt": "-----BEGIN CERTIFICATE-----\n..."
-    }
-}
-```
-
-### 3. 运行程序
-
-**重要**：必须以管理员身份运行！
-
-```bash
-# 方式 1：右键点击可执行文件，选择"以管理员身份运行"
-# 方式 2：在管理员命令提示符中运行
-VPNClientUI.exe
-```
-
-如果未以管理员身份运行，程序会提示并尝试自动以管理员身份重启。
-
-## 使用指南
-
-### 1. 导入配置文件
-
-1. 点击"浏览"按钮
-2. 选择 `config.json` 配置文件
-3. 配置文件信息会自动填充到界面
-
-**注意**：
-- 配置文件路径会显示在"配置文件路径"输入框中（只读）
-- 服务器 IP、端口和 TUN IP 会自动填充（只读）
-
-### 2. 输入路由 IP
-
-在"路由 IP"输入框中输入您希望通过 VPN 访问的目标 IP 地址。
-
-例如：
-- `110.242.68.66`
-- `8.8.8.8`
-
-### 3. 连接 VPN
-
-1. 确保已导入配置文件并输入路由 IP
-2. 点击"连接VPN"按钮, 连接到服务端，建立VPN隧道
-3. **如果是首次连接，需要再次点击"连接VPN"按钮**, 添加路由，将目标IP地址转发到VPN隧道
-4. 观察"日志输出"标签页中的连接日志
-5. 连接成功后，界面会显示"已连接"状态
-
-**连接过程**：
-- 首次连接：建立与服务器的 SSL/TLS 连接，然后添加路由
-- 再次连接：如果连接已存在，只需改变路由（更快）
-
-### 4. 测试连接
-
-连接成功后，可以点击"测试连接"按钮测试 VPN 连接：
-
-1. 点击"测试连接"按钮
-2. 等待测试完成（会执行 ping 和 curl 测试）
-3. 查看测试结果：
-   - **测试通过✓**：ping 和 curl 都成功
-   - **测试失败✗**：ping 或 curl 失败
-   - 详细输出显示在测试输出区域
-
-### 5. 断开连接
-
-点击"断开连接"按钮：
-
-- **断开路由**：删除路由规则，停止通过 VPN 访问目标 IP
-- **保持连接**：与服务器的连接保持活跃，可以快速重新连接
-
-### 6. 查看日志
-
-切换到"日志输出"标签页：
-
-- **实时日志**：显示 VPN 客户端的实时运行日志
-- **自动滚动**：新日志自动滚动到底部
-- **清除日志**：点击"清除日志"按钮清空日志
-
-**日志类型**：
-- 普通日志：白色文本
-- 错误日志：红色文本（如果支持）
-
-### 7. 重新连接
-
-断开后可以快速重新连接：
-
-1. 修改路由 IP（如果需要）
-2. 点击"连接VPN"按钮
-3. 由于连接已保持，只需添加路由，速度更快
-
-## 界面说明
-
-### 连接配置标签
-
-- **配置导入**：配置文件路径和浏览按钮
-- **设备配置**：
-  - 服务器 IP（只读）
-  - 服务器端口（只读）
-  - 客户端 TUN 设备 IP（只读）
-  - 路由 IP（可编辑）
-- **操作按钮**：
-  - 连接VPN：启动 VPN 连接
-  - 断开连接：停止 VPN 路由
-  - 测试连接：测试 VPN 连接
-- **测试结果**：显示测试状态和详细输出
-
-### 日志输出标签
-
-- **日志显示区域**：可滚动的日志列表
-- **清除日志按钮**：清空所有日志
-
-## 常见问题
-
-### Q: 程序启动时提示需要管理员权限
-
-**A**: VPN 客户端需要管理员权限来创建网络适配器。请右键点击程序，选择"以管理员身份运行"。
-
-### Q: 连接失败，提示"无法打开config.json"
-
-**A**: 
-- 检查配置文件路径是否正确
-- 确保配置文件格式正确（JSON 格式）
-- 检查文件权限
-
-### Q: 连接失败，提示"SSL handshake failed"
-
-**A**:
-- 检查服务器是否运行
-- 检查防火墙设置
-- 验证证书是否正确
-- 检查网络连接
-
-### Q: 路由添加失败
-
-**A**:
-- 确保以管理员身份运行
-- 检查 IP 地址格式是否正确
-- 检查是否已有相同路由
-
-### Q: 测试连接失败
-
-**A**:
-- 确保 VPN 已连接
-- 检查目标 IP 是否可达
-- 检查服务器端配置
-- 查看日志中的详细错误信息
-
-### Q: 程序关闭时出现错误对话框
-
-**A**: 这是已知问题，已在最新版本中修复。如果仍出现，可以：
-- 忽略错误对话框
-- 更新到最新版本
-
-### Q: 日志显示乱码
-
-**A**: 
-- 确保系统安装了中文字体（微软雅黑或黑体）
-- 检查系统区域设置
-
-## 技术细节
-
-### 连接与路由分离
-
-本客户端实现了连接与路由的分离设计：
-
-- **连接**：与服务器的 SSL/TLS 连接
-- **路由**：Windows 路由规则
-
-**优势**：
-- 断开时只删除路由，连接保持
-- 再次连接时只需添加路由，速度更快
-- 避免重复初始化和资源清理问题
-
-### 日志重定向
-
-客户端通过 `std::streambuf` 重定向 `std::cout` 和 `std::cerr` 到 UI 界面，实现实时日志显示。
-
-### 资源管理
-
-- 使用 RAII 原则管理资源
-- 智能指针自动管理对象生命周期
-- 析构函数确保资源正确释放
-
-## 文件结构
-
-```
-vpn_client_ui/
-├── CMakeLists.txt          # CMake 构建配置
-├── main.cpp                # 程序入口（Win32 + DirectX11）
-├── ui_main.h/cpp           # UI 主逻辑
-├── vpn_client_core.h/cpp   # VPN 客户端核心包装层
-├── client_core_impl.cpp    # VPN 客户端实现
-├── client/                 # 客户端头文件
-│   ├── client.h
-│   └── wintun.dll
-└── README.md              # 本文件
-```
-
-## 依赖库
-
-### 系统库
-- `ws2_32` - Windows Socket API
-- `iphlpapi` - IP Helper API
-- `ole32` - OLE32
-- `crypt32` - Crypto API
-- `advapi32` - Advanced Windows API
-- `shell32` - Shell API
-- `user32`, `gdi32` - Windows GUI
-- `d3d11`, `dxgi`, `dwmapi`, `d3dcompiler` - DirectX 11
-
-### 第三方库
-- `boost_thread-mt` - Boost Thread
-- `ssl`, `crypto` - OpenSSL
-
-## 许可证
-
-本项目仅供学习和研究使用。
-
-## 技术支持
-
-如有问题或建议，请：
-1. 查看日志输出中的错误信息
-2. 检查配置文件格式
-3. 确保所有依赖库已正确安装
-4. 提交 Issue 或联系项目维护者
-
-## 更新日志
-
-### v1.0
-- 初始版本
-- 基本连接管理功能
-- 配置导入功能
-- 实时日志显示
-- 连接测试功能
-- 连接与路由分离设计
+Dear ImGui is fetched at the pinned `v1.91.9b` tag. Set
+`PERSONAL_VPN_IMGUI_DIR` to an existing checkout for offline builds. The Wintun DLL is
+not fetched implicitly: supply a pinned, independently verified DLL path and CMake
+copies it beside `personal-vpn-client.exe`.
+
+## Run
+
+The application requires an elevated token to create the Wintun interface and IP
+Helper entries. Import a schema-version-1 profile such as
+`vpn_base/client/config.example.json`, then click **连接VPN** once. Routes come from the
+profile; the client address is intentionally not editable.
+
+Private keys must be stored outside the repository with a per-user ACL. See
+`docs/security/client-configuration.md`.

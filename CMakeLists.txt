@@ -1,10 +1,23 @@
 cmake_minimum_required(VERSION 3.21)
 
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 project(PersonalVPN VERSION 0.1.0 LANGUAGES CXX)
 
 option(PERSONAL_VPN_BUILD_TESTS "Build unit tests" ON)
 option(PERSONAL_VPN_BUILD_LINUX_TRANSPORT "Build the Linux TLS session transport" ON)
+if(WIN32)
+    set(PERSONAL_VPN_CLIENT_TRANSPORT_DEFAULT OFF)
+else()
+    set(PERSONAL_VPN_CLIENT_TRANSPORT_DEFAULT ON)
+endif()
+option(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT
+       "Build the portable TLS client runtime"
+       ${PERSONAL_VPN_CLIENT_TRANSPORT_DEFAULT})
 option(PERSONAL_VPN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(PERSONAL_VPN_BUILD_WINDOWS_UI "Build the Windows desktop client" OFF)
 
 if(PERSONAL_VPN_WARNINGS_AS_ERRORS)
     if(MSVC)
@@ -34,9 +47,13 @@ else()
     target_compile_options(personal_vpn_protocol PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
+if((CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT) OR
+   PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
     find_package(Boost 1.74 REQUIRED)
     find_package(OpenSSL REQUIRED)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 
     add_library(personal_vpn_server_transport
         src/server/linux_tun_device.cpp
@@ -63,30 +80,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 
     target_compile_features(personal_vpn_server_transport PUBLIC cxx_std_17)
     target_compile_options(personal_vpn_server_transport PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
-
-    add_library(personal_vpn_client_transport
-        src/client/client_config.cpp
-        src/client/client_tls_security.cpp
-        src/client/tls_tunnel_client.cpp
-    )
-
-    add_library(PersonalVPN::ClientTransport ALIAS personal_vpn_client_transport)
-
-    target_include_directories(personal_vpn_client_transport
-        PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/client/include>
-    )
-
-    target_link_libraries(personal_vpn_client_transport
-        PUBLIC
-            PersonalVPN::Core
-            Boost::headers
-            OpenSSL::SSL
-            OpenSSL::Crypto
-    )
-
-    target_compile_features(personal_vpn_client_transport PUBLIC cxx_std_17)
-    target_compile_options(personal_vpn_client_transport PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
     add_executable(personal-vpn-server src/server/main.cpp)
     target_link_libraries(personal-vpn-server PRIVATE PersonalVPN::ServerTransport)
@@ -139,6 +132,41 @@ if(WIN32)
     else()
         target_compile_options(personal_vpn_windows_network PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
     endif()
+endif()
+
+if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+    add_library(personal_vpn_client_transport
+        src/client/client_config.cpp
+        src/client/client_runtime.cpp
+        src/client/client_tls_security.cpp
+        src/client/tls_tunnel_client.cpp
+    )
+    add_library(PersonalVPN::ClientTransport ALIAS personal_vpn_client_transport)
+    target_include_directories(personal_vpn_client_transport
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/client/include>
+    )
+    target_link_libraries(personal_vpn_client_transport
+        PUBLIC
+            PersonalVPN::Core
+            Boost::headers
+            OpenSSL::SSL
+            OpenSSL::Crypto
+    )
+    target_compile_features(personal_vpn_client_transport PUBLIC cxx_std_17)
+    if(MSVC)
+        target_compile_options(personal_vpn_client_transport PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(personal_vpn_client_transport
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+endif()
+
+if(PERSONAL_VPN_BUILD_WINDOWS_UI)
+    if(NOT WIN32)
+        message(FATAL_ERROR "PERSONAL_VPN_BUILD_WINDOWS_UI requires Windows")
+    endif()
+    add_subdirectory(vpn_client_ui)
 endif()
 
 if(PERSONAL_VPN_BUILD_TESTS)

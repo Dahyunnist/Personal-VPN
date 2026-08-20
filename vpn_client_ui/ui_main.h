@@ -48,16 +48,13 @@ private:
 
     // UI状态
     char m_configPath[512] = "";
-    char m_serverIp[64] = "";
+    char m_serverHost[256] = "";
     char m_serverPort[16] = "";
-    char m_tunIp[64] = "";
-    char m_routeIp[64] = "";
+    char m_routes[512] = "";
 
     bool m_isConnected = false;
+    bool m_isStarting = false;
     bool m_imguiInitialized = false;  // 标记 ImGui 是否已初始化
-    bool m_testInProgress = false;
-    std::string m_testStatus = "未测试";
-    std::string m_testOutput;
 
     // VPN客户端
     std::unique_ptr<VPNClientCore> m_vpnClient;
@@ -72,9 +69,7 @@ private:
     bool ImportConfig(const std::string& configPath);
     void StartVPN();
     void StopVPN();
-    void StartTest();
     void AddLog(const std::string& line, bool isError = false);
 };
 
 #endif // UI_MAIN_H
-

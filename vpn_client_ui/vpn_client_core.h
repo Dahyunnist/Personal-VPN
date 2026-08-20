@@ -1,64 +1,42 @@
 #ifndef VPN_CLIENT_CORE_H
 #define VPN_CLIENT_CORE_H
 
-#include <string>
-#include <thread>
+#include "personal_vpn/client_runtime.hpp"
+
 #include <atomic>
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
 
-// VPN客户端核心接口
-class VPNClientCore {
-public:
-    VPNClientCore();
+class VPNClientCore final
+{
+   public:
+    using LogCallback = std::function<void(const std::string&, bool)>;
+
+    VPNClientCore() = default;
     ~VPNClientCore();
 
-    // 启动VPN客户端（建立连接，但不添加路由）
-    // config_path: 配置文件路径
-    // log_callback: 日志回调函数 (line, is_error)
-    bool StartConnection(const std::string& config_path, 
-                        std::function<void(const std::string&, bool)> log_callback = nullptr);
+    VPNClientCore(const VPNClientCore&) = delete;
+    VPNClientCore& operator=(const VPNClientCore&) = delete;
 
-    // 添加路由（不建立新连接）
-    // route_ip: 路由IP
-    bool AddRoute(const std::string& route_ip);
-    
-    // 删除路由（不断开连接）
-    void RemoveRoute();
-    
-    // 启动VPN（如果未连接则建立连接，然后添加路由）
-    // config_path: 配置文件路径
-    // route_ip: 路由IP
-    // log_callback: 日志回调函数 (line, is_error)
-    bool Start(const std::string& config_path, const std::string& route_ip, 
-               std::function<void(const std::string&, bool)> log_callback = nullptr);
-
-    // 停止VPN（只删除路由，不断开连接）
+    bool Start(const std::string& config_path, LogCallback log_callback = {});
     void Stop();
-    
-    // 真正断开连接（在析构函数中调用）
-    void Disconnect();
-    
-    // 获取停止函数指针（用于调用vpn_base/client的停止函数）
-    static void StopVPNClient();
 
-    // 检查连接是否已建立
-    bool IsConnected() const { return m_connected; }
-    
-    // 检查路由是否已添加
-    bool IsRouteActive() const { return m_route_active; }
+    [[nodiscard]] bool IsConnected() const noexcept { return connected_.load(); }
+    [[nodiscard]] bool IsRunning() const noexcept { return running_.load(); }
+    [[nodiscard]] std::string LastError() const;
 
-private:
-    std::thread m_client_thread;
-    std::atomic<bool> m_connected{false};      // 连接是否已建立
-    std::atomic<bool> m_route_active{false}; // 路由是否已激活
-    std::atomic<bool> m_should_stop{false};
-    std::function<void(const std::string&, bool)> m_log_callback;
-    std::string m_config_path;
-    std::string m_current_route_ip;
-    
-    // 内部实现函数
-    void RunClient(const std::string& config_path, const std::string& route_ip);
+   private:
+    void OnRuntimeEvent(const personal_vpn::client::ClientRuntimeEvent& event);
+    void Log(const std::string& message, bool is_error) const;
+
+    mutable std::mutex mutex_;
+    std::unique_ptr<personal_vpn::client::ClientRuntime> runtime_;
+    LogCallback log_callback_;
+    std::atomic<bool> connected_{false};
+    std::atomic<bool> running_{false};
+    std::string last_error_;
 };
 
-#endif // VPN_CLIENT_CORE_H
-
+#endif

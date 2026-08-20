@@ -108,6 +108,11 @@ class WindowsNetworkBackend::Impl
         {
             throw std::invalid_argument("Wintun adapter name must contain 1 to 128 characters");
         }
+        interrupt_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (interrupt_event_ == nullptr)
+        {
+            throw_windows_error("create Wintun interrupt event", GetLastError());
+        }
     }
 
     ~Impl()
@@ -118,6 +123,7 @@ class WindowsNetworkBackend::Impl
         {
             FreeLibrary(module_);
         }
+        CloseHandle(interrupt_event_);
     }
 
     void load_library()
@@ -193,6 +199,7 @@ class WindowsNetworkBackend::Impl
             throw std::logic_error("Wintun session requires one open adapter and no prior session");
         }
         constexpr DWORD ring_capacity = 4U * 1024U * 1024U;
+        ResetEvent(interrupt_event_);
         session_ = start_session_(adapter_, ring_capacity);
         if (session_ == nullptr)
         {
@@ -284,6 +291,7 @@ class WindowsNetworkBackend::Impl
 
     void stop_packet_session() noexcept
     {
+        interrupt_receive();
         if (session_ != nullptr)
         {
             end_session_(session_);
@@ -302,10 +310,30 @@ class WindowsNetworkBackend::Impl
         luid_.Value = 0U;
     }
 
-    void* read_wait_handle() const noexcept
+    std::optional<std::vector<std::uint8_t>> receive_packet() const
     {
-        return session_ == nullptr ? nullptr : get_read_wait_event_(session_);
+        require_session();
+        const HANDLE events[]{interrupt_event_, get_read_wait_event_(session_)};
+        for (;;)
+        {
+            const auto result = WaitForMultipleObjects(2U, events, FALSE, INFINITE);
+            if (result == WAIT_OBJECT_0)
+            {
+                return std::nullopt;
+            }
+            if (result != WAIT_OBJECT_0 + 1U)
+            {
+                throw_windows_error("wait for Wintun packet", GetLastError());
+            }
+            auto packet = try_receive_packet();
+            if (packet.has_value())
+            {
+                return packet;
+            }
+        }
     }
+
+    void interrupt_receive() const noexcept { SetEvent(interrupt_event_); }
 
     std::optional<std::vector<std::uint8_t>> try_receive_packet() const
     {
@@ -381,6 +409,7 @@ class WindowsNetworkBackend::Impl
 
     std::wstring adapter_name_;
     HMODULE module_{nullptr};
+    HANDLE interrupt_event_{nullptr};
     AdapterHandle adapter_{nullptr};
     SessionHandle session_{nullptr};
     NET_LUID luid_{};
@@ -430,11 +459,11 @@ void WindowsNetworkBackend::remove_interface_address(const InterfaceAddress& add
 }
 void WindowsNetworkBackend::stop_packet_session() noexcept { impl_->stop_packet_session(); }
 void WindowsNetworkBackend::close_adapter() noexcept { impl_->close_adapter(); }
-void* WindowsNetworkBackend::read_wait_handle() const noexcept { return impl_->read_wait_handle(); }
-std::optional<std::vector<std::uint8_t>> WindowsNetworkBackend::try_receive_packet()
+std::optional<std::vector<std::uint8_t>> WindowsNetworkBackend::receive_packet()
 {
-    return impl_->try_receive_packet();
+    return impl_->receive_packet();
 }
+void WindowsNetworkBackend::interrupt_receive() noexcept { impl_->interrupt_receive(); }
 void WindowsNetworkBackend::send_packet(const std::vector<std::uint8_t>& packet)
 {
     impl_->send_packet(packet);

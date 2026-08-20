@@ -12,7 +12,7 @@
 namespace personal_vpn::client
 {
 
-class WindowsNetworkBackend final : public ClientNetworkBackend
+class WindowsNetworkBackend final : public ClientPacketDevice
 {
    public:
     explicit WindowsNetworkBackend(std::wstring adapter_name = L"PersonalVPN");
@@ -33,9 +33,9 @@ class WindowsNetworkBackend final : public ClientNetworkBackend
     void stop_packet_session() noexcept override;
     void close_adapter() noexcept override;
 
-    [[nodiscard]] void* read_wait_handle() const noexcept;
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> try_receive_packet();
-    void send_packet(const std::vector<std::uint8_t>& packet);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>> receive_packet() override;
+    void interrupt_receive() noexcept override;
+    void send_packet(const std::vector<std::uint8_t>& packet) override;
 
    private:
     class Impl;

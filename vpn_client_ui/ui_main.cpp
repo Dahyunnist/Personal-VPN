@@ -1,14 +1,8 @@
 #include "ui_main.h"
-#include <nlohmann/json.hpp>
-#include <regex>
-#include <chrono>
-#include <iomanip>
-#include <sstream>
-#include <process.h>
-#include <shlobj.h>
-#include <fstream>
+#include "personal_vpn/client_config.hpp"
 
-using json = nlohmann::json;
+#include <cstring>
+#include <exception>
 
 UIMain::UIMain() {
     m_vpnClient = std::make_unique<VPNClientCore>();
@@ -135,138 +129,68 @@ std::string UIMain::OpenFileDialog(const char* filter) {
 }
 
 bool UIMain::ImportConfig(const std::string& configPath) {
-    std::ifstream file(configPath);
-    if (!file.is_open()) {
-        AddLog("无法打开配置文件: " + configPath, true);
-        return false;
-    }
-
     try {
-        json config = json::parse(file);
-        
-        if (config.contains("server") && config["server"].is_object()) {
-            auto server = config["server"];
-            if (server.contains("ip") && server["ip"].is_string()) {
-                strncpy_s(m_serverIp, server["ip"].get<std::string>().c_str(), sizeof(m_serverIp) - 1);
+        const auto config = personal_vpn::client::load_client_config(configPath);
+        strncpy_s(m_serverHost, config.server_host.c_str(), _TRUNCATE);
+        snprintf(m_serverPort, sizeof(m_serverPort), "%u",
+                 static_cast<unsigned int>(config.server_port));
+        std::string routes;
+        for (const auto& route : config.routes) {
+            if (!routes.empty()) {
+                routes += ", ";
             }
-            if (server.contains("port") && server["port"].is_number()) {
-                snprintf(m_serverPort, sizeof(m_serverPort), "%d", server["port"].get<int>());
-            }
+            routes += route;
         }
-        
-        if (config.contains("tun") && config["tun"].is_object()) {
-            auto tun = config["tun"];
-            if (tun.contains("ip") && tun["ip"].is_string()) {
-                strncpy_s(m_tunIp, tun["ip"].get<std::string>().c_str(), sizeof(m_tunIp) - 1);
-            }
-        }
-        
-        strncpy_s(m_configPath, configPath.c_str(), sizeof(m_configPath) - 1);
-        AddLog("配置文件导入成功: " + configPath);
+        strncpy_s(m_routes, routes.c_str(), _TRUNCATE);
+        strncpy_s(m_configPath, configPath.c_str(), _TRUNCATE);
+        AddLog("配置文件校验成功；虚拟地址将由服务器分配");
         return true;
-    } catch (...) {
-        AddLog("配置文件格式错误", true);
+    } catch (const std::exception& error) {
+        AddLog(std::string("配置文件无效：") + error.what(), true);
         return false;
     }
 }
 
 void UIMain::AddLog(const std::string& line, bool isError) {
     std::lock_guard<std::mutex> lock(m_logMutex);
-    m_logLines.push_back(line);
+    m_logLines.push_back(isError ? "[错误] " + line : line);
     if (m_logLines.size() > MAX_LOG_LINES) {
         m_logLines.erase(m_logLines.begin());
     }
 }
 
 void UIMain::StartVPN() {
-    if (m_isConnected) {
-        return; // 路由已激活
-    }
-
-    if (strlen(m_configPath) == 0 || strlen(m_routeIp) == 0) {
-        AddLog("请先导入配置文件并输入路由IP", true);
+    if (m_isConnected || m_isStarting) {
         return;
     }
 
-    if (strlen(m_serverIp) == 0 || strlen(m_serverPort) == 0 || strlen(m_tunIp) == 0) {
-        AddLog("配置文件信息不完整", true);
+    if (strlen(m_configPath) == 0) {
+        AddLog("请先导入有效配置文件", true);
         return;
     }
-
-    AddLog("正在启动VPN路由...");
+    AddLog("正在建立 mTLS 隧道并等待服务器分配地址...");
     
     auto logCallback = [this](const std::string& line, bool isError) {
         AddLog(line, isError);
     };
 
-    // 如果未连接，Start 会自动建立连接；如果已连接，只添加路由
-    if (m_vpnClient->Start(m_configPath, m_routeIp, logCallback)) {
-        m_isConnected = true;
-        AddLog("VPN路由已激活");
+    if (m_vpnClient->Start(m_configPath, logCallback)) {
+        m_isStarting = true;
     } else {
-        AddLog("启动VPN路由失败", true);
+        AddLog("启动请求失败", true);
     }
 }
 
 void UIMain::StopVPN() {
-    if (!m_isConnected) {
+    if (!m_isConnected && !m_isStarting) {
         return;
     }
 
-    AddLog("正在停止VPN路由...");
-    m_vpnClient->Stop();  // 只删除路由，不断开连接
+    AddLog("正在安全断开并回滚网络配置...");
+    m_vpnClient->Stop();
     m_isConnected = false;
-    AddLog("VPN路由已停止（连接保持）");
-}
-
-void UIMain::StartTest() {
-    if (!m_isConnected) {
-        AddLog("请先连接VPN", true);
-        return;
-    }
-
-    std::string target = strlen(m_routeIp) > 0 ? m_routeIp : "1.1.1.1";
-    m_testInProgress = true;
-    m_testStatus = "测试中...";
-    m_testOutput = "=== 开始测试 ===\n目标: " + target + "\n\n";
-
-    std::thread([this, target]() {
-        std::ostringstream cmd;
-        cmd << "cmd.exe /c \"(ping -n 4 -w 2000 " << target 
-            << " && curl -v -m 5 http://" << target 
-            << ") || echo 测试失败; exit 0\"";
-
-        FILE* pipe = _popen(cmd.str().c_str(), "r");
-        if (pipe) {
-            char buffer[128];
-            std::string result;
-            while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-                result += buffer;
-            }
-            _pclose(pipe);
-
-            m_testOutput += result;
-            m_testOutput += "\n=== 测试结束 ===\n";
-
-            std::regex pingRegex("TTL=|往返行程的估计时间|Average =", std::regex_constants::icase);
-            std::regex curlRegex("HTTP/\\d+\\.\\d+ (200|301|302)", std::regex_constants::icase);
-            
-            bool pingSuccess = std::regex_search(result, pingRegex);
-            bool curlSuccess = std::regex_search(result, curlRegex);
-
-            if (pingSuccess && curlSuccess) {
-                m_testStatus = "测试通过✓";
-            } else {
-                m_testStatus = "测试失败✗";
-            }
-
-            m_testInProgress = false;
-        } else {
-            m_testOutput += "无法启动测试进程\n";
-            m_testStatus = "测试失败✗";
-            m_testInProgress = false;
-        }
-    }).detach();
+    m_isStarting = false;
+    AddLog("VPN 已断开，地址、MTU 和路由已回滚");
 }
 
 void UIMain::Render() {
@@ -290,7 +214,7 @@ void UIMain::Render() {
                 ImGui::InputText("配置文件路径", m_configPath, sizeof(m_configPath), 
                     ImGuiInputTextFlags_ReadOnly);
                 ImGui::SameLine();
-                if (ImGui::Button("浏览") && !m_isConnected) {
+                if (ImGui::Button("浏览") && !m_isConnected && !m_isStarting) {
                     std::string path = OpenFileDialog("配置文件(*.json)\0*.json\0所有文件(*.*)\0*.*\0");
                     if (!path.empty()) {
                         ImportConfig(path);
@@ -302,45 +226,27 @@ void UIMain::Render() {
 
             // 设备配置栏
             if (ImGui::CollapsingHeader("设备配置", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::InputText("服务器IP", m_serverIp, sizeof(m_serverIp), 
+                ImGui::InputText("服务器地址", m_serverHost, sizeof(m_serverHost),
                     ImGuiInputTextFlags_ReadOnly);
                 ImGui::InputText("服务器端口", m_serverPort, sizeof(m_serverPort), 
                     ImGuiInputTextFlags_ReadOnly);
-                ImGui::InputText("客户端TUN设备IP", m_tunIp, sizeof(m_tunIp), 
+                ImGui::InputText("隧道路由", m_routes, sizeof(m_routes),
                     ImGuiInputTextFlags_ReadOnly);
-                ImGui::InputText("路由IP", m_routeIp, sizeof(m_routeIp), 
-                    m_isConnected ? ImGuiInputTextFlags_ReadOnly : 0);
+                ImGui::TextUnformatted("客户端地址与网关由服务器在认证后分配");
             }
 
             ImGui::Spacing();
 
             // 连接/断开按钮
-            if (ImGui::Button("连接VPN", ImVec2(150, 40)) && !m_isConnected) {
+            if (ImGui::Button("连接VPN", ImVec2(150, 40)) && !m_isConnected && !m_isStarting) {
                 StartVPN();
             }
             ImGui::SameLine();
-            if (ImGui::Button("断开连接", ImVec2(150, 40)) && m_isConnected) {
+            if (ImGui::Button("断开连接", ImVec2(150, 40)) && (m_isConnected || m_isStarting)) {
                 StopVPN();
             }
             ImGui::SameLine();
-            if (ImGui::Button("测试连接", ImVec2(150, 40)) && m_isConnected && !m_testInProgress) {
-                StartTest();
-            }
-
-            if (m_testInProgress) {
-                ImGui::SameLine();
-                ImGui::Text("测试中...");
-            }
-
-            ImGui::Spacing();
-            ImGui::Text("测试状态: %s", m_testStatus.c_str());
-
-            if (!m_testOutput.empty()) {
-                ImGui::Spacing();
-                ImGui::BeginChild("TestOutput", ImVec2(0, 150), true);
-                ImGui::TextUnformatted(m_testOutput.c_str());
-                ImGui::EndChild();
-            }
+            ImGui::TextUnformatted(m_isConnected ? "已连接" : (m_isStarting ? "连接中" : "未连接"));
 
             ImGui::EndTabItem();
         }
@@ -382,6 +288,6 @@ void UIMain::Render() {
 }
 
 void UIMain::Update() {
-    // 更新逻辑
+    m_isConnected = m_vpnClient->IsConnected();
+    m_isStarting = m_vpnClient->IsRunning() && !m_isConnected;
 }
-

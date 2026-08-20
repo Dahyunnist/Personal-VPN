@@ -55,6 +55,17 @@ class ClientNetworkBackend
     virtual void close_adapter() noexcept = 0;
 };
 
+class ClientPacketDevice : public ClientNetworkBackend
+{
+   public:
+    ~ClientPacketDevice() override = default;
+
+    // Blocks until one packet is available or interrupt_receive() is called.
+    [[nodiscard]] virtual std::optional<std::vector<std::uint8_t>> receive_packet() = 0;
+    virtual void interrupt_receive() noexcept = 0;
+    virtual void send_packet(const std::vector<std::uint8_t>& packet) = 0;
+};
+
 class ClientNetworkTransaction final
 {
    public:
