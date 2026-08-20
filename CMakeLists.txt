@@ -64,6 +64,29 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(personal_vpn_server_transport PUBLIC cxx_std_17)
     target_compile_options(personal_vpn_server_transport PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
+    add_library(personal_vpn_client_transport
+        src/client/client_tls_security.cpp
+        src/client/tls_tunnel_client.cpp
+    )
+
+    add_library(PersonalVPN::ClientTransport ALIAS personal_vpn_client_transport)
+
+    target_include_directories(personal_vpn_client_transport
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/client/include>
+    )
+
+    target_link_libraries(personal_vpn_client_transport
+        PUBLIC
+            PersonalVPN::Core
+            Boost::headers
+            OpenSSL::SSL
+            OpenSSL::Crypto
+    )
+
+    target_compile_features(personal_vpn_client_transport PUBLIC cxx_std_17)
+    target_compile_options(personal_vpn_client_transport PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
     add_executable(personal-vpn-server src/server/main.cpp)
     target_link_libraries(personal-vpn-server PRIVATE PersonalVPN::ServerTransport)
     target_compile_features(personal-vpn-server PRIVATE cxx_std_17)

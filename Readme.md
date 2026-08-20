@@ -15,6 +15,7 @@ Personal-VPN is an educational cross-platform IP tunnel prototype written in C++
 - Serialized asynchronous TLS and Linux TUN I/O with backpressure
 - Multi-client Linux server runtime with admission control
 - Cross-platform core tests and Linux end-to-end integration tests
+- Portable, serialized mTLS client transport with bounded writes and strict hostname verification
 
 The redesigned Linux server now builds as `personal-vpn-server`. Host interface,
 forwarding, and firewall configuration remain explicit deployment responsibilities;
