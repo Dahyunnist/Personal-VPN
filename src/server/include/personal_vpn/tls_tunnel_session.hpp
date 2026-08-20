@@ -35,14 +35,15 @@ class TlsTunnelSession : public std::enable_shared_from_this<TlsTunnelSession>
                      std::size_t maximum_queued_frames = 256U,
                      std::size_t maximum_queued_bytes = 1U << 20U);
 
-    void start(std::string authenticated_identity);
+    void start();
     void send_ipv4_from_tun(std::vector<std::uint8_t> packet);
     void stop();
 
     [[nodiscard]] TlsStream& stream() noexcept { return stream_; }
 
    private:
-    void start_on_strand(std::string authenticated_identity);
+    void start_on_strand();
+    void handle_handshake(const boost::system::error_code& error);
     void read_next();
     void handle_read(const boost::system::error_code& error, std::size_t bytes_transferred);
     void apply_result(core::SessionResult result);

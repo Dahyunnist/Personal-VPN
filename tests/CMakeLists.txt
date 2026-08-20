@@ -57,3 +57,31 @@ else()
 endif()
 
 add_test(NAME outbound_frame_queue_tests COMMAND outbound_frame_queue_tests)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
+    find_program(BASH_EXECUTABLE bash REQUIRED)
+    set(TEST_PKI_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-pki")
+
+    add_executable(tls_security_tests tls_security_tests.cpp)
+    target_link_libraries(tls_security_tests PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(tls_security_tests PRIVATE cxx_std_17)
+    target_compile_options(tls_security_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
+    add_test(
+        NAME generate_test_pki
+        COMMAND "${BASH_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/generate-dev-pki.sh"
+                "${TEST_PKI_DIRECTORY}"
+    )
+    set_tests_properties(generate_test_pki PROPERTIES FIXTURES_SETUP test_pki)
+
+    add_test(
+        NAME tls_security_tests
+        COMMAND tls_security_tests
+                "${TEST_PKI_DIRECTORY}/ca.crt"
+                "${TEST_PKI_DIRECTORY}/server.crt"
+                "${TEST_PKI_DIRECTORY}/server.key"
+                "${TEST_PKI_DIRECTORY}/client.crt"
+                "${TEST_PKI_DIRECTORY}/client.key"
+    )
+    set_tests_properties(tls_security_tests PROPERTIES FIXTURES_REQUIRED test_pki)
+endif()

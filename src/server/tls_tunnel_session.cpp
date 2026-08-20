@@ -1,5 +1,7 @@
 #include "personal_vpn/tls_tunnel_session.hpp"
 
+#include "personal_vpn/tls_security.hpp"
+
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/write.hpp>
 
@@ -24,12 +26,9 @@ TlsTunnelSession::TlsTunnelSession(TlsStream stream,
 {
 }
 
-void TlsTunnelSession::start(std::string authenticated_identity)
+void TlsTunnelSession::start()
 {
-    boost::asio::dispatch(
-        strand_,
-        [self = shared_from_this(), identity = std::move(authenticated_identity)]() mutable
-        { self->start_on_strand(std::move(identity)); });
+    boost::asio::dispatch(strand_, [self = shared_from_this()] { self->start_on_strand(); });
 }
 
 void TlsTunnelSession::send_ipv4_from_tun(std::vector<std::uint8_t> packet)
@@ -63,16 +62,35 @@ void TlsTunnelSession::stop()
     boost::asio::post(strand_, [self = shared_from_this()] { self->close_now(); });
 }
 
-void TlsTunnelSession::start_on_strand(std::string authenticated_identity)
+void TlsTunnelSession::start_on_strand()
 {
     if (stopped_ || controller_)
     {
         return;
     }
+    stream_.async_handshake(
+        boost::asio::ssl::stream_base::server,
+        boost::asio::bind_executor(
+            strand_,
+            [self = shared_from_this()](const boost::system::error_code& error)
+            { self->handle_handshake(error); }));
+}
+
+void TlsTunnelSession::handle_handshake(const boost::system::error_code& error)
+{
+    if (stopped_)
+    {
+        return;
+    }
+    if (error)
+    {
+        close_now();
+        return;
+    }
     try
     {
-        controller_ =
-            std::make_unique<core::SessionController>(lease_manager_, std::move(authenticated_identity));
+        controller_ = std::make_unique<core::SessionController>(
+            lease_manager_, peer_certificate_sha256(stream_.native_handle()));
         read_next();
     }
     catch (const std::exception&)

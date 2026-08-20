@@ -26,10 +26,11 @@ else()
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
-    find_package(Boost 1.74 REQUIRED COMPONENTS system)
+    find_package(Boost 1.74 REQUIRED)
     find_package(OpenSSL REQUIRED)
 
     add_library(personal_vpn_server_transport
+        src/server/tls_security.cpp
         src/server/tls_tunnel_session.cpp
     )
 
@@ -43,8 +44,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_link_libraries(personal_vpn_server_transport
         PUBLIC
             PersonalVPN::Core
-            Boost::system
+            Boost::headers
             OpenSSL::SSL
+            OpenSSL::Crypto
     )
 
     target_compile_features(personal_vpn_server_transport PUBLIC cxx_std_17)
