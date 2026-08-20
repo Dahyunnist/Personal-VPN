@@ -84,6 +84,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(tls_tunnel_session_tests PRIVATE cxx_std_17)
     target_compile_options(tls_tunnel_session_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
+    add_executable(linux_tun_device_tests linux_tun_device_tests.cpp)
+    target_link_libraries(linux_tun_device_tests PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(linux_tun_device_tests PRIVATE cxx_std_17)
+    target_compile_options(linux_tun_device_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
+    add_test(NAME linux_tun_device_tests COMMAND linux_tun_device_tests)
+    set_tests_properties(linux_tun_device_tests PROPERTIES TIMEOUT 10)
+
     add_test(
         NAME generate_test_pki
         COMMAND "${BASH_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/generate-dev-pki.sh"
