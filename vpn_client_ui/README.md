@@ -75,7 +75,7 @@ cmake --build .
     },
     "certs": {
         "client_crt": "-----BEGIN CERTIFICATE-----\n...",
-        "client_key": "-----BEGIN PRIVATE KEY-----\n...",
+        "client_key": "<load from a local credential file; never commit it>",
         "server_crt": "-----BEGIN CERTIFICATE-----\n..."
     }
 }

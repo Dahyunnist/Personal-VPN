@@ -1,0 +1,16 @@
+{
+  "server": {
+    "host": "vpn.example.test",
+    "ip": "192.0.2.10",
+    "port": 10043
+  },
+  "tun": {
+    "ip": "10.8.0.2",
+    "mask": "24"
+  },
+  "certs": {
+    "server_ca_file": "credentials/ca.crt",
+    "client_certificate_file": "credentials/client.crt",
+    "client_private_key_file": "credentials/client.key"
+  }
+}
