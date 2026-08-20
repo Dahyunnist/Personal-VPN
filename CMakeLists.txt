@@ -24,6 +24,26 @@ else()
     target_compile_options(personal_vpn_protocol PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
 
+add_library(personal_vpn_core
+    src/core/lease_manager.cpp
+)
+
+add_library(PersonalVPN::Core ALIAS personal_vpn_core)
+
+target_include_directories(personal_vpn_core
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/core/include>
+)
+
+target_link_libraries(personal_vpn_core PUBLIC PersonalVPN::Protocol)
+target_compile_features(personal_vpn_core PUBLIC cxx_std_17)
+
+if(MSVC)
+    target_compile_options(personal_vpn_core PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(personal_vpn_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
 if(PERSONAL_VPN_BUILD_TESTS)
     include(CTest)
     add_subdirectory(tests)
