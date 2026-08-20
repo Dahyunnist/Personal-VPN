@@ -33,6 +33,18 @@ The 20-byte header is immediately followed by exactly `payload length` bytes. Re
 
 Control-message payload schemas and the connection state machine will be finalized before the protocol is connected to the legacy client and server. Unknown message types, versions, or flags are fatal protocol errors in v1.
 
+## Control payloads
+
+`CLIENT_HELLO` contains an unsigned 16-bit requested MTU, a zero 16-bit reserved field, and a 32-bit capability mask. The IPv4 capability bit is mandatory in v1.
+
+`IP_ASSIGN` is server-authoritative and contains, in order: the four-byte client IPv4 address, four-byte gateway IPv4 address, one-byte prefix length, one zero reserved byte, unsigned 16-bit MTU, and unsigned 32-bit lease duration in seconds. A client never selects or claims its own address.
+
+`PING` and `PONG` contain one unsigned 64-bit nonce. A `PONG` returns the nonce from the corresponding `PING`.
+
+`ERROR` contains an unsigned 16-bit error code followed by at most 1,024 bytes of diagnostic UTF-8 text. Sensitive configuration or packet data must not be included.
+
+`CLOSE` contains one unsigned 16-bit reason code.
+
 ## Decoder behavior
 
 - A partial header or partial payload is retained until more bytes arrive.

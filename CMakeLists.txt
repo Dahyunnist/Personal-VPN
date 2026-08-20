@@ -5,6 +5,7 @@ project(PersonalVPN VERSION 0.1.0 LANGUAGES CXX)
 option(PERSONAL_VPN_BUILD_TESTS "Build unit tests" ON)
 
 add_library(personal_vpn_protocol
+    src/protocol/control_messages.cpp
     src/protocol/protocol.cpp
 )
 
