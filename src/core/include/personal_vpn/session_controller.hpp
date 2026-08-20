@@ -48,6 +48,9 @@ class SessionController
 
     [[nodiscard]] SessionResult handle(const protocol::Frame& frame,
                                        LeaseManager::TimePoint now = LeaseManager::Clock::now());
+    [[nodiscard]] std::optional<protocol::Frame> make_data_to_client(
+        const std::vector<std::uint8_t>& packet,
+        LeaseManager::TimePoint now = LeaseManager::Clock::now());
     void on_transport_closed() noexcept;
 
     [[nodiscard]] SessionState state() const noexcept { return state_; }

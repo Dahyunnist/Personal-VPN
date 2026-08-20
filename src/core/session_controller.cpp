@@ -148,6 +148,36 @@ SessionResult SessionController::handle(const protocol::Frame& frame,
     return fail(SessionErrorCode::UnexpectedMessage, "unhandled tunnel message type");
 }
 
+std::optional<protocol::Frame> SessionController::make_data_to_client(
+    const std::vector<std::uint8_t>& packet,
+    const LeaseManager::TimePoint now)
+{
+    if (state_ != SessionState::Established || !lease_ || packet.size() < 20U ||
+        packet.size() > negotiated_mtu_)
+    {
+        return std::nullopt;
+    }
+    const auto version = static_cast<std::uint8_t>(packet[0] >> 4U);
+    const auto header_length = static_cast<std::size_t>(packet[0] & 0x0FU) * 4U;
+    const auto total_length = static_cast<std::size_t>(
+        (static_cast<std::uint16_t>(packet[2]) << 8U) | static_cast<std::uint16_t>(packet[3]));
+    const Ipv4Address destination{packet[16], packet[17], packet[18], packet[19]};
+    if (version != 4U || header_length < 20U || header_length > packet.size() ||
+        total_length != packet.size() || destination != lease_->address)
+    {
+        return std::nullopt;
+    }
+    const auto renewed = lease_manager_.renew(identity_, lease_->address, now);
+    if (!renewed.has_value())
+    {
+        state_ = SessionState::Closing;
+        release_lease();
+        return std::nullopt;
+    }
+    *lease_ = *renewed;
+    return make_outbound(protocol::MessageType::DataIpv4, packet);
+}
+
 void SessionController::on_transport_closed() noexcept
 {
     state_ = SessionState::Closed;

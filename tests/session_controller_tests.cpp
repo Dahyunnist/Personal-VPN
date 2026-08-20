@@ -224,6 +224,27 @@ void test_activity_renews_but_cannot_revive_expired_lease()
           "expired session reports lease error");
 }
 
+void test_server_to_client_packet_targets_lease()
+{
+    auto manager = make_manager();
+    const auto now = LeaseManager::TimePoint{};
+    SessionController controller(manager, "cert:alice");
+    establish(controller, now);
+
+    const auto valid = ipv4_packet(parse_ipv4_address("192.0.2.1"),
+                                   parse_ipv4_address("10.8.0.2"));
+    const auto frame = controller.make_data_to_client(valid, now);
+    check(frame.has_value() && frame->type == MessageType::DataIpv4 && frame->payload == valid,
+          "TUN packet addressed to lease becomes DATA_IPV4");
+    check(frame.has_value() && frame->sequence == 2U,
+          "server data shares the monotonic outbound sequence");
+
+    const auto unrelated = ipv4_packet(parse_ipv4_address("192.0.2.1"),
+                                       parse_ipv4_address("10.8.0.99"));
+    check(!controller.make_data_to_client(unrelated, now).has_value(),
+          "TUN packet for another address is not sent to session");
+}
+
 } // namespace
 
 int main()
@@ -236,6 +257,7 @@ int main()
     test_malformed_ipv4_is_rejected();
     test_pool_exhaustion_is_protocol_error();
     test_activity_renews_but_cannot_revive_expired_lease();
+    test_server_to_client_packet_targets_lease();
 
     if (failures != 0)
     {
