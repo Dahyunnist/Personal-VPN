@@ -1,5 +1,7 @@
 # Personal-VPN
 
+[![CI](https://github.com/Dahyunnist/Personal-VPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Dahyunnist/Personal-VPN/actions/workflows/ci.yml)
+
 Personal-VPN is an educational cross-platform IP tunnel prototype written in C++. It connects a Windows client using Wintun to a Linux server using TUN, with TLS transport implemented with Boost.Asio and OpenSSL.
 
 > [!WARNING]

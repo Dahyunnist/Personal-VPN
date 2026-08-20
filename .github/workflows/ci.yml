@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Reject credentials and generated artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'; then
+            echo 'Private key material must not be committed.' >&2
+            exit 1
+          fi
+          forbidden=$(git ls-files | grep -E '(^|/)(out|build)/|\.(key|pem|p12|pfx|exe|dll|log)$|(^|/)config\.json$' || true)
+          if [[ -n "$forbidden" ]]; then
+            echo 'Generated or credential files are tracked:' >&2
+            echo "$forbidden" >&2
+            exit 1
+          fi
+
+  linux:
+    name: Linux ${{ matrix.build_type }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build libboost-dev libssl-dev
+      - name: Configure
+        run: >-
+          cmake -S . -B out/ci-linux-${{ matrix.build_type }} -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DPERSONAL_VPN_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build out/ci-linux-${{ matrix.build_type }} --parallel 2
+      - name: Test
+        run: ctest --test-dir out/ci-linux-${{ matrix.build_type }} --output-on-failure --timeout 30
+      - name: Verify install
+        if: matrix.build_type == 'Release'
+        run: |
+          cmake --install out/ci-linux-Release --prefix "$RUNNER_TEMP/personal-vpn"
+          "$RUNNER_TEMP/personal-vpn/bin/personal-vpn-server" --help >/dev/null
+
+  windows:
+    name: Windows core ${{ matrix.build_type }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B out/ci-windows -A x64
+          -DPERSONAL_VPN_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        shell: pwsh
+        run: cmake --build out/ci-windows --config ${{ matrix.build_type }} --parallel 2
+      - name: Test
+        shell: pwsh
+        run: ctest --test-dir out/ci-windows -C ${{ matrix.build_type }} --output-on-failure --timeout 30

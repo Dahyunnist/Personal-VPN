@@ -4,6 +4,15 @@ project(PersonalVPN VERSION 0.1.0 LANGUAGES CXX)
 
 option(PERSONAL_VPN_BUILD_TESTS "Build unit tests" ON)
 option(PERSONAL_VPN_BUILD_LINUX_TRANSPORT "Build the Linux TLS session transport" ON)
+option(PERSONAL_VPN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+if(PERSONAL_VPN_WARNINGS_AS_ERRORS)
+    if(MSVC)
+        add_compile_options(/WX)
+    else()
+        add_compile_options(-Werror)
+    endif()
+endif()
 
 add_library(personal_vpn_protocol
     src/protocol/control_messages.cpp
