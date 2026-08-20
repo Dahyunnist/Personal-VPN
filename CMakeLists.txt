@@ -96,6 +96,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 endif()
 
 add_library(personal_vpn_core
+    src/core/client_network_transaction.cpp
     src/core/client_session_controller.cpp
     src/core/lease_manager.cpp
     src/core/outbound_frame_queue.cpp
@@ -117,6 +118,27 @@ if(MSVC)
     target_compile_options(personal_vpn_core PRIVATE /W4 /permissive-)
 else()
     target_compile_options(personal_vpn_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
+if(WIN32)
+    add_library(personal_vpn_windows_network src/client/windows_network_backend.cpp)
+    add_library(PersonalVPN::WindowsNetwork ALIAS personal_vpn_windows_network)
+    target_include_directories(personal_vpn_windows_network
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/client/include>
+    )
+    target_link_libraries(personal_vpn_windows_network
+        PUBLIC PersonalVPN::Core
+        PRIVATE iphlpapi
+    )
+    target_compile_definitions(personal_vpn_windows_network
+        PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+    target_compile_features(personal_vpn_windows_network PUBLIC cxx_std_17)
+    if(MSVC)
+        target_compile_options(personal_vpn_windows_network PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(personal_vpn_windows_network PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
 endif()
 
 if(PERSONAL_VPN_BUILD_TESTS)
