@@ -12,6 +12,10 @@
 #include <memory>
 #include <stdexcept>
 
+#if defined(__unix__)
+#include <sys/stat.h>
+#endif
+
 namespace personal_vpn::server
 {
 namespace
@@ -90,6 +94,21 @@ boost::asio::ssl::context make_server_tls_context(const ServerTlsConfig& config)
     context.set_verify_mode(boost::asio::ssl::verify_peer |
                             boost::asio::ssl::verify_fail_if_no_peer_cert);
 
+    if (!config.client_crl_file.empty())
+    {
+        auto* store = SSL_CTX_get_cert_store(context.native_handle());
+        auto* lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file());
+        if (lookup == nullptr ||
+            X509_load_crl_file(lookup, config.client_crl_file.c_str(), X509_FILETYPE_PEM) != 1)
+        {
+            throw std::runtime_error(openssl_error("failed to load client certificate CRL"));
+        }
+        if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL) != 1)
+        {
+            throw std::runtime_error(openssl_error("failed to enable client CRL checking"));
+        }
+    }
+
     auto* native = context.native_handle();
     if (SSL_CTX_check_private_key(native) != 1)
     {
@@ -137,6 +156,30 @@ std::string peer_certificate_sha256(SSL* ssl_handle)
     X509Ptr certificate(SSL_get_peer_certificate(ssl_handle), &X509_free);
 #endif
     return certificate_sha256(certificate.get());
+}
+
+void validate_server_private_key_permissions(const std::string& private_key_file)
+{
+    if (private_key_file.empty())
+    {
+        throw std::invalid_argument("server private key path must not be empty");
+    }
+#if defined(__unix__)
+    struct stat status{};
+    if (::stat(private_key_file.c_str(), &status) != 0)
+    {
+        throw std::runtime_error("failed to inspect server private key permissions");
+    }
+    if (!S_ISREG(status.st_mode))
+    {
+        throw std::invalid_argument("server private key must be a regular file");
+    }
+    if ((status.st_mode & (S_IRWXG | S_IRWXO)) != 0)
+    {
+        throw std::invalid_argument(
+            "server private key must not grant group or other permissions");
+    }
+#endif
 }
 
 std::string certificate_file_sha256(const std::string& certificate_file)

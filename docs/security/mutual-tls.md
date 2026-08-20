@@ -35,13 +35,16 @@ production environment.
 Production deployments should issue a unique certificate per device through an
 external CA or secrets platform, store server keys in a restricted secret mount, and
 rotate certificates before expiry. Compromise response must revoke the affected
-device identity and terminate its active session. CRL/OCSP enforcement and live
-certificate reload are follow-up controls; until they are implemented, operators must
-remove compromised issuing trust and restart the service.
+device identity, publish a PEM CRL, and terminate its active session. `--client-crl`
+enables OpenSSL CRL checking for the full client chain. Trust, leaf certificates,
+keys, and CRLs are immutable for one server process lifetime; rotation uses a graceful
+service restart so an `SSL_CTX` is never mutated concurrently with handshakes.
 
 The integration test creates an isolated PKI and verifies these boundaries:
 
 1. a valid client and server complete an mTLS handshake;
 2. the server derives the exact client certificate fingerprint;
 3. a client without a certificate is rejected by the server; and
-4. a client rejects a server certificate with the wrong hostname.
+4. a client rejects a server certificate with the wrong hostname;
+5. an unrevoked client remains valid when CRL checking is enabled; and
+6. a client listed in the CRL is rejected during TLS authentication.

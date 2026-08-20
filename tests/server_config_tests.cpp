@@ -53,11 +53,17 @@ void test_defaults_and_overrides()
         "--lease-start", "10.9.0.10", "--lease-end", "10.9.0.20", "--gateway",
         "10.9.0.1", "--prefix-length", "24", "--mtu", "1280", "--lease-seconds",
         "120", "--threads", "4", "--max-sessions", "64"};
+    const std::vector<std::string> runtime_overrides{
+        "--handshake-timeout", "7", "--idle-timeout", "90", "--metrics-interval", "5",
+        "--client-crl", "clients.crl"};
     arguments.insert(arguments.end(), overrides.begin(), overrides.end());
+    arguments.insert(arguments.end(), runtime_overrides.begin(), runtime_overrides.end());
     const auto config = parse_server_arguments(arguments);
     check(config.listen_address == "127.0.0.1" && config.listen_port == 9'443U &&
               config.first_lease_address == "10.9.0.10" && config.worker_threads == 4U &&
-              config.maximum_sessions == 64U,
+              config.maximum_sessions == 64U && config.handshake_timeout_seconds == 7U &&
+              config.idle_timeout_seconds == 90U && config.metrics_interval_seconds == 5U &&
+              config.client_crl_file == "clients.crl",
           "explicit runtime options override defaults");
 }
 
@@ -82,6 +88,11 @@ void test_invalid_input_fails_before_privileged_io()
     auto invalid_threads = credentials();
     invalid_threads.insert(invalid_threads.end(), {"--threads", "257"});
     expect_invalid(invalid_threads, "excessive worker count is rejected");
+
+    auto invalid_handshake_timeout = credentials();
+    invalid_handshake_timeout.insert(invalid_handshake_timeout.end(),
+                                     {"--handshake-timeout", "0"});
+    expect_invalid(invalid_handshake_timeout, "zero handshake timeout is rejected");
 }
 
 void test_help_needs_no_credentials()

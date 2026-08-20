@@ -139,6 +139,7 @@ if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
         src/client/client_config.cpp
         src/client/client_runtime.cpp
         src/client/client_tls_security.cpp
+        src/client/credential_security.cpp
         src/client/tls_tunnel_client.cpp
     )
     add_library(PersonalVPN::ClientTransport ALIAS personal_vpn_client_transport)
@@ -154,6 +155,9 @@ if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
             OpenSSL::Crypto
     )
     target_compile_features(personal_vpn_client_transport PUBLIC cxx_std_17)
+    if(WIN32)
+        target_link_libraries(personal_vpn_client_transport PRIVATE advapi32)
+    endif()
     if(MSVC)
         target_compile_options(personal_vpn_client_transport PRIVATE /W4 /permissive-)
     else()

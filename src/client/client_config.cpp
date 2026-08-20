@@ -1,5 +1,6 @@
 #include "personal_vpn/client_config.hpp"
 
+#include "personal_vpn/credential_security.hpp"
 #include "personal_vpn/lease_manager.hpp"
 #include "personal_vpn/protocol.hpp"
 
@@ -210,6 +211,7 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
     config.ca_file = credential_path(directory, tls, "ca_file");
     config.certificate_chain_file = credential_path(directory, tls, "certificate_chain_file");
     config.private_key_file = credential_path(directory, tls, "private_key_file");
+    validate_private_key_permissions(config.private_key_file);
     config.requested_mtu = static_cast<std::uint16_t>(require_unsigned(
         tunnel,
         "requested_mtu",

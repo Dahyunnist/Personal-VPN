@@ -5,6 +5,7 @@
 #include "personal_vpn/outbound_frame_queue.hpp"
 #include "personal_vpn/protocol.hpp"
 #include "personal_vpn/session_controller.hpp"
+#include "personal_vpn/server_metrics.hpp"
 #include "personal_vpn/tunnel_router.hpp"
 
 #include <boost/asio.hpp>
@@ -13,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -40,7 +42,10 @@ class TlsTunnelSession final : public core::TunnelPeer,
                      EstablishedHandler established_handler,
                      CloseHandler close_handler,
                      std::size_t maximum_queued_frames = 256U,
-                     std::size_t maximum_queued_bytes = 1U << 20U);
+                     std::size_t maximum_queued_bytes = 1U << 20U,
+                     std::chrono::milliseconds handshake_timeout = std::chrono::seconds(10),
+                     std::chrono::milliseconds idle_timeout = std::chrono::minutes(5),
+                     ServerMetrics* metrics = nullptr);
 
     void start();
     void send_ipv4_from_tun(std::vector<std::uint8_t> packet) override;
@@ -57,6 +62,7 @@ class TlsTunnelSession final : public core::TunnelPeer,
     bool enqueue_frame(const protocol::Frame& frame);
     void write_next();
     void handle_write(const boost::system::error_code& error, std::size_t bytes_transferred);
+    void arm_idle_timeout();
     void close_now();
 
     TlsStream stream_;
@@ -67,12 +73,17 @@ class TlsTunnelSession final : public core::TunnelPeer,
     CloseHandler close_handler_;
     protocol::FrameDecoder decoder_;
     core::OutboundFrameQueue outbound_queue_;
+    boost::asio::steady_timer deadline_timer_;
+    const std::chrono::milliseconds handshake_timeout_;
+    const std::chrono::milliseconds idle_timeout_;
+    ServerMetrics* metrics_;
     std::unique_ptr<core::SessionController> controller_;
     std::optional<core::Ipv4Address> route_address_;
     std::array<std::uint8_t, 64U * 1024U> read_buffer_{};
     bool write_in_progress_{false};
     bool close_after_write_{false};
     bool stopped_{false};
+    bool established_counted_{false};
 };
 
 } // namespace personal_vpn::server

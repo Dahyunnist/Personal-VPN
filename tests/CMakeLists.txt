@@ -108,6 +108,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(tls_tunnel_session_tests PRIVATE cxx_std_17)
     target_compile_options(tls_tunnel_session_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
+    add_executable(session_timeout_tests session_timeout_tests.cpp)
+    target_link_libraries(session_timeout_tests PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(session_timeout_tests PRIVATE cxx_std_17)
+    target_compile_options(session_timeout_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
     add_executable(linux_tun_device_tests linux_tun_device_tests.cpp)
     target_link_libraries(linux_tun_device_tests PRIVATE PersonalVPN::ServerTransport)
     target_compile_features(linux_tun_device_tests PRIVATE cxx_std_17)
@@ -160,6 +165,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
                 "${TEST_PKI_DIRECTORY}/server.key"
                 "${TEST_PKI_DIRECTORY}/client.crt"
                 "${TEST_PKI_DIRECTORY}/client.key"
+                "${TEST_PKI_DIRECTORY}/client.crl"
+                "${TEST_PKI_DIRECTORY}/client-2.crt"
+                "${TEST_PKI_DIRECTORY}/client-2.key"
     )
     set_tests_properties(tls_security_tests PROPERTIES FIXTURES_REQUIRED test_pki)
 
@@ -175,6 +183,20 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     set_tests_properties(tls_tunnel_session_tests PROPERTIES
         FIXTURES_REQUIRED test_pki
         TIMEOUT 15
+    )
+
+    add_test(
+        NAME session_timeout_tests
+        COMMAND session_timeout_tests
+                "${TEST_PKI_DIRECTORY}/ca.crt"
+                "${TEST_PKI_DIRECTORY}/server.crt"
+                "${TEST_PKI_DIRECTORY}/server.key"
+                "${TEST_PKI_DIRECTORY}/client.crt"
+                "${TEST_PKI_DIRECTORY}/client.key"
+    )
+    set_tests_properties(session_timeout_tests PROPERTIES
+        FIXTURES_REQUIRED test_pki
+        TIMEOUT 10
     )
 
     add_test(

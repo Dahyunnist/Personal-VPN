@@ -17,15 +17,27 @@ TlsTunnelSession::TlsTunnelSession(TlsStream stream,
                                    EstablishedHandler established_handler,
                                    CloseHandler close_handler,
                                    const std::size_t maximum_queued_frames,
-                                   const std::size_t maximum_queued_bytes)
+                                   const std::size_t maximum_queued_bytes,
+                                   const std::chrono::milliseconds handshake_timeout,
+                                   const std::chrono::milliseconds idle_timeout,
+                                   ServerMetrics* const metrics)
     : stream_(std::move(stream)),
       strand_(boost::asio::make_strand(stream_.get_executor())),
       lease_manager_(lease_manager),
       packet_sink_(std::move(packet_sink)),
       established_handler_(std::move(established_handler)),
       close_handler_(std::move(close_handler)),
-      outbound_queue_(maximum_queued_frames, maximum_queued_bytes)
+      outbound_queue_(maximum_queued_frames, maximum_queued_bytes),
+      deadline_timer_(stream_.get_executor()),
+      handshake_timeout_(handshake_timeout),
+      idle_timeout_(idle_timeout),
+      metrics_(metrics)
 {
+    if (handshake_timeout_ <= std::chrono::milliseconds::zero() ||
+        idle_timeout_ <= std::chrono::milliseconds::zero())
+    {
+        throw std::invalid_argument("TLS session timeouts must be positive");
+    }
 }
 
 void TlsTunnelSession::start()
@@ -54,7 +66,16 @@ void TlsTunnelSession::send_ipv4_from_tun(std::vector<std::uint8_t> packet)
             }
             if (!self->enqueue_frame(*frame))
             {
+                if (self->metrics_)
+                {
+                    ++self->metrics_->queue_overflows;
+                }
                 self->close_now();
+            }
+            else if (self->metrics_)
+            {
+                ++self->metrics_->downlink_packets;
+                self->metrics_->downlink_bytes.fetch_add(packet.size());
             }
         });
 }
@@ -70,6 +91,20 @@ void TlsTunnelSession::start_on_strand()
     {
         return;
     }
+    deadline_timer_.expires_after(handshake_timeout_);
+    deadline_timer_.async_wait(boost::asio::bind_executor(
+        strand_,
+        [self = shared_from_this()](const boost::system::error_code& error)
+        {
+            if (!error && !self->stopped_ && !self->controller_)
+            {
+                if (self->metrics_)
+                {
+                    ++self->metrics_->handshake_timeouts;
+                }
+                self->close_now();
+            }
+        }));
     stream_.async_handshake(
         boost::asio::ssl::stream_base::server,
         boost::asio::bind_executor(
@@ -86,6 +121,10 @@ void TlsTunnelSession::handle_handshake(const boost::system::error_code& error)
     }
     if (error)
     {
+        if (metrics_)
+        {
+            ++metrics_->handshake_failures;
+        }
         close_now();
         return;
     }
@@ -93,6 +132,8 @@ void TlsTunnelSession::handle_handshake(const boost::system::error_code& error)
     {
         controller_ = std::make_unique<core::SessionController>(
             lease_manager_, peer_certificate_sha256(stream_.native_handle()));
+        static_cast<void>(deadline_timer_.cancel());
+        arm_idle_timeout();
         read_next();
     }
     catch (const std::exception&)
@@ -133,6 +174,7 @@ void TlsTunnelSession::handle_read(const boost::system::error_code& error,
         const auto frames = decoder_.push(read_buffer_.data(), bytes_transferred);
         for (const auto& frame : frames)
         {
+            arm_idle_timeout();
             auto result = controller_->handle(frame);
             if (!route_address_ && controller_->state() == core::SessionState::Established &&
                 controller_->lease() != nullptr)
@@ -143,6 +185,11 @@ void TlsTunnelSession::handle_read(const boost::system::error_code& error,
                 {
                     close_now();
                     return;
+                }
+                if (!established_counted_ && metrics_)
+                {
+                    ++metrics_->established_sessions;
+                    established_counted_ = true;
                 }
             }
             apply_result(std::move(result));
@@ -167,6 +214,11 @@ void TlsTunnelSession::apply_result(core::SessionResult result)
 {
     for (const auto& packet : result.packets_to_tun)
     {
+        if (metrics_)
+        {
+            ++metrics_->uplink_packets;
+            metrics_->uplink_bytes.fetch_add(packet.size());
+        }
         if (packet_sink_)
         {
             packet_sink_(packet);
@@ -176,6 +228,10 @@ void TlsTunnelSession::apply_result(core::SessionResult result)
     {
         if (!enqueue_frame(frame))
         {
+            if (metrics_)
+            {
+                ++metrics_->queue_overflows;
+            }
             close_now();
             return;
         }
@@ -188,6 +244,24 @@ void TlsTunnelSession::apply_result(core::SessionResult result)
             close_now();
         }
     }
+}
+
+void TlsTunnelSession::arm_idle_timeout()
+{
+    deadline_timer_.expires_after(idle_timeout_);
+    deadline_timer_.async_wait(boost::asio::bind_executor(
+        strand_,
+        [self = shared_from_this()](const boost::system::error_code& error)
+        {
+            if (!error && !self->stopped_)
+            {
+                if (self->metrics_)
+                {
+                    ++self->metrics_->idle_timeouts;
+                }
+                self->close_now();
+            }
+        }));
 }
 
 bool TlsTunnelSession::enqueue_frame(const protocol::Frame& frame)
@@ -250,6 +324,11 @@ void TlsTunnelSession::close_now()
         return;
     }
     stopped_ = true;
+    static_cast<void>(deadline_timer_.cancel());
+    if (metrics_)
+    {
+        ++metrics_->closed_sessions;
+    }
     if (controller_)
     {
         controller_->on_transport_closed();

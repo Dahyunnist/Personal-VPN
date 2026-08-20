@@ -14,13 +14,17 @@ ExecStart=/usr/local/bin/personal-vpn-server \
   --server-cert /etc/personal-vpn/pki/server.crt \
   --server-key /etc/personal-vpn/pki/server.key \
   --client-ca /etc/personal-vpn/pki/client-ca.crt \
+  --client-crl /etc/personal-vpn/pki/client.crl \
   --lease-start 10.8.0.2 \
   --lease-end 10.8.0.254 \
   --gateway 10.8.0.1 \
   --prefix-length 24 \
   --mtu 1400 \
   --threads 4 \
-  --max-sessions 1024
+  --max-sessions 1024 \
+  --handshake-timeout 10 \
+  --idle-timeout 300 \
+  --metrics-interval 60
 Restart=on-failure
 RestartSec=5s
 UMask=0077

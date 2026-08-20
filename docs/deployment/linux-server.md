@@ -35,6 +35,10 @@ Install the server certificate, private key, and client CA bundle under
 `/etc/personal-vpn/pki`. The service account needs read access to the server key; other
 users should not.
 
+The server refuses a private key with any group or other permission bits; use mode
+`0600` and make the service account the owner. Install a current PEM client CRL when
+device revocation is required.
+
 ## Direct execution
 
 ```bash
@@ -45,17 +49,24 @@ sudo -u personal-vpn /usr/local/bin/personal-vpn-server \
   --server-cert /etc/personal-vpn/pki/server.crt \
   --server-key /etc/personal-vpn/pki/server.key \
   --client-ca /etc/personal-vpn/pki/client-ca.crt \
+  --client-crl /etc/personal-vpn/pki/client.crl \
   --lease-start 10.8.0.2 \
   --lease-end 10.8.0.254 \
   --gateway 10.8.0.1 \
   --prefix-length 24 \
   --mtu 1400 \
   --threads 4 \
-  --max-sessions 1024
+  --max-sessions 1024 \
+  --handshake-timeout 10 \
+  --idle-timeout 300 \
+  --metrics-interval 60
 ```
 
 `SIGINT` and `SIGTERM` stop admission, cancel TUN I/O, close sessions, release leases,
 and allow outstanding asynchronous callbacks to drain.
+
+Periodic JSON metrics are written to stdout and therefore collected by journald. See
+[`observability-and-limits.md`](../architecture/observability-and-limits.md).
 
 ## systemd
 

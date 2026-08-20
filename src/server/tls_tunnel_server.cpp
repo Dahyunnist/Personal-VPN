@@ -14,13 +14,17 @@ TlsTunnelServer::TlsTunnelServer(boost::asio::io_context& io_context,
                                  core::LeaseManager& lease_manager,
                                  std::shared_ptr<LinuxTunDevice> tun_device,
                                  const std::size_t maximum_sessions,
-                                 ShutdownHandler shutdown_handler)
+                                 ShutdownHandler shutdown_handler,
+                                 const std::chrono::milliseconds handshake_timeout,
+                                 const std::chrono::milliseconds idle_timeout)
     : strand_(boost::asio::make_strand(io_context)),
       acceptor_(io_context),
       tls_context_(tls_context),
       lease_manager_(lease_manager),
       tun_device_(std::move(tun_device)),
       maximum_sessions_(maximum_sessions),
+      handshake_timeout_(handshake_timeout),
+      idle_timeout_(idle_timeout),
       shutdown_handler_(std::move(shutdown_handler))
 {
     if (!tun_device_)
@@ -30,6 +34,11 @@ TlsTunnelServer::TlsTunnelServer(boost::asio::io_context& io_context,
     if (maximum_sessions_ == 0U)
     {
         throw std::invalid_argument("maximum session count must be positive");
+    }
+    if (handshake_timeout_ <= std::chrono::milliseconds::zero() ||
+        idle_timeout_ <= std::chrono::milliseconds::zero())
+    {
+        throw std::invalid_argument("server session timeouts must be positive");
     }
     acceptor_.open(listen_endpoint.protocol());
     acceptor_.set_option(Tcp::acceptor::reuse_address(true));
@@ -111,12 +120,14 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
     }
     if (sessions_.size() >= maximum_sessions_)
     {
+        ++metrics_.capacity_rejections;
         boost::system::error_code ignored;
         socket.shutdown(Tcp::socket::shutdown_both, ignored);
         socket.close(ignored);
     }
     else
     {
+        ++metrics_.accepted_connections;
         std::weak_ptr<TlsTunnelServer> weak_self = shared_from_this();
         auto session = std::make_shared<TlsTunnelSession>(
             TlsTunnelSession::TlsStream(std::move(socket), tls_context_),
@@ -144,7 +155,12 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
                 {
                     self->handle_session_closed(address, peer);
                 }
-            });
+            },
+            256U,
+            1U << 20U,
+            handshake_timeout_,
+            idle_timeout_,
+            &metrics_);
         sessions_.insert(session);
         active_session_count_.store(sessions_.size());
         session->start();

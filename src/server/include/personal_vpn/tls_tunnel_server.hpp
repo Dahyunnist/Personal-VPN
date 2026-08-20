@@ -4,6 +4,7 @@
 #include "personal_vpn/lease_manager.hpp"
 #include "personal_vpn/linux_tun_device.hpp"
 #include "personal_vpn/tls_tunnel_session.hpp"
+#include "personal_vpn/server_metrics.hpp"
 #include "personal_vpn/tunnel_router.hpp"
 
 #include <boost/asio.hpp>
@@ -11,6 +12,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -31,7 +33,9 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
                     core::LeaseManager& lease_manager,
                     std::shared_ptr<LinuxTunDevice> tun_device,
                     std::size_t maximum_sessions = 1'024U,
-                    ShutdownHandler shutdown_handler = {});
+                    ShutdownHandler shutdown_handler = {},
+                    std::chrono::milliseconds handshake_timeout = std::chrono::seconds(10),
+                    std::chrono::milliseconds idle_timeout = std::chrono::minutes(5));
 
     void start();
     void stop();
@@ -42,6 +46,10 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
         return active_session_count_.load();
     }
     [[nodiscard]] std::size_t active_route_count() { return router_.active_routes(); }
+    [[nodiscard]] ServerMetricsSnapshot metrics_snapshot() const noexcept
+    {
+        return metrics_.snapshot();
+    }
 
    private:
     void start_on_strand();
@@ -58,10 +66,13 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
     core::LeaseManager& lease_manager_;
     std::shared_ptr<LinuxTunDevice> tun_device_;
     const std::size_t maximum_sessions_;
+    const std::chrono::milliseconds handshake_timeout_;
+    const std::chrono::milliseconds idle_timeout_;
     ShutdownHandler shutdown_handler_;
     core::TunnelRouter router_;
     std::unordered_set<std::shared_ptr<TlsTunnelSession>> sessions_;
     std::atomic<std::size_t> active_session_count_{0U};
+    ServerMetrics metrics_;
     bool started_{false};
     bool stopping_{false};
 };

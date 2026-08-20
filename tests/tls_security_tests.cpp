@@ -6,7 +6,9 @@
 #include <openssl/ssl.h>
 
 #include <ctime>
+#include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -19,6 +21,7 @@ using personal_vpn::server::ServerTlsConfig;
 using personal_vpn::server::certificate_file_sha256;
 using personal_vpn::server::make_server_tls_context;
 using personal_vpn::server::peer_certificate_sha256;
+using personal_vpn::server::validate_server_private_key_permissions;
 
 constexpr std::time_t certificate_clock_skew_tolerance_seconds = 300;
 
@@ -119,9 +122,9 @@ HandshakeResult handshake_pair(ssl::context& server_context,
 
 int main(int argc, char* argv[])
 {
-    if (argc != 6)
+    if (argc != 9)
     {
-        std::cerr << "expected CA, server certificate, server key, client certificate, client key\n";
+        std::cerr << "expected CA, server pair, valid client pair, CRL, revoked client pair\n";
         return EXIT_FAILURE;
     }
     const std::string ca_file = argv[1];
@@ -129,6 +132,9 @@ int main(int argc, char* argv[])
     const std::string server_key = argv[3];
     const std::string client_certificate = argv[4];
     const std::string client_key = argv[5];
+    const std::string client_crl = argv[6];
+    const std::string revoked_certificate = argv[7];
+    const std::string revoked_key = argv[8];
 
     auto server_context = make_server_tls_context(
         ServerTlsConfig{server_certificate, server_key, ca_file});
@@ -155,6 +161,49 @@ int main(int argc, char* argv[])
     const auto wrong_host = handshake_pair(server_context, wrong_host_client, true);
     check(static_cast<bool>(wrong_host.client_error),
           "client rejects a server certificate for the wrong host");
+
+    auto crl_server_context = make_server_tls_context(
+        ServerTlsConfig{server_certificate, server_key, ca_file, client_crl});
+    allow_test_clock_skew(crl_server_context);
+    auto still_valid_client =
+        make_client_context(ca_file, client_certificate, client_key, "localhost");
+    const auto valid_with_crl = handshake_pair(crl_server_context, still_valid_client, true);
+    check(!valid_with_crl.server_error && !valid_with_crl.client_error,
+          "CRL policy keeps an unrevoked client valid");
+
+    auto revoked_client =
+        make_client_context(ca_file, revoked_certificate, revoked_key, "localhost");
+    const auto revoked = handshake_pair(crl_server_context, revoked_client, true);
+    check(static_cast<bool>(revoked.server_error),
+          "server rejects a client certificate listed in the configured CRL");
+
+    const auto permission_test_key =
+        std::filesystem::temp_directory_path() /
+        ("personal-vpn-key-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::copy_file(client_key,
+                               permission_test_key,
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::permissions(permission_test_key,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace);
+    validate_server_private_key_permissions(permission_test_key.string());
+    std::filesystem::permissions(permission_test_key,
+                                 std::filesystem::perms::group_read,
+                                 std::filesystem::perm_options::add);
+    bool broad_key_rejected = false;
+    try
+    {
+        validate_server_private_key_permissions(permission_test_key.string());
+    }
+    catch (const std::invalid_argument&)
+    {
+        broad_key_rejected = true;
+    }
+    check(broad_key_rejected, "server rejects a private key readable by its group");
+    std::error_code remove_error;
+    std::filesystem::remove(permission_test_key, remove_error);
 
     if (failures != 0)
     {

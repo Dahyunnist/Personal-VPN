@@ -110,6 +110,10 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
         {
             config.client_ca_file = value;
         }
+        else if (option == "--client-crl")
+        {
+            config.client_crl_file = value;
+        }
         else if (option == "--lease-start")
         {
             config.first_lease_address = value;
@@ -147,6 +151,21 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
             config.maximum_sessions =
                 static_cast<std::size_t>(parse_unsigned(option, value, 1U, 1'000'000U));
         }
+        else if (option == "--handshake-timeout")
+        {
+            config.handshake_timeout_seconds =
+                static_cast<std::uint32_t>(parse_unsigned(option, value, 1U, 300U));
+        }
+        else if (option == "--idle-timeout")
+        {
+            config.idle_timeout_seconds =
+                static_cast<std::uint32_t>(parse_unsigned(option, value, 1U, 86'400U));
+        }
+        else if (option == "--metrics-interval")
+        {
+            config.metrics_interval_seconds =
+                static_cast<std::uint32_t>(parse_unsigned(option, value, 0U, 86'400U));
+        }
         else
         {
             throw std::invalid_argument("unknown option: " + option);
@@ -163,6 +182,8 @@ std::string server_usage(const std::string& executable_name)
            "  --server-cert PATH       Server certificate chain (PEM)\n"
            "  --server-key PATH        Server private key (PEM)\n"
            "  --client-ca PATH         CA bundle trusted for client certificates\n\n"
+           "Optional security:\n"
+           "  --client-crl PATH        PEM CRL for revoked client certificates\n\n"
            "Network:\n"
            "  --listen-address IPV4    Listen address (default: 0.0.0.0)\n"
            "  --port NUMBER            Listen port (default: 8443)\n"
@@ -176,6 +197,9 @@ std::string server_usage(const std::string& executable_name)
            "Runtime:\n"
            "  --threads NUMBER         I/O workers, 1-256 (default: 2)\n"
            "  --max-sessions NUMBER    Admission limit (default: 1024)\n"
+           "  --handshake-timeout SEC  TLS handshake deadline, 1-300 (default: 10)\n"
+           "  --idle-timeout SEC       Inbound frame idle deadline (default: 300)\n"
+           "  --metrics-interval SEC   JSON metrics interval; 0 disables (default: 60)\n"
            "  -h, --help               Show this help\n";
 }
 

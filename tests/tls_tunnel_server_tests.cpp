@@ -294,6 +294,11 @@ void run_multi_client_server(const std::vector<std::string>& paths)
     }
     check(server->active_session_count() == 0U && server->active_route_count() == 0U,
           "closing both clients removes sessions and routes");
+    const auto metrics = server->metrics_snapshot();
+    check(metrics.accepted_connections == 3U && metrics.capacity_rejections == 1U &&
+              metrics.established_sessions == 2U && metrics.uplink_packets == 1U &&
+              metrics.downlink_packets == 2U,
+          "server metrics account for admission, establishment, and packet directions");
 
     boost::system::error_code ignored;
     first.stream.lowest_layer().close(ignored);

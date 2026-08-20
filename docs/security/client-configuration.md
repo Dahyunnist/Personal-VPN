@@ -48,8 +48,9 @@ identity when connecting to a fixed IP without weakening certificate checks.
 ## Windows storage policy
 
 Production profiles and keys should live below a per-user application-data directory,
-with an ACL limited to that user, Administrators, and SYSTEM. They must not be placed
+with an ACL limited to that user, Administrators, and SYSTEM. The Windows client now
+rejects reparse-point private keys, unrestricted DACLs, and read access granted to
+Everyone, Authenticated Users, built-in Users, or Guests. Keys must not be placed
 beside the executable, in the repository, or in a shared Downloads/Desktop directory.
-Packaging work will add an ACL preflight and optional Windows protected-key import;
-until then, the client must treat a profile with broadly readable key permissions as
-an operator error.
+Import into Windows protected key storage remains a future enhancement; the ACL
+preflight is enforced before OpenSSL loads the key.

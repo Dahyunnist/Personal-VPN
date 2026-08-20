@@ -68,6 +68,27 @@ openssl x509 -req -sha256 -days 30 \
     -copy_extensions copy \
     -out "$output_directory/client-2.crt"
 
+mkdir -p "$output_directory/ca-db"
+touch "$output_directory/ca-db/index.txt"
+printf 'unique_subject = no\n' > "$output_directory/ca-db/index.txt.attr"
+printf '1000\n' > "$output_directory/ca-db/crlnumber"
+cat > "$output_directory/ca-db/openssl.cnf" <<EOF
+[ca]
+default_ca = CA_default
+
+[CA_default]
+database = $output_directory/ca-db/index.txt
+certificate = $output_directory/ca.crt
+private_key = $output_directory/ca.key
+default_md = sha256
+default_crl_days = 30
+crlnumber = $output_directory/ca-db/crlnumber
+EOF
+openssl ca -config "$output_directory/ca-db/openssl.cnf" -revoke \
+    "$output_directory/client-2.crt" -batch
+openssl ca -config "$output_directory/ca-db/openssl.cnf" -gencrl \
+    -out "$output_directory/client.crl" -batch
+
 chmod 600 "$output_directory"/*.key
 verification_time=$(($(date +%s) + 300))
 openssl verify -CAfile "$output_directory/ca.crt" \
@@ -79,3 +100,9 @@ openssl verify -CAfile "$output_directory/ca.crt" \
 openssl verify -CAfile "$output_directory/ca.crt" \
     -attime "$verification_time" \
     -purpose sslclient "$output_directory/client-2.crt"
+if openssl verify -CAfile "$output_directory/ca.crt" \
+    -CRLfile "$output_directory/client.crl" -crl_check \
+    -purpose sslclient "$output_directory/client-2.crt"; then
+    echo "revoked test client unexpectedly passed CRL verification" >&2
+    exit 1
+fi

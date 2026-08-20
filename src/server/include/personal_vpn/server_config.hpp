@@ -17,6 +17,7 @@ struct ServerConfig
     std::string certificate_chain_file;
     std::string private_key_file;
     std::string client_ca_file;
+    std::string client_crl_file;
     std::string first_lease_address{"10.8.0.2"};
     std::string last_lease_address{"10.8.0.254"};
     std::string gateway_address{"10.8.0.1"};
@@ -25,6 +26,9 @@ struct ServerConfig
     std::uint32_t lease_seconds{3'600U};
     std::size_t worker_threads{2U};
     std::size_t maximum_sessions{1'024U};
+    std::uint32_t handshake_timeout_seconds{10U};
+    std::uint32_t idle_timeout_seconds{300U};
+    std::uint32_t metrics_interval_seconds{60U};
     bool show_help{false};
 };
 
