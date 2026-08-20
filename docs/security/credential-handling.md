@@ -12,7 +12,7 @@ Certificates and keys that appeared in repository history before the enterprise 
 2. Create a dedicated development CA that is not also used as a server leaf certificate.
 3. Issue a unique certificate and private key for every client identity.
 4. Give server and client certificates the appropriate Extended Key Usage and Subject Alternative Name extensions.
-5. Store private keys with least-privilege filesystem ACLs; the Windows redesign will additionally support protected credential storage.
+5. Store private keys with least-privilege filesystem ACLs; see [client-configuration.md](client-configuration.md) for the Windows profile boundary.
 6. Generate test credentials during local setup or CI and destroy them after the test run.
 
 ## History cleanup

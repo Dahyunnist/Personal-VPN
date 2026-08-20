@@ -1,16 +1,18 @@
 {
+  "schema_version": 1,
   "server": {
     "host": "vpn.example.test",
-    "ip": "192.0.2.10",
-    "port": 10043
+    "port": 8443,
+    "expected_name": "vpn.example.test"
   },
-  "tun": {
-    "ip": "10.8.0.2",
-    "mask": "24"
+  "tls": {
+    "ca_file": "credentials/ca.crt",
+    "certificate_chain_file": "credentials/client.crt",
+    "private_key_file": "credentials/client.key"
   },
-  "certs": {
-    "server_ca_file": "credentials/ca.crt",
-    "client_certificate_file": "credentials/client.crt",
-    "client_private_key_file": "credentials/client.key"
+  "tunnel": {
+    "requested_mtu": 1400,
+    "routes": ["10.20.0.0/16"],
+    "allow_default_route": false
   }
 }

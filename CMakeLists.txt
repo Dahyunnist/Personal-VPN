@@ -65,6 +65,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_options(personal_vpn_server_transport PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
     add_library(personal_vpn_client_transport
+        src/client/client_config.cpp
         src/client/client_tls_security.cpp
         src/client/tls_tunnel_client.cpp
     )

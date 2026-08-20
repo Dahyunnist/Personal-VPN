@@ -79,6 +79,14 @@ boost::asio::ssl::context make_client_tls_context(const ClientTlsConfig& config)
     return context;
 }
 
+boost::asio::ssl::context make_client_tls_context(const ClientConfig& config)
+{
+    return make_client_tls_context(ClientTlsConfig{config.ca_file.string(),
+                                                   config.certificate_chain_file.string(),
+                                                   config.private_key_file.string(),
+                                                   config.expected_server_name});
+}
+
 void configure_client_sni(SSL* ssl_handle, const std::string& expected_server_name)
 {
     if (ssl_handle == nullptr || expected_server_name.empty())
