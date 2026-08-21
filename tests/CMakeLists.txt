@@ -126,22 +126,24 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(tls_tunnel_server_tests PRIVATE cxx_std_17)
     target_compile_options(tls_tunnel_server_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
-    add_executable(tls_tunnel_client_tests tls_tunnel_client_tests.cpp)
-    target_link_libraries(tls_tunnel_client_tests
-        PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
-    target_compile_features(tls_tunnel_client_tests PRIVATE cxx_std_17)
-    target_compile_options(tls_tunnel_client_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+        add_executable(tls_tunnel_client_tests tls_tunnel_client_tests.cpp)
+        target_link_libraries(tls_tunnel_client_tests
+            PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
+        target_compile_features(tls_tunnel_client_tests PRIVATE cxx_std_17)
+        target_compile_options(tls_tunnel_client_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
-    add_executable(client_config_tests client_config_tests.cpp)
-    target_link_libraries(client_config_tests PRIVATE PersonalVPN::ClientTransport)
-    target_compile_features(client_config_tests PRIVATE cxx_std_17)
-    target_compile_options(client_config_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+        add_executable(client_config_tests client_config_tests.cpp)
+        target_link_libraries(client_config_tests PRIVATE PersonalVPN::ClientTransport)
+        target_compile_features(client_config_tests PRIVATE cxx_std_17)
+        target_compile_options(client_config_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
-    add_executable(client_runtime_tests client_runtime_tests.cpp)
-    target_link_libraries(client_runtime_tests
-        PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
-    target_compile_features(client_runtime_tests PRIVATE cxx_std_17)
-    target_compile_options(client_runtime_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+        add_executable(client_runtime_tests client_runtime_tests.cpp)
+        target_link_libraries(client_runtime_tests
+            PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
+        target_compile_features(client_runtime_tests PRIVATE cxx_std_17)
+        target_compile_options(client_runtime_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
 
     add_executable(server_config_tests server_config_tests.cpp)
     target_link_libraries(server_config_tests PRIVATE PersonalVPN::ServerTransport)
@@ -215,40 +217,42 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
         TIMEOUT 20
     )
 
-    add_test(
-        NAME tls_tunnel_client_tests
-        COMMAND tls_tunnel_client_tests
-                "${TEST_PKI_DIRECTORY}/ca.crt"
-                "${TEST_PKI_DIRECTORY}/server.crt"
-                "${TEST_PKI_DIRECTORY}/server.key"
-                "${TEST_PKI_DIRECTORY}/client.crt"
-                "${TEST_PKI_DIRECTORY}/client.key"
-    )
-    set_tests_properties(tls_tunnel_client_tests PROPERTIES
-        FIXTURES_REQUIRED test_pki
-        TIMEOUT 20
-    )
+    if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+        add_test(
+            NAME tls_tunnel_client_tests
+            COMMAND tls_tunnel_client_tests
+                    "${TEST_PKI_DIRECTORY}/ca.crt"
+                    "${TEST_PKI_DIRECTORY}/server.crt"
+                    "${TEST_PKI_DIRECTORY}/server.key"
+                    "${TEST_PKI_DIRECTORY}/client.crt"
+                    "${TEST_PKI_DIRECTORY}/client.key"
+        )
+        set_tests_properties(tls_tunnel_client_tests PROPERTIES
+            FIXTURES_REQUIRED test_pki
+            TIMEOUT 20
+        )
 
-    add_test(
-        NAME client_config_tests
-        COMMAND client_config_tests "${TEST_PKI_DIRECTORY}"
-    )
-    set_tests_properties(client_config_tests PROPERTIES
-        FIXTURES_REQUIRED test_pki
-        TIMEOUT 10
-    )
+        add_test(
+            NAME client_config_tests
+            COMMAND client_config_tests "${TEST_PKI_DIRECTORY}"
+        )
+        set_tests_properties(client_config_tests PROPERTIES
+            FIXTURES_REQUIRED test_pki
+            TIMEOUT 10
+        )
 
-    add_test(
-        NAME client_runtime_tests
-        COMMAND client_runtime_tests
-                "${TEST_PKI_DIRECTORY}/ca.crt"
-                "${TEST_PKI_DIRECTORY}/server.crt"
-                "${TEST_PKI_DIRECTORY}/server.key"
-                "${TEST_PKI_DIRECTORY}/client.crt"
-                "${TEST_PKI_DIRECTORY}/client.key"
-    )
-    set_tests_properties(client_runtime_tests PROPERTIES
-        FIXTURES_REQUIRED test_pki
-        TIMEOUT 20
-    )
+        add_test(
+            NAME client_runtime_tests
+            COMMAND client_runtime_tests
+                    "${TEST_PKI_DIRECTORY}/ca.crt"
+                    "${TEST_PKI_DIRECTORY}/server.crt"
+                    "${TEST_PKI_DIRECTORY}/server.key"
+                    "${TEST_PKI_DIRECTORY}/client.crt"
+                    "${TEST_PKI_DIRECTORY}/client.key"
+        )
+        set_tests_properties(client_runtime_tests PROPERTIES
+            FIXTURES_REQUIRED test_pki
+            TIMEOUT 20
+        )
+    endif()
 endif()

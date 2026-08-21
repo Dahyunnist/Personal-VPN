@@ -42,7 +42,7 @@ const std::string& require_value(const std::vector<std::string>& arguments,
 
 void validate(const ServerConfig& config)
 {
-    if (config.show_help)
+    if (config.show_help || config.show_version)
     {
         return;
     }
@@ -82,6 +82,11 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
         if (option == "--help" || option == "-h")
         {
             config.show_help = true;
+            continue;
+        }
+        if (option == "--version")
+        {
+            config.show_version = true;
             continue;
         }
         const auto& value = require_value(arguments, index);
@@ -200,6 +205,7 @@ std::string server_usage(const std::string& executable_name)
            "  --handshake-timeout SEC  TLS handshake deadline, 1-300 (default: 10)\n"
            "  --idle-timeout SEC       Inbound frame idle deadline (default: 300)\n"
            "  --metrics-interval SEC   JSON metrics interval; 0 disables (default: 60)\n"
+           "  --version                Show the product version\n"
            "  -h, --help               Show this help\n";
 }
 

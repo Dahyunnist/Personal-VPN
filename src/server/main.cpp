@@ -15,6 +15,10 @@
 #include <thread>
 #include <vector>
 
+#ifndef PERSONAL_VPN_VERSION
+#define PERSONAL_VPN_VERSION "development"
+#endif
+
 namespace
 {
 using personal_vpn::core::LeaseManager;
@@ -150,6 +154,11 @@ int main(int argc, char* argv[])
         if (config.show_help)
         {
             std::cout << server_usage(argc > 0 ? argv[0] : "personal-vpn-server");
+            return EXIT_SUCCESS;
+        }
+        if (config.show_version)
+        {
+            std::cout << "personal-vpn-server " << PERSONAL_VPN_VERSION << '\n';
             return EXIT_SUCCESS;
         }
         return run_server(config);

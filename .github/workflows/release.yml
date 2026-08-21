@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Validate tag and create release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Match tag to project version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^project\(PersonalVPN VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          test -n "$version"
+          test "$GITHUB_REF_NAME" = "v$version"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+
+  linux-package:
+    name: Linux server package
+    needs: create-release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build libboost-dev libssl-dev
+      - name: Configure, build, and test
+        run: |
+          cmake -S . -B out/release-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPERSONAL_VPN_WARNINGS_AS_ERRORS=ON
+          cmake --build out/release-linux --parallel 2
+          ctest --test-dir out/release-linux --output-on-failure --timeout 30
+      - name: Package and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build out/release-linux --target package
+          artifact=$(find out/release-linux -maxdepth 1 -name 'personal-vpn-*.tar.gz' -print -quit)
+          test -n "$artifact"
+          tar -tzf "$artifact" > "$RUNNER_TEMP/package-contents.txt"
+          grep -q '/bin/personal-vpn-server$' "$RUNNER_TEMP/package-contents.txt"
+          grep -q '/lib/systemd/system/personal-vpn-server.service$' "$RUNNER_TEMP/package-contents.txt"
+          sha256sum "$artifact" > "$artifact.sha256"
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" --clobber out/release-linux/personal-vpn-*.tar.gz out/release-linux/personal-vpn-*.sha256
+
+  windows-package:
+    name: Windows desktop client package
+    needs: create-release
+    runs-on: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install client dependencies
+        shell: pwsh
+        run: vcpkg install --triplet x64-windows-static
+      - name: Configure, build, and test
+        shell: pwsh
+        run: |
+          cmake -S . -B out/release-windows -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>' `
+            -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF `
+            -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON `
+            -DPERSONAL_VPN_BUILD_WINDOWS_UI=ON `
+            -DPERSONAL_VPN_FETCH_WINTUN=ON
+          cmake --build out/release-windows --config Release --parallel 2
+          ctest --test-dir out/release-windows -C Release --output-on-failure --timeout 30
+      - name: Package and checksum
+        shell: pwsh
+        run: |
+          cmake --build out/release-windows --config Release --target package
+          $artifact = Get-ChildItem out/release-windows -Filter 'personal-vpn-*.zip' | Select-Object -First 1
+          if (-not $artifact) { throw 'Windows client ZIP package was not created' }
+          $packageCheck = Join-Path $env:RUNNER_TEMP 'personal-vpn-package-check'
+          Expand-Archive $artifact.FullName -DestinationPath $packageCheck
+          if (-not (Get-ChildItem $packageCheck -Recurse -Filter 'personal-vpn-client.exe')) { throw 'Client executable missing from package' }
+          if (-not (Get-ChildItem $packageCheck -Recurse -Filter 'wintun.dll')) { throw 'Wintun DLL missing from package' }
+          if (-not (Get-ChildItem $packageCheck -Recurse -File | Where-Object FullName -Match 'licenses[\\/]wintun[\\/]LICENSE\.txt$')) { throw 'Wintun license missing from package' }
+          $sbomFiles = Get-ChildItem vcpkg_installed -Recurse -Filter '*.spdx.json'
+          if (-not $sbomFiles) { throw 'vcpkg dependency SBOM was not created' }
+          $sbomArchive = Join-Path $artifact.DirectoryName "personal-vpn-$env:GITHUB_REF_NAME-Windows-dependencies-spdx.zip"
+          Compress-Archive -Path $sbomFiles.FullName -DestinationPath $sbomArchive
+          foreach ($file in @($artifact.FullName, $sbomArchive)) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $file -Leaf)" | Set-Content -Encoding ascii "$file.sha256"
+          }
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload $env:GITHUB_REF_NAME --clobber out/release-windows/personal-vpn-*.zip out/release-windows/personal-vpn-*.sha256

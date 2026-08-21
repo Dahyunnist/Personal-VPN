@@ -18,6 +18,17 @@ option(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT
        ${PERSONAL_VPN_CLIENT_TRANSPORT_DEFAULT})
 option(PERSONAL_VPN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(PERSONAL_VPN_BUILD_WINDOWS_UI "Build the Windows desktop client" OFF)
+option(PERSONAL_VPN_ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
+option(PERSONAL_VPN_BUILD_FUZZING "Build libFuzzer protocol targets" OFF)
+option(PERSONAL_VPN_BUILD_BENCHMARKS "Build reproducible protocol benchmarks" OFF)
+
+if(PERSONAL_VPN_ENABLE_SANITIZERS)
+    if(MSVC)
+        message(FATAL_ERROR "Use the dedicated MSVC /fsanitize configuration on Windows")
+    endif()
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+endif()
 
 if(PERSONAL_VPN_WARNINGS_AS_ERRORS)
     if(MSVC)
@@ -84,8 +95,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     add_executable(personal-vpn-server src/server/main.cpp)
     target_link_libraries(personal-vpn-server PRIVATE PersonalVPN::ServerTransport)
     target_compile_features(personal-vpn-server PRIVATE cxx_std_17)
+    target_compile_definitions(personal-vpn-server
+        PRIVATE PERSONAL_VPN_VERSION="${PROJECT_VERSION}")
     target_compile_options(personal-vpn-server PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
     install(TARGETS personal-vpn-server RUNTIME DESTINATION bin)
+    install(FILES deploy/systemd/personal-vpn-server.service
+            DESTINATION lib/systemd/system)
 endif()
 
 add_library(personal_vpn_core
@@ -173,7 +188,53 @@ if(PERSONAL_VPN_BUILD_WINDOWS_UI)
     add_subdirectory(vpn_client_ui)
 endif()
 
+if(PERSONAL_VPN_BUILD_FUZZING)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "PERSONAL_VPN_BUILD_FUZZING requires Clang with libFuzzer")
+    endif()
+    add_executable(frame-decoder-fuzz fuzz/frame_decoder_fuzz.cpp)
+    target_link_libraries(frame-decoder-fuzz PRIVATE PersonalVPN::Core)
+    target_compile_features(frame-decoder-fuzz PRIVATE cxx_std_17)
+    target_compile_options(frame-decoder-fuzz PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+    target_link_options(frame-decoder-fuzz PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+endif()
+
+if(PERSONAL_VPN_BUILD_BENCHMARKS)
+    add_executable(protocol-benchmark benchmarks/protocol_benchmark.cpp)
+    target_link_libraries(protocol-benchmark PRIVATE PersonalVPN::Core)
+    target_compile_features(protocol-benchmark PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(protocol-benchmark PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(protocol-benchmark PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+endif()
+
 if(PERSONAL_VPN_BUILD_TESTS)
     include(CTest)
     add_subdirectory(tests)
 endif()
+
+set(CPACK_PACKAGE_NAME "personal-vpn")
+set(CPACK_PACKAGE_VENDOR "Personal-VPN")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_FILE_NAME
+    "personal-vpn-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+if(WIN32)
+    set(CPACK_GENERATOR ZIP)
+else()
+    set(CPACK_GENERATOR TGZ)
+endif()
+install(FILES Readme.md
+        DESTINATION share/doc/personal-vpn
+        RENAME README.md)
+install(DIRECTORY docs/
+        DESTINATION share/doc/personal-vpn/docs
+        FILES_MATCHING PATTERN "*.md")
+install(FILES configs/client.example.json
+        DESTINATION share/doc/personal-vpn/configs)
+install(FILES deploy/systemd/personal-vpn-server.service
+        DESTINATION share/doc/personal-vpn/deploy/systemd)
+include(CPack)

@@ -105,6 +105,15 @@ void test_help_needs_no_credentials()
           "usage documents security and admission options");
 }
 
+void test_version_needs_no_credentials()
+{
+    const auto config = parse_server_arguments({"--version"});
+    check(config.show_version && !config.show_help,
+          "version can be requested without privileged configuration");
+    check(server_usage("personal-vpn-server").find("--version") != std::string::npos,
+          "usage documents the version option");
+}
+
 } // namespace
 
 int main()
@@ -112,6 +121,7 @@ int main()
     test_defaults_and_overrides();
     test_invalid_input_fails_before_privileged_io();
     test_help_needs_no_credentials();
+    test_version_needs_no_credentials();
     if (failures != 0)
     {
         std::cerr << failures << " server-config test(s) failed\n";

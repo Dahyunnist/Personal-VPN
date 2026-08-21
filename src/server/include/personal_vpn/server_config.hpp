@@ -30,6 +30,7 @@ struct ServerConfig
     std::uint32_t idle_timeout_seconds{300U};
     std::uint32_t metrics_interval_seconds{60U};
     bool show_help{false};
+    bool show_version{false};
 };
 
 [[nodiscard]] ServerConfig parse_server_arguments(const std::vector<std::string>& arguments);

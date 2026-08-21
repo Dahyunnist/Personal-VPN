@@ -83,3 +83,129 @@ jobs:
       - name: Test
         shell: pwsh
         run: ctest --test-dir out/ci-windows -C ${{ matrix.build_type }} --output-on-failure --timeout 30
+
+  sanitizers:
+    name: Clang ASan and UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build libboost-dev libssl-dev
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: >-
+          cmake -S . -B out/ci-sanitized -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPERSONAL_VPN_ENABLE_SANITIZERS=ON
+          -DPERSONAL_VPN_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build out/ci-sanitized --parallel 2
+      - name: Test under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir out/ci-sanitized --output-on-failure --timeout 45
+
+  fuzz:
+    name: Protocol fuzz smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: >-
+          cmake -S . -B out/ci-fuzz -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF
+          -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=OFF
+          -DPERSONAL_VPN_BUILD_TESTS=OFF
+          -DPERSONAL_VPN_BUILD_FUZZING=ON
+      - name: Build
+        run: cmake --build out/ci-fuzz --parallel 2
+      - name: Fuzz frame and control decoders
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          mkdir -p out/ci-fuzz/corpus
+          out/ci-fuzz/frame-decoder-fuzz \
+            -dict=fuzz/protocol.dict \
+            -max_total_time=20 \
+            -timeout=5 \
+            out/ci-fuzz/corpus
+
+  benchmark:
+    name: Reproducible protocol benchmark
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+      - name: Configure
+        run: >-
+          cmake -S . -B out/ci-benchmark -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF
+          -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=OFF
+          -DPERSONAL_VPN_BUILD_TESTS=OFF
+          -DPERSONAL_VPN_BUILD_BENCHMARKS=ON
+          -DPERSONAL_VPN_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build out/ci-benchmark --parallel 2
+      - name: Run benchmark
+        run: out/ci-benchmark/protocol-benchmark 200000 | tee protocol-benchmark.json
+
+  windows-client:
+    name: Windows desktop client package
+    runs-on: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install client dependencies
+        shell: pwsh
+        run: vcpkg install --triplet x64-windows-static
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B out/ci-windows-client -A x64
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>'
+          -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF
+          -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON
+          -DPERSONAL_VPN_BUILD_WINDOWS_UI=ON
+          -DPERSONAL_VPN_FETCH_WINTUN=ON
+      - name: Build and test
+        shell: pwsh
+        run: |
+          cmake --build out/ci-windows-client --config Release --parallel 2
+          ctest --test-dir out/ci-windows-client -C Release --output-on-failure --timeout 30
+      - name: Verify package
+        shell: pwsh
+        run: |
+          cmake --build out/ci-windows-client --config Release --target package
+          $package = Get-ChildItem out/ci-windows-client -Filter 'personal-vpn-*.zip' | Select-Object -First 1
+          if (-not $package) { throw 'Windows client ZIP package was not created' }
+          $packageCheck = Join-Path $env:RUNNER_TEMP 'personal-vpn-package-check'
+          Expand-Archive $package.FullName -DestinationPath $packageCheck
+          if (-not (Get-ChildItem $packageCheck -Recurse -Filter 'personal-vpn-client.exe')) { throw 'Client executable missing from package' }
+          if (-not (Get-ChildItem $packageCheck -Recurse -Filter 'wintun.dll')) { throw 'Wintun DLL missing from package' }
+          if (-not (Get-ChildItem $packageCheck -Recurse -File | Where-Object FullName -Match 'licenses[\\/]wintun[\\/]LICENSE\.txt$')) { throw 'Wintun license missing from package' }
+          $sbom = Get-ChildItem vcpkg_installed -Recurse -Filter '*.spdx.json' | Select-Object -First 1
+          if (-not $sbom) { throw 'vcpkg dependency SBOM was not created' }
+          $package | Format-List FullName, Length
