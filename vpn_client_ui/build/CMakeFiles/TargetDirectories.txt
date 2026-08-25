@@ -1,3 +1,0 @@
-E:/vpn/vpn_client_ui/build/CMakeFiles/VPNClientUI.dir
-E:/vpn/vpn_client_ui/build/CMakeFiles/edit_cache.dir
-E:/vpn/vpn_client_ui/build/CMakeFiles/rebuild_cache.dir

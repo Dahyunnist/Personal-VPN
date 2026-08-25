@@ -10,10 +10,12 @@
 #include <windows.h>
 #include <sddl.h>
 
+#if defined(_MSC_VER)
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
+#endif
 
 // 检查是否以管理员权限运行
 bool IsRunAsAdmin() {
@@ -153,7 +155,7 @@ void CleanupRenderTarget() {
     }
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char*[]) {
     // 检查管理员权限
     if (!IsRunAsAdmin()) {
         MessageBoxW(nullptr, 
@@ -229,4 +231,3 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-

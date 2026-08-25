@@ -1,0 +1,39 @@
+# Build trees and compiler outputs
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.ninja
+*.obj
+*.o
+*.a
+*.lib
+*.exe
+*.pdb
+
+# Runtime artifacts
+*.log
+*.pcap
+*.pcapng
+*.tmp
+
+# Local configuration and credentials
+config.json
+!config.example.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.srl
+vpn_base/server/certs/
+vpn_base/server/client_config/
+
+# Vendored runtime binaries are fetched during the build/package step
+*.dll
+
+# Editor and OS state
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
