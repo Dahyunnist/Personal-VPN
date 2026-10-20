@@ -68,6 +68,25 @@ $runId = gh run list --repo Dahyunnist/Personal-VPN `
 gh run watch $runId --repo Dahyunnist/Personal-VPN --exit-status
 ```
 
+### Inspect the current Windows package failure
+
+The public Actions status confirms that dependency installation, configuration, build,
+and tests passed. The `Verify package` step failed. GitHub requires owner access to read
+the detailed step log. After signing in as a repository collaborator, open:
+
+`https://github.com/Dahyunnist/Personal-VPN/actions/runs/39358023115/job/118417280796`
+
+Expand **Verify package**, copy the first actual error and nearby context, and share
+only that excerpt for diagnosis. Do not share tokens, cookies, private keys, or unrelated
+runner environment values. Alternatively, with authenticated `gh`:
+
+```powershell
+gh run view 39358023115 --repo Dahyunnist/Personal-VPN --job 118417280796 --log
+```
+
+Do not rerun the workflow until the deterministic packaging check is fixed. After the
+fix, commit and push the focused change, then verify every job with `gh run watch`.
+
 Open a pull request only after all jobs are green:
 
 ```powershell
