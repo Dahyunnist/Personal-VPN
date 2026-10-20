@@ -7,6 +7,8 @@ implementation; `vpn_base/` is historical prototype material.
 
 ### Added
 
+- Client automatic reconnect for transient DNS, TCP, timeout, and tunnel-loss failures,
+  with jittered exponential backoff and network rollback before each retry.
 - Protocol v1 framing, incremental decoder, control messages, and deterministic state
   machines.
 - Certificate-fingerprint identities, server-authoritative generation-isolated leases,

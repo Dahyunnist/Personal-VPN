@@ -193,6 +193,9 @@ void run_runtime_round_trip(const std::vector<std::string>& paths)
                                   sizeof(timeout)));
 
     boost::asio::io_context server_io;
+    tcp::acceptor port_reservation(server_io, tcp::endpoint(tcp::v4(), 0U));
+    const auto server_port = port_reservation.local_endpoint().port();
+    port_reservation.close();
     auto tun_device = LinuxTunDevice::adopt(server_io, descriptors[0], "runtime-test-tun");
     auto server_context = make_server_tls_context(ServerTlsConfig{paths[1], paths[2], paths[0]});
     allow_test_clock_skew(server_context);
@@ -202,18 +205,9 @@ void run_runtime_round_trip(const std::vector<std::string>& paths)
                         24U,
                         1'400U,
                         60s);
-    auto server = std::make_shared<TlsTunnelServer>(server_io,
-                                                    tcp::endpoint(tcp::v4(), 0U),
-                                                    server_context,
-                                                    leases,
-                                                    tun_device,
-                                                    4U);
-    server->start();
-    std::thread server_thread([&server_io] { server_io.run(); });
-
     ClientConfig config;
     config.server_host = "127.0.0.1";
-    config.server_port = server->local_endpoint().port();
+    config.server_port = server_port;
     config.expected_server_name = "localhost";
     config.ca_file = paths[0];
     config.certificate_chain_file = paths[3];
@@ -225,20 +219,90 @@ void run_runtime_round_trip(const std::vector<std::string>& paths)
     auto* device_observer = device.get();
     std::promise<void> connected_promise;
     auto connected_future = connected_promise.get_future();
-    std::atomic<bool> connected_signaled{false};
+    std::promise<void> reconnected_promise;
+    auto reconnected_future = reconnected_promise.get_future();
+    std::promise<void> reconnecting_promise;
+    auto reconnecting_future = reconnecting_promise.get_future();
+    std::promise<void> reconnecting_again_promise;
+    auto reconnecting_again_future = reconnecting_again_promise.get_future();
+    std::promise<void> reconnecting_third_promise;
+    auto reconnecting_third_future = reconnecting_third_promise.get_future();
+    std::promise<void> reconnecting_fourth_promise;
+    auto reconnecting_fourth_future = reconnecting_fourth_promise.get_future();
+    std::atomic<unsigned int> connected_count{0U};
+    std::atomic<bool> startup_retry_signaled{false};
+    std::atomic<unsigned int> first_loss_retry_count{0U};
+    std::atomic<bool> second_loss_retry_signaled{false};
     ClientRuntime runtime(
         std::move(config),
         std::move(device),
-        [&connected_promise, &connected_signaled](const ClientRuntimeEvent& event)
+        [&connected_promise,
+         &reconnected_promise,
+         &reconnecting_promise,
+         &reconnecting_again_promise,
+         &reconnecting_third_promise,
+         &reconnecting_fourth_promise,
+         &connected_count,
+         &startup_retry_signaled,
+         &first_loss_retry_count,
+         &second_loss_retry_signaled](const ClientRuntimeEvent& event)
         {
-            if (event.state == ClientRuntimeState::Connected &&
-                !connected_signaled.exchange(true))
+            if (event.state == ClientRuntimeState::Connected)
             {
-                connected_promise.set_value();
+                const auto count = connected_count.fetch_add(1U) + 1U;
+                if (count == 1U)
+                {
+                    connected_promise.set_value();
+                }
+                else if (count == 2U)
+                {
+                    reconnected_promise.set_value();
+                }
+            }
+            else if (event.state == ClientRuntimeState::Reconnecting)
+            {
+                const auto established = connected_count.load();
+                if (established == 0U && !startup_retry_signaled.exchange(true))
+                {
+                    reconnecting_promise.set_value();
+                }
+                else if (established == 1U)
+                {
+                    const auto attempt = first_loss_retry_count.fetch_add(1U) + 1U;
+                    if (attempt == 1U)
+                    {
+                        reconnecting_again_promise.set_value();
+                    }
+                    else if (attempt == 2U)
+                    {
+                        reconnecting_third_promise.set_value();
+                    }
+                }
+                else if (established == 2U && !second_loss_retry_signaled.exchange(true))
+                {
+                    reconnecting_fourth_promise.set_value();
+                }
             }
         },
-        5s);
+        1s);
     runtime.start();
+    check(reconnecting_future.wait_for(5s) == std::future_status::ready,
+          "connection refusal enters jittered retry state");
+    if (reconnecting_future.wait_for(0s) != std::future_status::ready)
+    {
+        runtime.stop();
+        runtime.wait();
+        ::close(descriptors[1]);
+        return;
+    }
+    auto server = std::make_shared<TlsTunnelServer>(server_io,
+                                                    tcp::endpoint(tcp::v4(), server_port),
+                                                    server_context,
+                                                    leases,
+                                                    tun_device,
+                                                    4U);
+    server->start();
+    std::thread server_thread([&server_io] { server_io.run(); });
     check(connected_future.wait_for(5s) == std::future_status::ready,
           "runtime reaches Connected only after TLS assignment and network transaction");
     if (connected_future.wait_for(0s) != std::future_status::ready)
@@ -271,15 +335,86 @@ void run_runtime_round_trip(const std::vector<std::string>& paths)
     check(device_observer->wait_for_downlink(downlink),
           "runtime copies a complete TLS downlink into the virtual packet device");
 
-    runtime.stop();
-    runtime.wait();
-    check(runtime.state() == ClientRuntimeState::Stopped && runtime.failure_message().empty(),
-          "intentional stop joins all runtime threads without a false failure");
     const std::vector<std::string> rollback_tail{"remove-route-16",
                                                  "restore-mtu-1500",
                                                  "remove-address",
                                                  "stop-session",
                                                  "close"};
+    server->stop();
+    server_thread.join();
+    boost::asio::io_context stalled_io;
+    tcp::acceptor stalled_listener(stalled_io);
+    stalled_listener.open(tcp::v4());
+    stalled_listener.set_option(tcp::acceptor::reuse_address(true));
+    stalled_listener.bind(tcp::endpoint(tcp::v4(), server_port));
+    stalled_listener.listen();
+    check(reconnecting_again_future.wait_for(5s) == std::future_status::ready,
+          "unexpected tunnel loss moves runtime into retry state");
+    if (reconnecting_again_future.wait_for(0s) != std::future_status::ready)
+    {
+        runtime.stop();
+        runtime.wait();
+        ::close(descriptors[1]);
+        return;
+    }
+    check(device_observer->events.size() >= rollback_tail.size() &&
+              std::equal(rollback_tail.begin(),
+                         rollback_tail.end(),
+                         device_observer->events.end() -
+                             static_cast<std::ptrdiff_t>(rollback_tail.size())),
+          "unexpected tunnel loss rolls network state back before retrying");
+
+    check(reconnecting_third_future.wait_for(5s) == std::future_status::ready,
+          "TLS handshake timeout aborts stale tunnel before another retry");
+    stalled_listener.close();
+
+    std::array<int, 2U> reconnect_descriptors{};
+    if (::socketpair(AF_UNIX, SOCK_DGRAM, 0, reconnect_descriptors.data()) != 0)
+    {
+        throw std::runtime_error("failed to create reconnect test TUN pair");
+    }
+    boost::asio::io_context reconnect_server_io;
+    auto reconnect_tun = LinuxTunDevice::adopt(
+        reconnect_server_io, reconnect_descriptors[0], "runtime-reconnect-tun");
+    LeaseManager reconnect_leases(parse_ipv4_address("10.8.0.2"),
+                                  parse_ipv4_address("10.8.0.10"),
+                                  parse_ipv4_address("10.8.0.1"),
+                                  24U,
+                                  1'400U,
+                                  60s);
+    auto reconnect_server = std::make_shared<TlsTunnelServer>(
+        reconnect_server_io,
+        tcp::endpoint(tcp::v4(), server_port),
+        server_context,
+        reconnect_leases,
+        reconnect_tun,
+        4U);
+    reconnect_server->start();
+    std::thread reconnect_server_thread([&reconnect_server_io]
+                                        { reconnect_server_io.run(); });
+    check(reconnected_future.wait_for(5s) == std::future_status::ready,
+          "runtime re-establishes authenticated tunnel after server returns");
+    if (reconnected_future.wait_for(0s) != std::future_status::ready)
+    {
+        runtime.stop();
+        runtime.wait();
+        reconnect_server->stop();
+        reconnect_server_thread.join();
+        ::close(descriptors[1]);
+        ::close(reconnect_descriptors[1]);
+        return;
+    }
+    check(first_loss_retry_count.load() == 2U,
+          "aborted stale TLS callback cannot schedule another reconnect");
+
+    reconnect_server->stop();
+    reconnect_server_thread.join();
+    check(reconnecting_fourth_future.wait_for(5s) == std::future_status::ready,
+          "second transport loss returns runtime to retry state");
+    runtime.stop();
+    runtime.wait();
+    check(runtime.state() == ClientRuntimeState::Stopped && runtime.failure_message().empty(),
+          "intentional stop cancels pending retry and joins all runtime threads");
     check(device_observer->events.size() >= rollback_tail.size() &&
               std::equal(rollback_tail.begin(),
                          rollback_tail.end(),
@@ -287,10 +422,10 @@ void run_runtime_round_trip(const std::vector<std::string>& paths)
                              static_cast<std::ptrdiff_t>(rollback_tail.size())),
           "runtime shutdown performs exact network rollback before returning");
 
-    server->stop();
-    server_thread.join();
-    check(leases.active_count() == 0U, "runtime shutdown releases its server lease");
+    check(leases.active_count() == 0U && reconnect_leases.active_count() == 0U,
+          "runtime shutdown releases server leases across reconnect");
     ::close(descriptors[1]);
+    ::close(reconnect_descriptors[1]);
 }
 
 } // namespace

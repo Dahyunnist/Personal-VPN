@@ -149,7 +149,7 @@ void run_client_server_round_trip(const std::vector<std::string>& paths)
                 downlink_promise.set_value(packet);
             }
         },
-        [&close_promise](const auto&) { close_promise.set_value(); },
+        [&close_promise](const auto&, const bool) { close_promise.set_value(); },
         1'280U);
     client->start();
     std::thread client_thread([&client_io] { client_io.run(); });
@@ -238,7 +238,7 @@ void reject_wrong_server_name(const std::vector<std::string>& paths)
     allow_test_clock_skew(client_context);
     TlsTunnelClient::TlsStream stream(client_io, client_context);
     stream.lowest_layer().connect(server->local_endpoint());
-    std::promise<void> close_promise;
+    std::promise<bool> close_promise;
     auto close_future = close_promise.get_future();
     std::atomic<bool> assigned{false};
     auto client = std::make_shared<TlsTunnelClient>(
@@ -250,11 +250,13 @@ void reject_wrong_server_name(const std::vector<std::string>& paths)
             return true;
         },
         TlsTunnelClient::PacketSink{},
-        [&close_promise](const auto&) { close_promise.set_value(); });
+        [&close_promise](const auto&, const bool retryable)
+        { close_promise.set_value(retryable); });
     client->start();
     std::thread client_thread([&client_io] { client_io.run(); });
-    check(close_future.wait_for(5s) == std::future_status::ready && !assigned.load(),
-          "hostname mismatch fails closed before protocol establishment");
+    check(close_future.wait_for(5s) == std::future_status::ready && !assigned.load() &&
+              !close_future.get(),
+          "hostname mismatch fails closed and is not retried");
     client_io.stop();
     client_thread.join();
     server->stop();

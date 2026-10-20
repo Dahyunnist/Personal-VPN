@@ -246,7 +246,10 @@ void UIMain::Render() {
                 StopVPN();
             }
             ImGui::SameLine();
-            ImGui::TextUnformatted(m_isConnected ? "已连接" : (m_isStarting ? "连接中" : "未连接"));
+            const char* connection_state = m_isConnected ? "已连接" :
+                (m_isReconnecting ? "连接中断，正在重连" :
+                 (m_isStarting ? "连接中" : "未连接"));
+            ImGui::TextUnformatted(connection_state);
 
             ImGui::EndTabItem();
         }
@@ -289,5 +292,6 @@ void UIMain::Render() {
 
 void UIMain::Update() {
     m_isConnected = m_vpnClient->IsConnected();
+    m_isReconnecting = m_vpnClient->IsReconnecting();
     m_isStarting = m_vpnClient->IsRunning() && !m_isConnected;
 }

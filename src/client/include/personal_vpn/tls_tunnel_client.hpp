@@ -27,7 +27,8 @@ class TlsTunnelClient final : public std::enable_shared_from_this<TlsTunnelClien
     using TlsStream = boost::asio::ssl::stream<Tcp::socket>;
     using AssignmentHandler = std::function<bool(const protocol::IpAssignment&)>;
     using PacketSink = std::function<void(const std::vector<std::uint8_t>&)>;
-    using CloseHandler = std::function<void(const std::optional<protocol::ErrorMessage>&)>;
+    using CloseHandler =
+        std::function<void(const std::optional<protocol::ErrorMessage>&, bool retryable)>;
 
     TlsTunnelClient(TlsStream stream,
                     std::string expected_server_name,
@@ -42,6 +43,7 @@ class TlsTunnelClient final : public std::enable_shared_from_this<TlsTunnelClien
     void send_ipv4_from_tun(std::vector<std::uint8_t> packet);
     void ping(std::uint64_t nonce);
     void stop(std::uint16_t code = 0U);
+    void abort();
 
     [[nodiscard]] TlsStream& stream() noexcept { return stream_; }
 
@@ -66,6 +68,7 @@ class TlsTunnelClient final : public std::enable_shared_from_this<TlsTunnelClien
     protocol::FrameDecoder decoder_;
     core::OutboundFrameQueue outbound_queue_;
     std::optional<protocol::ErrorMessage> remote_error_;
+    bool retryable_close_{true};
     std::array<std::uint8_t, 64U * 1024U> read_buffer_{};
     bool started_{false};
     bool write_in_progress_{false};

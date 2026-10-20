@@ -29,3 +29,11 @@ transactional Windows network backend. Wintun configuration begins only after a
 validated `IP_ASSIGN`; any later failure converges on joined shutdown and exact route,
 address, session, adapter, and module rollback. The historical duplicated client is no
 longer part of the root desktop executable.
+
+Transient DNS, TCP, connection-timeout, and transport failures enter `Reconnecting`.
+The runtime retries indefinitely with equal jitter between half the exponential cap and
+the cap; the cap grows from 1 second to 30 seconds. It invalidates stale async callbacks,
+interrupts and joins the packet reader, and rolls back network state before retrying.
+Successful tunnel establishment resets the backoff. TLS verification/protocol errors,
+server rejections, and local network-setup failures remain terminal. User stop cancels
+the retry timer and joins the runtime without leaving routes installed.

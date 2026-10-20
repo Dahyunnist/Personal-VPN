@@ -169,9 +169,11 @@ vpn_base/          preserved internship prototype for historical comparison
 redesigned implementation. Earlier repository credentials must be treated as
 compromised even if removed from the current tree.
 
-The project currently supports IPv4 over TLS/TCP, uses one Linux TUN, has no automatic
-reconnect or live certificate rotation, and has not yet published controlled
-end-to-end performance/soak results. See the [roadmap](docs/roadmap.md).
+The project currently supports IPv4 over TLS/TCP and uses one Linux TUN. The client
+retries transient transport failures with jittered exponential backoff and rolls network
+state back before reconnecting. It has no session resumption, roaming, live certificate
+rotation, and has not yet published controlled end-to-end performance/soak results.
+See the [roadmap](docs/roadmap.md).
 
 Because this work originated during an internship, no open-source license is asserted
 until ownership and publication rights are confirmed. See the

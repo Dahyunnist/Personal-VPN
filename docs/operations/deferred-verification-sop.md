@@ -6,19 +6,23 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Completed local gates (2026-10-20)
 
-- Linux Release, GCC 13.3.0, Boost 1.88.0, OpenSSL 3.0.13: 18/18 CTest tests passed;
+- Linux Release, GCC 13.3.0, Boost 1.88.0, OpenSSL 3.0.13: 18/18 CTest tests passed,
+  including initial TCP refusal, TLS handshake timeout, stale-callback rejection,
+  reconnect, route rollback, server recovery, and stop-during-backoff coverage. The
+  expanded reconnect integration case passed three repeated direct executions.
   `personal-vpn-server --version` returned `personal-vpn-server 0.1.0`.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
 - Clang ASan/UBSan Debug suite: 18/18 CTest tests passed with leak detection and
-  halt-on-error enabled.
+  halt-on-error enabled, including the reconnect lifecycle tests.
 - Protocol libFuzzer smoke run: 928,913 executions in 26 seconds, no findings. This is
   a bounded smoke test, not proof that the decoder is vulnerability-free.
 - MSVC core Release and MinGW client-core configurations: 8/8 tests passed each.
-- Windows desktop Release package built with MinGW GCC 14.2.0: 8/8 CTest tests passed.
+- Windows desktop Release package built with MinGW GCC 14.2.0 after reconnect changes:
+  client compiled and 8/8 CTest tests passed.
   Wintun 0.14.1 was fetched with the pinned SHA-256 check; the ZIP contains the client,
   Wintun DLL and license, ImGui license, example profile, and README. ZIP SHA-256:
-  `F965ECB1787337AC004E94A81A49B1D190461C3CF7503F6644B0B702ABC54257`.
+  `917A629638730F7044B97A97B04B2D8D4BBA18FB8A6C19B78520590D279BBB03`.
 
 These checks do not verify a real Windows VPN tunnel or establish end-to-end performance.
 The remote Windows package gate and controlled two-host evidence remain pending; the

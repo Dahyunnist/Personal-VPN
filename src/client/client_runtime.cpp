@@ -2,6 +2,8 @@
 
 #include <boost/asio/connect.hpp>
 
+#include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <stdexcept>
 #include <utility>
@@ -19,7 +21,9 @@ ClientRuntime::ClientRuntime(ClientConfig config,
       connection_timeout_(connection_timeout),
       tls_context_(make_client_tls_context(config_)),
       resolver_(io_context_),
-      connection_timer_(io_context_)
+      connection_timer_(io_context_),
+      reconnect_timer_(io_context_),
+      reconnect_random_(std::random_device{}())
 {
     if (!packet_device_)
     {
@@ -78,6 +82,7 @@ void ClientRuntime::stop()
             resolver_.cancel();
             boost::system::error_code ignored;
             static_cast<void>(connection_timer_.cancel());
+            static_cast<void>(reconnect_timer_.cancel());
             if (tunnel_)
             {
                 tunnel_->stop();
@@ -115,27 +120,33 @@ void ClientRuntime::begin_connect()
         finish_on_io();
         return;
     }
+    const auto generation = ++connection_generation_;
     transition(ClientRuntimeState::Resolving, "resolving VPN server");
     connection_timer_.expires_after(connection_timeout_);
     connection_timer_.async_wait(
-        [this](const boost::system::error_code& error)
+        [this, generation](const boost::system::error_code& error)
         {
-            if (!error && !finished_.load())
+            if (!error && generation == connection_generation_ && !finished_.load())
             {
-                fail_on_io("connection timed out before tunnel establishment");
+                retry_on_io("connection timed out before tunnel establishment");
             }
         });
     resolver_.async_resolve(
         config_.server_host,
         std::to_string(config_.server_port),
-        [this](const boost::system::error_code& error,
+        [this, generation](const boost::system::error_code& error,
                const Tcp::resolver::results_type& endpoints)
-        { handle_resolve(error, endpoints); });
+        { handle_resolve(generation, error, endpoints); });
 }
 
-void ClientRuntime::handle_resolve(const boost::system::error_code& error,
+void ClientRuntime::handle_resolve(const std::uint64_t generation,
+                                   const boost::system::error_code& error,
                                    const Tcp::resolver::results_type& endpoints)
 {
+    if (generation != connection_generation_)
+    {
+        return;
+    }
     if (stop_requested_)
     {
         finish_on_io();
@@ -143,7 +154,7 @@ void ClientRuntime::handle_resolve(const boost::system::error_code& error,
     }
     if (error)
     {
-        fail_on_io("server name resolution failed: " + error.message());
+        retry_on_io("server name resolution failed: " + error.message());
         return;
     }
     transition(ClientRuntimeState::Connecting, "connecting with mutual TLS");
@@ -152,12 +163,18 @@ void ClientRuntime::handle_resolve(const boost::system::error_code& error,
     boost::asio::async_connect(
         pending_stream_->lowest_layer(),
         endpoints,
-        [this](const boost::system::error_code& connect_error, const Tcp::endpoint&)
-        { handle_connect(connect_error); });
+        [this, generation](const boost::system::error_code& connect_error,
+                           const Tcp::endpoint&)
+        { handle_connect(generation, connect_error); });
 }
 
-void ClientRuntime::handle_connect(const boost::system::error_code& error)
+void ClientRuntime::handle_connect(const std::uint64_t generation,
+                                   const boost::system::error_code& error)
 {
+    if (generation != connection_generation_)
+    {
+        return;
+    }
     if (stop_requested_)
     {
         finish_on_io();
@@ -165,18 +182,26 @@ void ClientRuntime::handle_connect(const boost::system::error_code& error)
     }
     if (error)
     {
-        fail_on_io("TCP connection failed: " + error.message());
+        retry_on_io("TCP connection failed: " + error.message());
         return;
     }
     tunnel_ = std::make_shared<TlsTunnelClient>(
         std::move(*pending_stream_),
         config_.expected_server_name,
-        [this](const protocol::IpAssignment& assignment)
-        { return configure_network(assignment); },
-        [this](const std::vector<std::uint8_t>& packet)
-        { deliver_to_packet_device(packet); },
-        [this](const std::optional<protocol::ErrorMessage>& remote_error)
-        { on_tunnel_closed(remote_error); },
+        [this, generation](const protocol::IpAssignment& assignment)
+        {
+            return generation == connection_generation_ && configure_network(assignment);
+        },
+        [this, generation](const std::vector<std::uint8_t>& packet)
+        {
+            if (generation == connection_generation_)
+            {
+                deliver_to_packet_device(packet);
+            }
+        },
+        [this, generation](const std::optional<protocol::ErrorMessage>& remote_error,
+                           const bool retryable)
+        { on_tunnel_closed(generation, remote_error, retryable); },
         config_.requested_mtu);
     pending_stream_.reset();
     tunnel_->start();
@@ -198,6 +223,7 @@ bool ClientRuntime::configure_network(const protocol::IpAssignment& assignment)
         record_failure(std::string("network configuration failed: ") + error.what());
         return false;
     }
+    reconnect_attempt_ = 0U;
     static_cast<void>(connection_timer_.cancel());
     transition(ClientRuntimeState::Connected, "VPN tunnel connected");
     packet_thread_ = std::thread([this, tunnel = tunnel_]
@@ -245,19 +271,104 @@ void ClientRuntime::run_packet_reader(std::shared_ptr<TlsTunnelClient> tunnel)
     }
 }
 
-void ClientRuntime::on_tunnel_closed(
-    const std::optional<protocol::ErrorMessage>& remote_error)
+void ClientRuntime::retry_on_io(std::string reason)
 {
-    if (remote_error.has_value() && !intentional_stop_)
+    if (finished_.load())
+    {
+        return;
+    }
+    if (stop_requested_ || intentional_stop_)
+    {
+        finish_on_io();
+        return;
+    }
+
+    ++connection_generation_;
+    resolver_.cancel();
+    static_cast<void>(connection_timer_.cancel());
+    if (pending_stream_)
+    {
+        boost::system::error_code ignored;
+        pending_stream_->lowest_layer().cancel(ignored);
+        pending_stream_->lowest_layer().close(ignored);
+        pending_stream_.reset();
+    }
+    if (tunnel_)
+    {
+        tunnel_->abort();
+    }
+
+    packet_device_->interrupt_receive();
+    if (packet_thread_.joinable() && packet_thread_.get_id() != std::this_thread::get_id())
+    {
+        packet_thread_.join();
+    }
+    network_transaction_->rollback();
+    tunnel_.reset();
+
+    const auto delay = next_reconnect_delay();
+    transition(ClientRuntimeState::Reconnecting,
+               std::move(reason) + "; retrying in " + std::to_string(delay.count()) + "ms");
+    reconnect_timer_.expires_after(delay);
+    reconnect_timer_.async_wait(
+        [this](const boost::system::error_code& error)
+        {
+            if (!error && !stop_requested_ && !finished_.load())
+            {
+                begin_connect();
+            }
+            else if (stop_requested_)
+            {
+                finish_on_io();
+            }
+        });
+}
+
+std::chrono::milliseconds ClientRuntime::next_reconnect_delay()
+{
+    constexpr std::uint32_t base_delay_ms = 1'000U;
+    constexpr std::uint32_t maximum_delay_ms = 30'000U;
+    constexpr std::size_t maximum_exponent = 5U;
+    const auto exponent = std::min(reconnect_attempt_, maximum_exponent);
+    const auto exponential = base_delay_ms << exponent;
+    const auto cap_ms = std::min(exponential, maximum_delay_ms);
+    if (reconnect_attempt_ < maximum_exponent)
+    {
+        ++reconnect_attempt_;
+    }
+    std::uniform_int_distribution<std::uint32_t> jitter(cap_ms / 2U, cap_ms);
+    return std::chrono::milliseconds(jitter(reconnect_random_));
+}
+
+void ClientRuntime::on_tunnel_closed(
+    const std::uint64_t generation,
+    const std::optional<protocol::ErrorMessage>& remote_error,
+    const bool retryable)
+{
+    if (generation != connection_generation_)
+    {
+        return;
+    }
+    if (intentional_stop_ || stop_requested_)
+    {
+        finish_on_io();
+        return;
+    }
+    if (remote_error.has_value())
     {
         record_failure("server rejected the session with error code " +
                        std::to_string(remote_error->code));
     }
-    else if (!intentional_stop_ && failure_message().empty())
+    else if (!retryable)
     {
-        record_failure("VPN transport closed unexpectedly");
+        record_failure("VPN tunnel closed because of a non-retryable TLS or protocol error");
     }
-    finish_on_io();
+    if (!failure_message().empty())
+    {
+        finish_on_io();
+        return;
+    }
+    retry_on_io("VPN transport closed unexpectedly");
 }
 
 void ClientRuntime::fail_on_io(std::string message)
@@ -296,6 +407,7 @@ void ClientRuntime::finish_on_io()
     packet_device_->interrupt_receive();
     resolver_.cancel();
     static_cast<void>(connection_timer_.cancel());
+    static_cast<void>(reconnect_timer_.cancel());
     if (packet_thread_.joinable() && packet_thread_.get_id() != std::this_thread::get_id())
     {
         packet_thread_.join();

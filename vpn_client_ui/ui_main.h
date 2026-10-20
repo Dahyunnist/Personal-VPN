@@ -53,6 +53,7 @@ private:
     char m_routes[512] = "";
 
     bool m_isConnected = false;
+    bool m_isReconnecting = false;
     bool m_isStarting = false;
     bool m_imguiInitialized = false;  // 标记 ImGui 是否已初始化
 

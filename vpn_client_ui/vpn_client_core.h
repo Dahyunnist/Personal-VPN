@@ -24,6 +24,7 @@ class VPNClientCore final
     void Stop();
 
     [[nodiscard]] bool IsConnected() const noexcept { return connected_.load(); }
+    [[nodiscard]] bool IsReconnecting() const noexcept { return reconnecting_.load(); }
     [[nodiscard]] bool IsRunning() const noexcept { return running_.load(); }
     [[nodiscard]] std::string LastError() const;
 
@@ -35,6 +36,7 @@ class VPNClientCore final
     std::unique_ptr<personal_vpn::client::ClientRuntime> runtime_;
     LogCallback log_callback_;
     std::atomic<bool> connected_{false};
+    std::atomic<bool> reconnecting_{false};
     std::atomic<bool> running_{false};
     std::string last_error_;
 };
