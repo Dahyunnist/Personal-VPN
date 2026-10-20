@@ -44,21 +44,26 @@ an unrelated `origin` remote.
 
 ## 3. Verify the local phase commits
 
-The engineering/release and documentation/evidence phases were committed locally
-without contacting GitHub. Confirm both subjects are present and the worktree is clean:
+The following five documentation/evidence commits are local and not yet pushed:
 
 ```powershell
-git log -5 --oneline
+git log --oneline personal-vpn/codex/enterprise-upgrade..HEAD
 git status --short
 git diff --check
 ```
 
-Expected subjects are `build: add fuzzing benchmarks and release packages` and
-`docs: add architecture security and project evidence`. If final verification produces
-a necessary fix, review its diff and create a third focused commit; never fold a secret,
-build output, or unrelated file into it.
+Expected subjects are `docs: add Windows package CI failure SOP`,
+`docs: record final Linux verification results`,
+`docs: record Windows package verification evidence`, and
+`docs: record sanitizer and fuzz verification`, plus this SOP update. Earlier
+engineering and evidence commits are already on the remote branch. Keep generated
+builds and packages out of Git.
 
 ## 4. Push and verify CI
+
+The last remote Windows package job failed at `Verify package`. Inspect its log using
+the next section first. Send the first error excerpt for diagnosis; after its fix is
+committed locally, push all reviewed commits and wait for every CI job to pass:
 
 ```powershell
 git push --set-upstream personal-vpn codex/enterprise-upgrade
