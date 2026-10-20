@@ -1,8 +1,21 @@
-# Deferred local verification SOP
+# Deferred verification and release evidence SOP
 
-Run this checklist after the local Windows/WSL permission issue is resolved. It does
-not require production credentials; use generated development PKI only. Keep build
-directories under the repository so cleanup is scoped and outputs remain ignored.
+This checklist records completed local gates and gives the remaining verification
+steps. It does not require production credentials; use generated development PKI only.
+Keep build directories under the repository so outputs remain ignored.
+
+## Completed local gates (2026-10-20)
+
+- Linux Release, GCC 13.3.0, Boost 1.88.0, OpenSSL 3.0.13: 18/18 CTest tests passed;
+  `personal-vpn-server --version` returned `personal-vpn-server 0.1.0`.
+- Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
+  CTest tests passed.
+- MSVC core Release and MinGW client-core configurations: 8/8 tests passed each.
+
+These checks do not verify a real Windows VPN tunnel or establish end-to-end performance.
+Remote Windows package verification and controlled two-host evidence remain pending;
+see [the authenticated GitHub SOP](authenticated-github-sop.md) and
+[`../performance/benchmarking.md`](../performance/benchmarking.md).
 
 ## 1. Final Linux and end-to-end suite
 
