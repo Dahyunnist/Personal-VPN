@@ -15,8 +15,9 @@ Certificates and keys that appeared in repository history before the enterprise 
 5. Store private keys with least-privilege filesystem ACLs; see [client-configuration.md](client-configuration.md) for the Windows profile boundary.
 6. Generate test credentials during local setup or CI and destroy them after the test run.
 
-The Linux server enforces a regular private key with no group/other permission bits.
-The Windows client rejects key reparse points, null DACLs, and broadly readable ACL
+The Linux server rejects a private-key path that is a symlink and enforces a regular
+file with no group/other permission bits. The Windows client rejects key reparse
+points, null DACLs, and broadly readable ACL
 entries before OpenSSL loads the key. Production client revocation uses a PEM CRL via
 `--client-crl`; updating trust material requires a graceful service restart.
 

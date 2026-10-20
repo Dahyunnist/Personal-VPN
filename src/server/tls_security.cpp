@@ -166,7 +166,8 @@ void validate_server_private_key_permissions(const std::string& private_key_file
     }
 #if defined(__unix__)
     struct stat status{};
-    if (::stat(private_key_file.c_str(), &status) != 0)
+    // Do not follow a replaceable symlink: inspect the configured key object itself.
+    if (::lstat(private_key_file.c_str(), &status) != 0)
     {
         throw std::runtime_error("failed to inspect server private key permissions");
     }

@@ -32,6 +32,8 @@ implementation; `vpn_base/` is historical prototype material.
 
 - Historical credentials are treated as compromised and excluded from current source
   and packages. Repository policy rejects credential and generated-artifact patterns.
+- Linux server rejects symlink paths for configured private keys before checking file
+  type and restrictive permissions.
 
 ## [0.1.0] - Unreleased
 

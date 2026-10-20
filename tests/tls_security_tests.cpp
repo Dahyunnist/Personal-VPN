@@ -203,6 +203,21 @@ int main(int argc, char* argv[])
     }
     check(broad_key_rejected, "server rejects a private key readable by its group");
     std::error_code remove_error;
+#if defined(__unix__)
+    const auto permission_test_link = permission_test_key.string() + ".link";
+    std::filesystem::create_symlink(permission_test_key, permission_test_link);
+    bool symlink_key_rejected = false;
+    try
+    {
+        validate_server_private_key_permissions(permission_test_link);
+    }
+    catch (const std::invalid_argument&)
+    {
+        symlink_key_rejected = true;
+    }
+    check(symlink_key_rejected, "server rejects a private key path that is a symlink");
+    std::filesystem::remove(permission_test_link, remove_error);
+#endif
     std::filesystem::remove(permission_test_key, remove_error);
 
     if (failures != 0)
