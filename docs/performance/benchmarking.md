@@ -30,12 +30,12 @@ SLA:
 
 | Date | Platform | Compiler | Frame | Iterations | Encode | Decode |
 |---|---|---|---:|---:|---:|---:|
-| 2026-08-21 | Windows 10.0.26200 x64 | GCC 14.2.0 (MSYS2) | 1,400-byte IPv4 payload | 200,000 | 3,122.72 MiB/s | 4,416.04 MiB/s |
+| 2026-10-20 | Windows 10 x64 | GCC 14.2.0 (MSYS2) | 1,400-byte IPv4 payload | 200,000 | 3,761.38 MiB/s | 4,471.05 MiB/s |
 
 Raw result:
 
 ```json
-{"benchmark":"protocol_frame_1400","iterations":200000,"encoded_bytes":1420,"encode_mib_per_second":3122.72,"decode_mib_per_second":4416.04,"checksum":73977231}
+{"benchmark":"protocol_frame_1400","iterations":200000,"encoded_bytes":1420,"encode_mib_per_second":3761.38,"decode_mib_per_second":4471.05,"checksum":73977231}
 ```
 
 ## End-to-end tunnel experiment

@@ -192,6 +192,12 @@ if(PERSONAL_VPN_BUILD_FUZZING)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "PERSONAL_VPN_BUILD_FUZZING requires Clang with libFuzzer")
     endif()
+    # Instrument the parser implementation itself; sanitizing only the harness would
+    # miss invalid accesses performed inside the protocol/core libraries.
+    target_compile_options(personal_vpn_protocol PRIVATE
+        -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_compile_options(personal_vpn_core PRIVATE
+        -fsanitize=address,undefined -fno-omit-frame-pointer)
     add_executable(frame-decoder-fuzz fuzz/frame_decoder_fuzz.cpp)
     target_link_libraries(frame-decoder-fuzz PRIVATE PersonalVPN::Core)
     target_compile_features(frame-decoder-fuzz PRIVATE cxx_std_17)

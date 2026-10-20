@@ -75,21 +75,21 @@ and queue. No callback retains borrowed packet memory.
 
 ## Verification evidence
 
-| Gate | Current local evidence | Automated workflow |
+| Gate | Final local evidence | Automated workflow |
 |---|---|---|
-| Cross-platform core tests | 8/8 passed on Windows | MSVC Debug + Release |
-| Linux unit/integration/E2E | 18/18 passed | GCC Debug + Release |
-| Memory/undefined behavior | 18/18 passed with Clang ASan/UBSan | Dedicated sanitizer job |
-| Parser robustness | libFuzzer smoke run, no finding | 20-second decoder fuzz job |
-| Windows application | MinGW strict build and CPack ZIP verified | MSVC x64 package job |
-| Protocol codec | 200,000 frames; 3,122.72 MiB/s encode, 4,416.04 MiB/s decode | Release benchmark job |
+| Cross-platform core tests | 8/8 passed with MSVC 19.51 and MinGW GCC 14.2 | MSVC Debug + Release |
+| Linux unit/integration/E2E | 18/18 passed with GCC 13.3, Boost 1.88, OpenSSL 3.0.13 | GCC Debug + Release |
+| Memory/undefined behavior | 18/18 passed with Clang 18 ASan/UBSan | Dedicated sanitizer job |
+| Parser robustness | 816,385 libFuzzer runs; 81 counters covered; no finding | 20-second decoder fuzz job |
+| Windows application | MinGW strict build and package contents verified; local DLL license missing | MSVC x64 package with pinned Wintun and license |
+| Protocol codec | 200,000 frames; 3,761.38 MiB/s encode, 4,471.05 MiB/s decode | Release benchmark job |
 
-The local Linux/sanitizer/fuzz evidence was collected before the final release-document
-edits; the clean final rerun and remote workflows are deferred while this workstation
-cannot authorize WSL/GitHub operations. Follow the
-[deferred verification SOP](docs/operations/deferred-verification-sop.md) before tagging.
+Local Linux, sanitizer, and fully instrumented fuzz checks have now passed on the final
+source. The local Windows archive used a pre-existing Wintun DLL without its license;
+the CMake warning correctly marks that archive unsuitable for distribution. The pinned
+download path and license check are exercised in the remote Windows package workflow.
 
-The codec number was measured on Windows x64 with GCC 14.2.0 and a 1,400-byte payload.
+The codec number was measured on Windows 10 x64 with GCC 14.2.0 and a 1,400-byte payload.
 It is **not** end-to-end VPN throughput. The controlled iperf3/RTT/CPU/concurrency/soak
 methodology is documented in [performance benchmarking](docs/performance/benchmarking.md);
 no unmeasured production-like number is claimed.
