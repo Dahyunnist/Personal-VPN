@@ -11,6 +11,10 @@ Keep build directories under the repository so outputs remain ignored.
   reconnect, route rollback, server recovery, and stop-during-backoff coverage. The
   expanded reconnect integration case passed three repeated direct executions.
   `personal-vpn-server --version` returned `personal-vpn-server 0.1.0`.
+- After server TLS hot reload changes, Linux Release and Clang ASan/UBSan Debug each
+  passed 18/18 CTest tests. Server integration tests cover valid context replacement,
+  rejection of an invalid candidate without listener outage, and continued traffic for
+  established sessions after replacement.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
 - Clang ASan/UBSan Debug suite: 18/18 CTest tests passed with leak detection and

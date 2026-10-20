@@ -69,11 +69,11 @@ int run_server(const personal_vpn::server::ServerConfig& config)
 {
     boost::asio::io_context io_context;
     validate_server_private_key_permissions(config.private_key_file);
-    auto tls_context = make_server_tls_context(
+    auto tls_context = std::make_shared<boost::asio::ssl::context>(make_server_tls_context(
         ServerTlsConfig{config.certificate_chain_file,
                         config.private_key_file,
                         config.client_ca_file,
-                        config.client_crl_file});
+                        config.client_crl_file}));
     LeaseManager lease_manager(parse_ipv4_address(config.first_lease_address),
                                parse_ipv4_address(config.last_lease_address),
                                parse_ipv4_address(config.gateway_address),
@@ -82,7 +82,7 @@ int run_server(const personal_vpn::server::ServerConfig& config)
                                std::chrono::seconds(config.lease_seconds));
     auto tun_device = LinuxTunDevice::open(io_context, config.tun_name);
     const auto listen_address = boost::asio::ip::make_address_v4(config.listen_address);
-    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM, SIGHUP);
     auto metrics_timer = std::make_shared<boost::asio::steady_timer>(io_context);
     auto server = std::make_shared<TlsTunnelServer>(
         io_context,
@@ -100,14 +100,38 @@ int run_server(const personal_vpn::server::ServerConfig& config)
         std::chrono::seconds(config.handshake_timeout_seconds),
         std::chrono::seconds(config.idle_timeout_seconds));
 
-    signals.async_wait(
-        [server](const boost::system::error_code& error, const int)
-        {
-            if (!error)
+    std::function<void()> wait_for_signal;
+    wait_for_signal = [&signals, &wait_for_signal, server, config]
+    {
+        signals.async_wait(
+            [&wait_for_signal, server, config](const boost::system::error_code& error,
+                                                const int signal)
             {
-                server->stop();
-            }
-        });
+                if (error)
+                {
+                    return;
+                }
+                if (signal == SIGHUP)
+                {
+                    server->reload_tls_context(
+                        ServerTlsConfig{config.certificate_chain_file,
+                                        config.private_key_file,
+                                        config.client_ca_file,
+                                        config.client_crl_file},
+                        [](const bool success)
+                        {
+                            std::cout << "{\"event\":\"tls_context_reload\",\"success\":"
+                                      << (success ? "true" : "false") << "}\n";
+                        });
+                    wait_for_signal();
+                }
+                else
+                {
+                    server->stop();
+                }
+            });
+    };
+    wait_for_signal();
     server->start();
     schedule_metrics(metrics_timer,
                      server,

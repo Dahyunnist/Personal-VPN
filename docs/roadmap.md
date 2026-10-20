@@ -7,7 +7,8 @@
 - Automatic reconnect handles transient DNS/TCP/transport failures with capped jittered
   exponential backoff; session resumption, roaming, and seamless network change remain
   unsupported.
-- CRLs and certificates are loaded at process start; no live rotation.
+- Server certificates, client CA, and CRL reload on `SIGHUP`; client credentials still
+  require client restart. Existing server sessions retain their original TLS context.
 - JSON metrics go to stdout; no native Prometheus endpoint or distributed tracing.
 - Linux network provisioning and Windows elevation remain administrator tasks.
 - No signed first-party Windows executable/installer and no reproducible-build claim.
@@ -18,11 +19,10 @@
 ## Prioritized next work
 
 1. Produce controlled direct-vs-tunnel performance and soak evidence with profiles.
-2. Add certificate/CRL reload using atomic context replacement and rotation tests.
-3. Export versioned Prometheus metrics and structured event logs with redaction.
-4. Add Windows code signing, provenance/SBOM, and a verified installer/uninstaller.
-5. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
-6. Design IPv6 authorization and routing rather than treating it as a parser extension.
+2. Export versioned Prometheus metrics and structured event logs with redaction.
+3. Add Windows code signing, provenance/SBOM, and a verified installer/uninstaller.
+4. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
+5. Design IPv6 authorization and routing rather than treating it as a parser extension.
 
 ## Completed roadmap work
 
@@ -30,6 +30,9 @@
   cancellation, non-retryable TLS/protocol failure handling, and network rollback before
   retry. Linux integration tests exercise server loss, route cleanup, recovery, and stop
   during the next retry window.
+- Added server-side TLS context replacement on `SIGHUP`; candidate key, certificate,
+  CA, and CRL are validated before swap. Failed reload keeps the current context, and
+  active sessions retain their original context until close.
 
 Every performance optimization must begin with a retained profile and end with the
 same controlled experiment. Every new protocol capability requires a compatibility

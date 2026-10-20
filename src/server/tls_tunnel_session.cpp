@@ -20,8 +20,10 @@ TlsTunnelSession::TlsTunnelSession(TlsStream stream,
                                    const std::size_t maximum_queued_bytes,
                                    const std::chrono::milliseconds handshake_timeout,
                                    const std::chrono::milliseconds idle_timeout,
-                                   ServerMetrics* const metrics)
-    : stream_(std::move(stream)),
+                                   ServerMetrics* const metrics,
+                                   std::shared_ptr<boost::asio::ssl::context> tls_context_owner)
+    : tls_context_owner_(std::move(tls_context_owner)),
+      stream_(std::move(stream)),
       strand_(boost::asio::make_strand(stream_.get_executor())),
       lease_manager_(lease_manager),
       packet_sink_(std::move(packet_sink)),

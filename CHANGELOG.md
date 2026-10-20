@@ -9,6 +9,8 @@ implementation; `vpn_base/` is historical prototype material.
 
 - Client automatic reconnect for transient DNS, TCP, timeout, and tunnel-loss failures,
   with jittered exponential backoff and network rollback before each retry.
+- Server TLS certificate, client CA, and CRL hot reload on `SIGHUP`, with validation
+  before atomic context swap and established-session context retention.
 - Protocol v1 framing, incremental decoder, control messages, and deterministic state
   machines.
 - Certificate-fingerprint identities, server-authoritative generation-isolated leases,

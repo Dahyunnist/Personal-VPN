@@ -5,6 +5,7 @@
 #include "personal_vpn/linux_tun_device.hpp"
 #include "personal_vpn/tls_tunnel_session.hpp"
 #include "personal_vpn/server_metrics.hpp"
+#include "personal_vpn/tls_security.hpp"
 #include "personal_vpn/tunnel_router.hpp"
 
 #include <boost/asio.hpp>
@@ -37,8 +38,20 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
                     std::chrono::milliseconds handshake_timeout = std::chrono::seconds(10),
                     std::chrono::milliseconds idle_timeout = std::chrono::minutes(5));
 
+    TlsTunnelServer(boost::asio::io_context& io_context,
+                    Tcp::endpoint listen_endpoint,
+                    std::shared_ptr<boost::asio::ssl::context> tls_context,
+                    core::LeaseManager& lease_manager,
+                    std::shared_ptr<LinuxTunDevice> tun_device,
+                    std::size_t maximum_sessions = 1'024U,
+                    ShutdownHandler shutdown_handler = {},
+                    std::chrono::milliseconds handshake_timeout = std::chrono::seconds(10),
+                    std::chrono::milliseconds idle_timeout = std::chrono::minutes(5));
+
     void start();
     void stop();
+    void reload_tls_context(ServerTlsConfig config,
+                            std::function<void(bool)> completion = {});
 
     [[nodiscard]] Tcp::endpoint local_endpoint() const;
     [[nodiscard]] std::size_t active_session_count() const noexcept
@@ -62,7 +75,7 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
 
     boost::asio::strand<boost::asio::any_io_executor> strand_;
     Tcp::acceptor acceptor_;
-    boost::asio::ssl::context& tls_context_;
+    std::shared_ptr<boost::asio::ssl::context> tls_context_;
     core::LeaseManager& lease_manager_;
     std::shared_ptr<LinuxTunDevice> tun_device_;
     const std::size_t maximum_sessions_;

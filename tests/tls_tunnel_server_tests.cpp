@@ -21,7 +21,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <iostream>
+#include <future>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -167,6 +169,18 @@ void send_close(TestClient& client, const std::uint64_t sequence)
 
 void run_multi_client_server(const std::vector<std::string>& paths)
 {
+    const auto reload_key = std::filesystem::temp_directory_path() /
+                            ("personal-vpn-reload-" +
+                             std::to_string(std::chrono::steady_clock::now()
+                                                .time_since_epoch()
+                                                .count()) +
+                             ".key");
+    std::filesystem::copy_file(paths[2], reload_key);
+    std::filesystem::permissions(reload_key,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace);
+    const ServerTlsConfig reload_config{paths[1], reload_key.string(), paths[0]};
     std::array<int, 2U> descriptors{};
     if (::socketpair(AF_UNIX, SOCK_DGRAM, 0, descriptors.data()) != 0)
     {
@@ -183,8 +197,9 @@ void run_multi_client_server(const std::vector<std::string>& paths)
 
     boost::asio::io_context server_io;
     auto tun_device = LinuxTunDevice::adopt(server_io, descriptors[0], "test-tun");
-    auto server_context = make_server_tls_context(ServerTlsConfig{paths[1], paths[2], paths[0]});
-    allow_test_clock_skew(server_context);
+    auto server_context = std::make_shared<ssl::context>(
+        make_server_tls_context(ServerTlsConfig{paths[1], paths[2], paths[0]}));
+    allow_test_clock_skew(*server_context);
     LeaseManager leases(parse_ipv4_address("10.8.0.2"),
                         parse_ipv4_address("10.8.0.10"),
                         parse_ipv4_address("10.8.0.1"),
@@ -207,6 +222,22 @@ void run_multi_client_server(const std::vector<std::string>& paths)
         server_threads.emplace_back([&server_io] { server_io.run(); });
     }
 
+    std::promise<bool> reload_result;
+    auto reload_future = reload_result.get_future();
+    server->reload_tls_context(reload_config,
+                               [&reload_result](const bool success)
+                               { reload_result.set_value(success); });
+    check(reload_future.wait_for(2s) == std::future_status::ready && reload_future.get(),
+          "server atomically accepts a fully validated replacement TLS context");
+    std::promise<bool> rejected_reload_result;
+    auto rejected_reload_future = rejected_reload_result.get_future();
+    server->reload_tls_context(ServerTlsConfig{"missing.crt", "missing.key", paths[0]},
+                               [&rejected_reload_result](const bool success)
+                               { rejected_reload_result.set_value(success); });
+    check(rejected_reload_future.wait_for(2s) == std::future_status::ready &&
+              !rejected_reload_future.get(),
+          "invalid TLS replacement is rejected without stopping the listener");
+
     TestClient first(paths[0], paths[3], paths[4]);
     TestClient second(paths[0], paths[5], paths[6]);
     TestClient duplicate(paths[0], paths[3], paths[4]);
@@ -219,6 +250,14 @@ void run_multi_client_server(const std::vector<std::string>& paths)
           "two certificate identities receive distinct server leases");
     check(server->active_session_count() == 2U && server->active_route_count() == 2U,
           "listener tracks two live sessions and routes");
+    std::promise<bool> active_session_reload_result;
+    auto active_session_reload_future = active_session_reload_result.get_future();
+    server->reload_tls_context(reload_config,
+                               [&active_session_reload_result](const bool success)
+                               { active_session_reload_result.set_value(success); });
+    check(active_session_reload_future.wait_for(2s) == std::future_status::ready &&
+              active_session_reload_future.get(),
+          "TLS context reload keeps established sessions alive on their original context");
 
     connect_client(duplicate, server->local_endpoint());
     TestClient over_capacity(paths[0], paths[5], paths[6]);
@@ -311,6 +350,8 @@ void run_multi_client_server(const std::vector<std::string>& paths)
     check(shutdown_notifications.load() == 1,
           "runtime publishes exactly one graceful shutdown notification");
     ::close(descriptors[1]);
+    std::error_code remove_error;
+    std::filesystem::remove(reload_key, remove_error);
 }
 
 } // namespace
