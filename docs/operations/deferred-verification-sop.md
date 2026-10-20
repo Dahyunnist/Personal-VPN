@@ -11,10 +11,15 @@ Keep build directories under the repository so outputs remain ignored.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
 - MSVC core Release and MinGW client-core configurations: 8/8 tests passed each.
+- Windows desktop Release package built with MinGW GCC 14.2.0: 8/8 CTest tests passed.
+  Wintun 0.14.1 was fetched with the pinned SHA-256 check; the ZIP contains the client,
+  Wintun DLL and license, ImGui license, example profile, and README. ZIP SHA-256:
+  `F965ECB1787337AC004E94A81A49B1D190461C3CF7503F6644B0B702ABC54257`.
 
 These checks do not verify a real Windows VPN tunnel or establish end-to-end performance.
-Remote Windows package verification and controlled two-host evidence remain pending;
-see [the authenticated GitHub SOP](authenticated-github-sop.md) and
+The remote Windows package gate and controlled two-host evidence remain pending; the
+local ZIP check does not replace the vcpkg SBOM gate. See
+[the authenticated GitHub SOP](authenticated-github-sop.md) and
 [`../performance/benchmarking.md`](../performance/benchmarking.md).
 
 ## 1. Final Linux and end-to-end suite
