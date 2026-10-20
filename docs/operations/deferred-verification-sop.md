@@ -10,6 +10,10 @@ Keep build directories under the repository so outputs remain ignored.
   `personal-vpn-server --version` returned `personal-vpn-server 0.1.0`.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
+- Clang ASan/UBSan Debug suite: 18/18 CTest tests passed with leak detection and
+  halt-on-error enabled.
+- Protocol libFuzzer smoke run: 928,913 executions in 26 seconds, no findings. This is
+  a bounded smoke test, not proof that the decoder is vulnerability-free.
 - MSVC core Release and MinGW client-core configurations: 8/8 tests passed each.
 - Windows desktop Release package built with MinGW GCC 14.2.0: 8/8 CTest tests passed.
   Wintun 0.14.1 was fetched with the pinned SHA-256 check; the ZIP contains the client,
