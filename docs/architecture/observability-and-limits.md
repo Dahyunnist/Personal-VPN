@@ -1,15 +1,19 @@
 # Observability and runtime limits
 
 The server exposes bounded, monotonic in-process counters through `ServerMetrics` and
-emits one JSON object at a configurable interval. JSON lines are suitable for systemd
-journal ingestion and can be transformed into Prometheus/OpenTelemetry metrics by the
-deployment log collector without adding an unauthenticated HTTP listener to the VPN
-process.
+emits metrics at a configurable interval. JSON Lines is the default; versioned
+Prometheus text exposition is available with `--metrics-format prometheus`. Both go to
+stdout for journald/log-collector ingestion. The server does not open an unauthenticated
+metrics listener.
 
 ```json
-{"event":"server_metrics","accepted":12,"capacity_rejections":1,"handshake_failures":2,"handshake_timeouts":1,"idle_timeouts":3,"established":8,"active":4,"uplink_packets":942,"downlink_packets":881}
+{"event":"server_metrics","schema_version":1,"accepted":12,"capacity_rejections":1,"handshake_failures":2,"handshake_timeouts":1,"idle_timeouts":3,"established":8,"closed":4,"active":4,"queue_overflows":0,"uplink_packets":942,"uplink_bytes":120576,"downlink_packets":881,"downlink_bytes":112768}
 ```
 
+Prometheus output starts with `personal_vpn_metrics_schema_info{version="1"} 1`;
+counter names end in `_total`, and `personal_vpn_active_sessions` is a gauge. Metrics
+have no client-specific labels, so cardinality stays bounded and identities remain
+private. JSON `schema_version` and the Prometheus schema-info gauge define schema v1.
 `--metrics-interval 0` disables periodic output. Counters include accepted and
 capacity-rejected sockets, TLS failures/timeouts, established and closed sessions,
 idle timeouts, outbound queue overflows, and packet/byte totals in both directions.

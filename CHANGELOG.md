@@ -11,6 +11,8 @@ implementation; `vpn_base/` is historical prototype material.
   with jittered exponential backoff and network rollback before each retry.
 - Server TLS certificate, client CA, and CRL hot reload on `SIGHUP`, with validation
   before atomic context swap and established-session context retention.
+- Versioned JSON Lines and Prometheus text metrics, including byte, queue, and lifecycle
+  counters without client-specific labels.
 - Protocol v1 framing, incremental decoder, control messages, and deterministic state
   machines.
 - Certificate-fingerprint identities, server-authoritative generation-isolated leases,

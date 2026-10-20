@@ -15,6 +15,10 @@ Keep build directories under the repository so outputs remain ignored.
   passed 18/18 CTest tests. Server integration tests cover valid context replacement,
   rejection of an invalid candidate without listener outage, and continued traffic for
   established sessions after replacement.
+- After metrics schema/export changes, Linux Release and Clang ASan/UBSan Debug each
+  passed 19/19 tests. Exporter tests check JSON schema v1, Prometheus counter/gauge
+  output, byte and queue counters, and absence of client-specific labels. CLI help lists
+  both metrics formats.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
 - Clang ASan/UBSan Debug suite: 18/18 CTest tests passed with leak detection and

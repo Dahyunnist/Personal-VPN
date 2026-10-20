@@ -68,6 +68,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 
     add_library(personal_vpn_server_transport
         src/server/linux_tun_device.cpp
+        src/server/metrics_exporter.cpp
         src/server/server_config.cpp
         src/server/tls_tunnel_server.cpp
         src/server/tls_security.cpp

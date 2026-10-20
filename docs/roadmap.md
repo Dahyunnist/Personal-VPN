@@ -19,10 +19,9 @@
 ## Prioritized next work
 
 1. Produce controlled direct-vs-tunnel performance and soak evidence with profiles.
-2. Export versioned Prometheus metrics and structured event logs with redaction.
-3. Add Windows code signing, provenance/SBOM, and a verified installer/uninstaller.
-4. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
-5. Design IPv6 authorization and routing rather than treating it as a parser extension.
+2. Add Windows code signing, provenance/SBOM, and a verified installer/uninstaller.
+3. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
+4. Design IPv6 authorization and routing rather than treating it as a parser extension.
 
 ## Completed roadmap work
 
@@ -33,6 +32,8 @@
 - Added server-side TLS context replacement on `SIGHUP`; candidate key, certificate,
   CA, and CRL are validated before swap. Failed reload keeps the current context, and
   active sessions retain their original context until close.
+- Added schema-v1 JSON Lines and Prometheus text exposition for all server counters and
+  active sessions, without client-specific labels or an unauthenticated listener.
 
 Every performance optimization must begin with a retained profile and end with the
 same controlled experiment. Every new protocol capability requires a compatibility
