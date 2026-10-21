@@ -35,6 +35,11 @@ implementation; `vpn_base/` is historical prototype material.
   private keys, process-global client state, ping/curl shell construction, sleep-based
   connection detection, detached shutdown threads, and VPN-process firewall mutation.
 
+### Fixed
+
+- Windows UI now checks Direct3D back-buffer and render-target creation results and
+  skips drawing while no valid render target exists.
+
 ### Security
 
 - Historical credentials are treated as compromised and excluded from current source

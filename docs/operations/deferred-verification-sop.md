@@ -38,6 +38,10 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- After the Direct3D resize-failure handling change, explicitly rebuilt the MinGW
+  desktop executable, reran 9/9 CTest tests, rebuilt the Windows ZIP, and passed the
+  package verifier. Interactive elevated-driver and real-tunnel behavior remain
+  unverified on this host.
 - After the server private-key descriptor hardening commit (`a169098`), rebuilt the
   Windows Release tree and reran all 9/9 CTest tests. The key-descriptor implementation
   is Linux-only and still needs the Linux Release and ASan/UBSan gates below; Windows
