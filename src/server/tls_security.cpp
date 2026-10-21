@@ -2,6 +2,7 @@
 
 #include <boost/asio/ssl.hpp>
 
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -13,6 +14,7 @@
 #include <memory>
 #include <stdexcept>
 #include <system_error>
+#include <vector>
 
 #if defined(__unix__)
 #include <fcntl.h>
@@ -39,6 +41,21 @@ struct FileCloser
 };
 
 using FilePtr = std::unique_ptr<FILE, FileCloser>;
+
+struct PrivateKeyBuffer
+{
+    std::vector<unsigned char> bytes;
+
+    ~PrivateKeyBuffer()
+    {
+        if (!bytes.empty())
+        {
+            OPENSSL_cleanse(bytes.data(), bytes.size());
+        }
+    }
+};
+
+constexpr std::size_t maximum_private_key_file_size = 1024U * 1024U;
 
 #if defined(__unix__)
 FilePtr open_validated_server_private_key(const std::string& path)
@@ -147,8 +164,25 @@ boost::asio::ssl::context make_server_tls_context(const ServerTlsConfig& config)
     context.use_certificate_chain_file(config.certificate_chain_file);
 #if defined(__unix__)
     auto private_key_file = open_validated_server_private_key(config.private_key_file);
+    PrivateKeyBuffer key_buffer{std::vector<unsigned char>(maximum_private_key_file_size + 1U)};
+    const auto key_size = std::fread(key_buffer.bytes.data(), 1U, key_buffer.bytes.size(),
+                                     private_key_file.get());
+    if (std::ferror(private_key_file.get()) != 0)
+    {
+        throw std::runtime_error("failed to read server private key");
+    }
+    if (key_size > maximum_private_key_file_size)
+    {
+        throw std::invalid_argument("server private key file must not exceed 1 MiB");
+    }
+    std::unique_ptr<BIO, decltype(&BIO_free)> key_bio(
+        BIO_new_mem_buf(key_buffer.bytes.data(), static_cast<int>(key_size)), &BIO_free);
+    if (!key_bio)
+    {
+        throw std::runtime_error(openssl_error("failed to buffer server private key"));
+    }
     std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> private_key(
-        PEM_read_PrivateKey(private_key_file.get(), nullptr, nullptr, nullptr), &EVP_PKEY_free);
+        PEM_read_bio_PrivateKey(key_bio.get(), nullptr, nullptr, nullptr), &EVP_PKEY_free);
     if (!private_key)
     {
         throw std::runtime_error(openssl_error("failed to parse server private key"));
