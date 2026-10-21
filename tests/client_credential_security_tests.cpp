@@ -6,11 +6,13 @@
 
 #include "personal_vpn/credential_security.hpp"
 #include "personal_vpn/client_tls_security.hpp"
+#include "personal_vpn/client_config.hpp"
 
 #include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -171,6 +173,32 @@ void write_test_identity(const std::wstring& key_path, const std::wstring& certi
     }
 }
 
+void write_client_profile(const std::filesystem::path& path,
+                          const std::string& certificate_name,
+                          const std::string& key_name,
+                          const bool add_unknown_field)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+    {
+        throw std::runtime_error("failed to create test client profile");
+    }
+    output << "{\n"
+              "  \"schema_version\": 1,\n"
+              "  \"server\": {\"host\": \"127.0.0.1\", \"port\": 8443, "
+              "\"expected_name\": \"vpn.example.test\"},\n"
+              "  \"tls\": {\"ca_file\": \""
+           << certificate_name << "\", \"certificate_chain_file\": \"" << certificate_name
+           << "\", \"private_key_file\": \"" << key_name << "\"},\n"
+              "  \"tunnel\": {\"requested_mtu\": 1400, \"routes\": "
+              "[\"10.20.0.0/16\"], \"allow_default_route\": false}"
+           << (add_unknown_field ? ",\n  \"unexpected\": true" : "") << "\n}\n";
+    if (!output)
+    {
+        throw std::runtime_error("failed to write test client profile");
+    }
+}
+
 } // namespace
 
 int main()
@@ -219,6 +247,17 @@ int main()
     }
     const auto remove_oversized_key = [&oversized_key_path]()
     { static_cast<void>(DeleteFileW(oversized_key_path.data())); };
+    std::array<wchar_t, MAX_PATH> profile_path{};
+    if (GetTempFileNameW(temporary_path.c_str(), L"vpn", 0U, profile_path.data()) == 0U)
+    {
+        remove_file();
+        remove_certificate();
+        remove_oversized_key();
+        std::cerr << "failed to create temporary test profile\n";
+        return EXIT_FAILURE;
+    }
+    const auto remove_profile = [&profile_path]()
+    { static_cast<void>(DeleteFileW(profile_path.data())); };
 
     try
     {
@@ -234,14 +273,36 @@ int main()
 
         set_test_acl(path, user_sid, nullptr, false);
         personal_vpn::client::validate_private_key_permissions(path);
-        auto tls_context = personal_vpn::client::make_client_tls_context(
-            personal_vpn::client::ClientTlsConfig{certificate_path_string,
-                                                  certificate_path_string,
-                                                  key_path_string,
-                                                  "vpn.example.test"});
+        const std::filesystem::path profile(profile_path.data());
+        const auto certificate_name = std::filesystem::path(certificate).filename().generic_string();
+        const auto key_name = std::filesystem::path(path).filename().generic_string();
+        write_client_profile(profile, certificate_name, key_name, false);
+        auto client_config = personal_vpn::client::load_client_config(profile);
+        if (client_config.server_host != "127.0.0.1" || client_config.server_port != 8'443U ||
+            client_config.expected_server_name != "vpn.example.test" ||
+            client_config.routes != std::vector<std::string>{"10.20.0.0/16"} ||
+            client_config.allow_default_route)
+        {
+            throw std::runtime_error("Windows profile parser returned incorrect settings");
+        }
+        auto tls_context = personal_vpn::client::make_client_tls_context(client_config);
         if (tls_context.native_handle() == nullptr)
         {
-            throw std::runtime_error("TLS context did not load the validated key handle");
+            throw std::runtime_error("TLS context did not load the profile's validated key");
+        }
+        write_client_profile(profile, certificate_name, key_name, true);
+        bool unknown_profile_field_rejected = false;
+        try
+        {
+            static_cast<void>(personal_vpn::client::load_client_config(profile));
+        }
+        catch (const std::invalid_argument&)
+        {
+            unknown_profile_field_rejected = true;
+        }
+        if (!unknown_profile_field_rejected)
+        {
+            throw std::runtime_error("Windows profile parser accepted an unknown root field");
         }
 
         const std::wstring oversized_key(oversized_key_path.data());
@@ -361,6 +422,7 @@ int main()
         remove_file();
         remove_certificate();
         remove_oversized_key();
+        remove_profile();
         std::cout << "Windows private-key ACL checks passed\n";
         return EXIT_SUCCESS;
     }
@@ -369,6 +431,7 @@ int main()
         remove_file();
         remove_certificate();
         remove_oversized_key();
+        remove_profile();
         std::cerr << "Windows private-key ACL test failed: " << error.what() << '\n';
         return EXIT_FAILURE;
     }

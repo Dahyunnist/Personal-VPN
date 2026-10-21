@@ -40,8 +40,10 @@ Keep build directories under the repository so outputs remain ignored.
 
 - Windows MinGW Debug full desktop configuration rebuilt with warnings-as-errors and
   cached pinned ImGui/Wintun dependencies; the UI executable compiled and all 9/9 CTest
-  tests passed, including actual TLS private-key loading and the 1 MiB rejection case.
-  Interactive elevation, real Wintun traffic, and Debug packaging remain unverified.
+  tests passed, including Windows profile parsing, unknown-field rejection, actual TLS
+  private-key loading, broad ACL rejection, and the 1 MiB size cap. Release CTest also
+  passed 9/9 with the same regression. Interactive elevation, real Wintun traffic, and
+  Debug packaging remain unverified.
 - After binding Windows private-key ACL/reparse checks to the exact handle parsed by
   OpenSSL, rebuilt the client and ran 9/9 CTest tests. Credential tests generate a
   temporary RSA identity, verify real PEM loading through the TLS context, reject each
