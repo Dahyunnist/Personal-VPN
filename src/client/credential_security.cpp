@@ -188,7 +188,7 @@ ValidatedPrivateKeyFile open_validated_private_key_file(
                                 std::generic_category(),
                                 "read client private key");
     }
-    return ValidatedPrivateKeyFile(stream, &std::fclose);
+    return ValidatedPrivateKeyFile(stream);
 #else
     auto* stream = std::fopen(private_key_file.string().c_str(), "rb");
     if (stream == nullptr)
@@ -197,7 +197,7 @@ ValidatedPrivateKeyFile open_validated_private_key_file(
                                 std::generic_category(),
                                 "open client private key");
     }
-    return ValidatedPrivateKeyFile(stream, &std::fclose);
+    return ValidatedPrivateKeyFile(stream);
 #endif
 }
 

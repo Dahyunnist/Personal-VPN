@@ -8,7 +8,18 @@
 namespace personal_vpn::client
 {
 
-using ValidatedPrivateKeyFile = std::unique_ptr<std::FILE, decltype(&std::fclose)>;
+struct ValidatedPrivateKeyFileDeleter
+{
+    void operator()(std::FILE* file) const noexcept
+    {
+        if (file != nullptr)
+        {
+            static_cast<void>(std::fclose(file));
+        }
+    }
+};
+
+using ValidatedPrivateKeyFile = std::unique_ptr<std::FILE, ValidatedPrivateKeyFileDeleter>;
 
 [[nodiscard]] ValidatedPrivateKeyFile open_validated_private_key_file(
     const std::filesystem::path& private_key_file);
