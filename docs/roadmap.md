@@ -11,6 +11,8 @@
   require client restart. Existing server sessions retain their original TLS context.
 - JSON metrics go to stdout; no native Prometheus endpoint or distributed tracing.
 - Linux network provisioning and Windows elevation remain administrator tasks.
+- The complete Windows GUI currently runs elevated; network operations do not yet use a
+  narrowly scoped privileged broker with authenticated IPC.
 - No signed first-party Windows executable/installer and no reproducible-build claim.
 - Release archives and checksums now have keyless GitHub artifact-attestation steps;
   remote execution and consumer-side verification remain pending authentication.
@@ -20,11 +22,14 @@
 
 ## Prioritized next work
 
-1. Produce controlled direct-vs-tunnel performance and soak evidence with profiles.
-2. Add Windows code signing and a verified installer/uninstaller. Provenance/SBOM
+1. Split the Windows UI from privileged network operations. Define a minimal broker API,
+   authenticated local IPC, service ACLs, safe install/upgrade/uninstall, and integration
+   tests before moving Wintun and route changes into the broker.
+2. Produce controlled direct-vs-tunnel performance and soak evidence with profiles.
+3. Add Windows code signing and a verified installer/uninstaller. Provenance/SBOM
    generation is implemented; authenticate and verify the release workflow first.
-3. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
-4. Design IPv6 authorization and routing rather than treating it as a parser extension.
+4. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
+5. Design IPv6 authorization and routing rather than treating it as a parser extension.
 
 ## Completed roadmap work
 

@@ -34,7 +34,8 @@ compromised endpoint are out of scope.
 | Stream confusion | Magic/version/type/flags/length/sequence validation | Protocol v1 has no extension negotiation |
 | Memory/CPU exhaustion | Payload, queue, sessions, threads, MTU, profile, timeout bounds | Volumetric DoS needs upstream firewall/rate controls |
 | Async lifetime bugs | Serialized stream access, owned buffers, weak/shared ownership, joined shutdown | Enforced by tests, sanitizers, and fuzzing, not a formal proof |
-| Route damage | Strict route parsing and transactional exact rollback | Client still requires elevation; admin must review profile routes |
+| Route damage | Strict route parsing and transactional exact rollback | Entire Windows GUI currently runs elevated; review imported routes and profiles |
+| Privileged client compromise | Strict profile schema, credential ACL/reparse checks, and bounded network operations | UI, parser, TLS stack, and profile loading share the elevated process; no broker isolation |
 | Local key disclosure | External paths, Linux mode checks, Windows ACL/reparse checks | Malware/admin access and memory extraction are out of scope |
 | Supply-chain replacement | pinned ImGui tag, pinned Wintun version/hash, checksums | Boost/OpenSSL/toolchain trust the build environment; no signed first-party binary yet |
 | Secret committed to Git | ignore/policy checks and credential rotation guidance | Historical commits require coordinated secret rotation/history treatment |
@@ -44,7 +45,11 @@ compromised endpoint are out of scope.
 - TLS termination is not authorization: protocol and lease checks remain mandatory.
 - A valid client certificate identifies a credential, not a human or a secure device.
 - Wintun/TUN and IP Helper calls cross into privileged kernel state.
-- Configuration and PKI files are administrator-controlled inputs, not remote inputs.
+- Imported configuration and PKI paths are local inputs, not remote inputs; the Windows
+  client currently processes them in the elevated GUI process.
+- The user must review imported routes and protect profile and credential paths. A
+  separate least-privilege UI and narrowly scoped privileged network broker are not
+  implemented.
 - Host routing, firewall, NAT, DNS policy, endpoint hardening, and key issuance are
   deployment responsibilities.
 
