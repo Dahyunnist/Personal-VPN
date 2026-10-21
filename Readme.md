@@ -2,101 +2,52 @@
 
 [![CI](https://github.com/Dahyunnist/Personal-VPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Dahyunnist/Personal-VPN/actions/workflows/ci.yml)
 
-Personal-VPN is a C++17 reference implementation of a mutually authenticated IP
-tunnel between a Windows Wintun client and a Linux TUN server. The project focuses on
-the hard engineering boundaries behind a VPN—packet ownership, framed asynchronous
-I/O, identity-bound address leases, transactional route changes, bounded resources,
-and deterministic shutdown—rather than presenting a production VPN service.
+Personal-VPN 是一个基于 C++17 的 VPN 隧道参考实现：Windows 客户端通过 Wintun 接入本机 IP 网络，使用双向 TLS 与 Linux 服务端通信；服务端将经过认证和校验的数据包转发到 Linux TUN 设备。
 
-> **Scope:** educational/technical-pre-research project. It has not received an
-> independent security audit and must not be used to protect production traffic.
+本项目用于学习、技术预研和工程实践，不是可直接部署的商用 VPN 产品。项目尚未经过独立安全审计，不应承载生产或敏感流量。
 
-## Architecture
+## 项目架构
 
 ```mermaid
 flowchart LR
-    A[Windows application] --> B[Windows IP stack]
-    B --> C[Wintun adapter]
-    C --> D[C++ client runtime]
-    D <-->|Protocol v1 over mutual TLS| E[C++ Linux server]
+    A[Windows 应用] --> B[Windows IP 协议栈]
+    B --> C[Wintun 虚拟网卡]
+    C --> D[C++ 客户端运行时]
+    D <-->|协议 v1 / 双向 TLS| E[C++ Linux 服务端]
     E <--> F[Linux TUN]
-    F --> G[Linux routing / firewall / NAT]
-    G --> H[Destination network]
+    F --> G[Linux 路由 / 防火墙 / NAT]
+    G --> H[目标网络]
 ```
 
-Outbound packets enter Wintun because of explicit Windows routes. The client validates
-their source address, frames them, and sends them through one serialized TLS writer.
-The server authenticates the certificate, binds it to a server-assigned lease,
-validates the IPv4 packet, and writes it to TUN. Return packets follow the reverse path
-and may reach only the session owning the destination lease.
+客户端从 Wintun 读取数据包，校验源地址后封装并通过 TLS 发送。服务端验证客户端证书，将身份绑定到服务端分配的 IPv4 地址租约，再校验数据包并写入 TUN。回程数据包按目标租约路由，只能交付给拥有该地址的会话。
 
-## Engineering highlights
+## 当前能力
 
-- **Correct stream protocol:** a versioned, bounded 20-byte frame header handles split
-  and coalesced TLS reads; invalid versions, flags, lengths, order, and sequence gaps
-  fail closed.
-- **Identity and authorization:** mutual TLS, strict hostname verification, optional
-  client CRL, certificate-fingerprint identity, and server-authoritative generation-
-  isolated IPv4 leases.
-- **Asynchronous correctness:** strand-serialized TLS operations, owned buffers,
-  bounded write queues, backpressure, single-operation TUN reads, deadlines, and
-  idempotent shutdown.
-- **Transactional Windows networking:** Wintun adapter, address, MTU, and routes are
-  applied as one transaction and rolled back in exact reverse order without deleting
-  pre-existing host state.
-- **Operational safety:** admission limits, handshake/idle timeouts, JSON metrics,
-  Linux private-key permissions, Windows key ACL preflight, hardened systemd example,
-  and no shell-command construction in the client.
-- **Release discipline:** Linux and Windows builds, tests, ASan/UBSan, libFuzzer smoke
-  testing, a deterministic codec benchmark, pinned Wintun verification, CPack archives,
-  checksums, and tag/version validation.
+- **有界传输协议：** 采用带版本的 20 字节帧头；限制长度、标志位、消息顺序和序列号，并处理 TLS 读操作中的拆包与粘包。
+- **身份认证与地址授权：** 双向 TLS、主机名验证、可选客户端 CRL、证书指纹身份，以及由服务端管理的 IPv4 地址租约。
+- **异步并发控制：** 串行化 TLS 流操作；管理自有缓冲区和有界写队列；提供背压、超时、TUN 读操作约束及幂等关闭。
+- **Windows 网络事务：** 配置 Wintun、地址、MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
+- **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
+- **运行与发布基础：** Linux 服务端配置和 systemd 示例、JSON 指标、CI、ASan/UBSan、协议模糊测试、基准测试、CPack 打包及发布校验流程。
+- **Windows 权限边界探索：** 已定义受限 broker 请求协议和架构边界；完整的低权限 UI 与特权服务拆分尚未完成，当前 GUI 仍需提升权限运行。
 
-## Lifecycle and concurrency
+## 验证状态
 
-```mermaid
-stateDiagram-v2
-    [*] --> Starting
-    Starting --> Resolving
-    Resolving --> Connecting
-    Connecting --> ConfiguringNetwork: TLS + IP_ASSIGN valid
-    ConfiguringNetwork --> Connected: Wintun transaction committed
-    Connected --> Stopping: user / CLOSE / error / timeout
-    Stopping --> Stopped: threads joined + routes rolled back
-    Starting --> Failed
-    Resolving --> Failed
-    Connecting --> Failed
-    ConfiguringNetwork --> Failed
-    Connected --> Failed
-```
+以下为本地阶段性验证结果，不代表独立安全审计或生产环境验证：
 
-The client owns one I/O thread and one interruptible Wintun reader; it never detaches a
-thread. Server sessions share an `io_context` pool but serialize their own TLS stream
-and queue. No callback retains borrowed packet memory.
+| 验证项 | 最近结果 | 说明 |
+| --- | --- | --- |
+| Linux Release 测试 | 20/20 通过 | WSL2 Ubuntu；测试证书存放在 Linux 文件系统，确保私钥权限检查有效 |
+| Windows Release 测试 | 10/10 通过 | 本地构建与测试 |
+| Windows Debug 测试 | 10/10 通过 | 含桌面客户端构建配置 |
+| Windows ZIP 内容 | 校验通过 | 本地打包内容检查通过；本机已有的 Wintun DLL 缺少随包许可证文件，因此该 ZIP 不可直接作为可分发产品包 |
+| 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
-## Verification evidence
+协议微基准曾在 Windows 10 x64、GCC 14.2.0、1400 字节载荷下测得：编码 3,761.38 MiB/s、解码 4,471.05 MiB/s。该数字只表示协议编解码微基准，不代表端到端 VPN 吞吐量。受控的带宽、延迟、CPU、并发和长稳测试方法见[性能测试说明](docs/performance/benchmarking.md)。
 
-| Gate | Final local evidence | Automated workflow |
-|---|---|---|
-| Cross-platform core tests | 8/8 passed with MSVC 19.51 and MinGW GCC 14.2 | MSVC Debug + Release |
-| Linux unit/integration/E2E | 18/18 passed with GCC 13.3, Boost 1.88, OpenSSL 3.0.13 | GCC Debug + Release |
-| Memory/undefined behavior | 18/18 passed with Clang 18 ASan/UBSan | Dedicated sanitizer job |
-| Parser robustness | 816,385 libFuzzer runs; 81 counters covered; no finding | 20-second decoder fuzz job |
-| Windows application | MinGW strict build and package contents verified; local DLL license missing | MSVC x64 package with pinned Wintun and license |
-| Protocol codec | 200,000 frames; 3,761.38 MiB/s encode, 4,471.05 MiB/s decode | Release benchmark job |
+## Linux 服务端：构建与测试
 
-Local Linux, sanitizer, and fully instrumented fuzz checks have now passed on the final
-source. The local Windows archive used a pre-existing Wintun DLL without its license;
-the CMake warning correctly marks that archive unsuitable for distribution. The pinned
-download path and license check are exercised in the remote Windows package workflow.
-
-The codec number was measured on Windows 10 x64 with GCC 14.2.0 and a 1,400-byte payload.
-It is **not** end-to-end VPN throughput. The controlled iperf3/RTT/CPU/concurrency/soak
-methodology is documented in [performance benchmarking](docs/performance/benchmarking.md);
-no unmeasured production-like number is claimed.
-
-## Build and test the Linux server
-
-Dependencies: CMake 3.21+, a C++17 compiler, Boost headers, OpenSSL, and Ninja.
+依赖：CMake 3.21 或更高版本、支持 C++17 的编译器、Boost、OpenSSL 和 Ninja。
 
 ```bash
 cmake -S . -B out/release -G Ninja \
@@ -107,15 +58,15 @@ ctest --test-dir out/release --output-on-failure
 out/release/personal-vpn-server --help
 ```
 
-The server does not edit host firewall or forwarding policy. Follow the
-[Linux deployment guide](docs/deployment/linux-server.md) to provision TUN, routing,
-NAT, a dedicated service account, and PKI explicitly.
+服务端不会自动修改主机的转发、防火墙或 NAT 规则。部署前请阅读 [Linux 部署指南](docs/deployment/linux-server.md)，并自行配置 TUN、路由、NAT、专用服务账号和 PKI。
 
-## Build the Windows client
+### 在 WSL 中测试
 
-Use an x64 Visual Studio environment with Boost and OpenSSL available through a CMake
-toolchain. Release/CI builds can fetch the pinned Wintun 0.14.1 archive and verify its
-SHA-256 before packaging.
+如果源码位于 `/mnt/<盘符>`，该路径通常使用 DrvFS；默认情况下，`chmod` 权限可能无法按 Linux 文件系统方式保存。本项目会在 WSL 下把测试 PKI 放在 `/tmp`，避免测试私钥被误判为权限过宽。不要因此放宽生产私钥的权限校验。
+
+## Windows 客户端：构建与测试
+
+使用 x64 Visual Studio 环境，并通过 CMake 工具链提供 Boost 和 OpenSSL。Release/CI 构建可下载固定版本的 Wintun 0.14.1，并在打包前校验 SHA-256。
 
 ```powershell
 cmake -S . -B out/windows-client -A x64 `
@@ -129,52 +80,50 @@ cmake --build out/windows-client --config Release --parallel
 ctest --test-dir out/windows-client -C Release --output-on-failure
 ```
 
-Run the client elevated and import a copy of
-[`configs/client.example.json`](configs/client.example.json) that references external
-certificate files. The profile never contains private-key material inline.
+客户端需要提升权限运行，并导入 [`configs/client.example.json`](configs/client.example.json) 的副本。配置文件引用外部证书文件，不在配置中内嵌私钥。
 
-## Documentation map
+## 文档索引
 
-- [System architecture and packet flow](docs/architecture/overview.md)
-- [Wire protocol v1](docs/protocol-v1.md)
-- [Threat model](docs/security/threat-model.md)
-- [Credential handling and revocation](docs/security/credential-handling.md)
-- [Observability and limits](docs/architecture/observability-and-limits.md)
-- [Release engineering](docs/deployment/release-engineering.md)
-- [Operations and troubleshooting](docs/operations/runbook.md)
-- [Deferred final verification SOP](docs/operations/deferred-verification-sop.md)
-- [Project case study and interview guide](docs/portfolio/project-case-study.md)
-- [Application and recruiting drafts](docs/portfolio/application-materials.md)
-- [Known limitations and roadmap](docs/roadmap.md)
+- [系统架构与数据包流向](docs/architecture/overview.md)
+- [线路协议 v1](docs/protocol-v1.md)
+- [威胁模型](docs/security/threat-model.md)
+- [凭据处理与证书吊销](docs/security/credential-handling.md)
+- [观测指标与资源限制](docs/architecture/observability-and-limits.md)
+- [Linux 部署指南](docs/deployment/linux-server.md)
+- [发布工程与供应链](docs/deployment/release-engineering.md)
+- [运维手册与故障排查](docs/operations/runbook.md)
+- [尚待执行的验证步骤](docs/operations/deferred-verification-sop.md)
+- [项目复盘与面试讲解](docs/portfolio/project-case-study.md)
+- [申请与招聘材料草稿](docs/portfolio/application-materials.md)
+- [已知限制与后续路线图](docs/roadmap.md)
+- [知识产权与许可确认清单](docs/governance/ip-and-licensing-checklist.md)
 
-## Repository layout
+## 代码目录
 
 ```text
-src/protocol/      wire framing and control messages
-src/core/          platform-neutral state, routing, leases, queues
-src/server/        Linux TUN and asynchronous mTLS server
-src/client/        portable client runtime and Windows network backend
-vpn_client_ui/     Win32 / DirectX 11 / Dear ImGui desktop application
-tests/             unit, integration, timeout, TLS, and end-to-end tests
-fuzz/              libFuzzer target and protocol dictionary
-benchmarks/        deterministic protocol microbenchmark
-deploy/            hardened service examples
-docs/              architecture, security, operations, evidence
-vpn_base/          preserved internship prototype for historical comparison
+src/protocol/      线路帧编解码与控制消息
+src/core/          跨平台状态、路由、地址租约和队列
+src/server/        Linux TUN 与异步双向 TLS 服务端
+src/client/        可复用客户端运行时与 Windows 网络后端
+src/broker/        Windows 特权 broker 请求协议
+vpn_client_ui/     Win32、DirectX 11 与 Dear ImGui 桌面客户端
+tests/             单元、集成、超时、TLS 与端到端测试
+fuzz/              libFuzzer 目标与协议字典
+benchmarks/        协议微基准
+deploy/            systemd 等部署示例
+docs/              架构、安全、运维、验证和项目材料
+vpn_base/          保留的实习原型，用于历史对照
 ```
 
-## Historical context and limitations
+## 已知限制
 
-`vpn_base/` preserves the original internship prototype; the root build uses the
-redesigned implementation. Earlier repository credentials must be treated as
-compromised even if removed from the current tree.
+- 目前仅支持 IPv4；没有 IPv6 数据面或双栈授权策略。
+- 数据传输采用 TLS/TCP；网络丢包时可能出现 TCP-over-TCP 性能退化。
+- 客户端支持带抖动的指数退避重连；不支持会话恢复、漫游或无缝网络切换。
+- 服务端可通过 `SIGHUP` 验证并切换 TLS 凭据；客户端凭据变更仍需重启客户端，已有会话继续使用原 TLS 上下文。
+- 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
+- Linux 网络配置和 Windows 提权仍需要管理员参与；Windows 特权 broker 尚未完整落地。
+- 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
+- GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 
-The project currently supports IPv4 over TLS/TCP and uses one Linux TUN. The client
-retries transient transport failures with jittered exponential backoff and rolls network
-state back before reconnecting. It has no session resumption, roaming, live certificate
-rotation, and has not yet published controlled end-to-end performance/soak results.
-See the [roadmap](docs/roadmap.md).
-
-Because this work originated during an internship, no open-source license is asserted
-until ownership and publication rights are confirmed. See the
-[IP and licensing checklist](docs/governance/ip-and-licensing-checklist.md).
+原型目录 `vpn_base/` 保留实习阶段实现，根目录构建系统使用重构后的实现。旧版本仓库中曾出现的凭据应视为已泄露，不应继续使用。项目的开源许可和实习成果发布权仍待确认；详情见[知识产权与许可确认清单](docs/governance/ip-and-licensing-checklist.md)。
