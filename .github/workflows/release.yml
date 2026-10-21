@@ -135,6 +135,7 @@ jobs:
         with:
           subject-path: |
             out/release-windows/personal-vpn-*.zip
+            out/release-windows/personal-vpn-*.zip.sha256
       - name: Upload release assets
         shell: pwsh
         env:
