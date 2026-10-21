@@ -36,8 +36,8 @@ Install the server certificate, private key, and client CA bundle under
 users should not.
 
 The server refuses a private key with any group or other permission bits; use mode
-`0600` and make the service account the owner. Install a current PEM client CRL when
-device revocation is required.
+`0600` and make the service account the owner. Linux private-key files must not exceed
+1 MiB. Install a current PEM client CRL when device revocation is required.
 
 ## Direct execution
 
