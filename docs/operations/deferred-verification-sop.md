@@ -38,6 +38,9 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- Windows MinGW Debug client-transport configuration rebuilt with warnings-as-errors;
+  all 9/9 CTest tests passed, including actual TLS private-key loading and the 1 MiB
+  rejection case. This Debug tree does not build the desktop UI or a release package.
 - After binding Windows private-key ACL/reparse checks to the exact handle parsed by
   OpenSSL, rebuilt the client and ran 9/9 CTest tests. Credential tests generate a
   temporary RSA identity, verify real PEM loading through the TLS context, reject each
