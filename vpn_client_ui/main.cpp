@@ -234,7 +234,7 @@ int main(int argc, char*[]) {
             continue;
         }
 
-        if (!g_d3d.renderTargetView) {
+        if (!g_d3d.renderTargetView && !CreateRenderTarget()) {
             Sleep(16);
             continue;
         }
