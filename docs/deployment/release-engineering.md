@@ -13,8 +13,9 @@ weekly schedule.
 - Wintun is pinned to 0.14.1 and its archive must match SHA-256
   `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51`.
 - Windows Boost/OpenSSL resolution uses the signed vcpkg 2026.07.29 registry baseline
-  `9e593bb18ea69cc5095e012465dcd675a822ed0d`; generated dependency SPDX records are
-  published beside the Windows package.
+  `9e593bb18ea69cc5095e012465dcd675a822ed0d`; CMake fixes the manifest install root
+  to each build tree, and generated dependency SPDX records are published beside the
+  Windows package.
 - The release workflow accepts only a tag equal to the CMake project version.
 - Linux and Windows archives receive SHA-256 checksum sidecars.
 - CI and release jobs share `cmake/verify-windows-package.cmake` to check Windows

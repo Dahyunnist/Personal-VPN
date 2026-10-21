@@ -119,10 +119,10 @@ checkout, then run:
 
 ```powershell
 Set-Location E:\vpn
-vcpkg install --triplet x64-windows-static
 cmake -S . -B out/final-msvc-client -A x64 `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
   -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+  -DVCPKG_INSTALLED_DIR="$PWD/out/final-msvc-client/vcpkg_installed" `
   '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>' `
   -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF `
   -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON `
@@ -131,6 +131,7 @@ cmake -S . -B out/final-msvc-client -A x64 `
 cmake --build out/final-msvc-client --config Release --parallel 2
 ctest --test-dir out/final-msvc-client -C Release --output-on-failure --timeout 45
 cmake --build out/final-msvc-client --config Release --target package
+Get-ChildItem out/final-msvc-client/vcpkg_installed -Recurse -Filter '*.spdx.json'
 ```
 
 Extract the ZIP into a new directory. It must contain the client executable, Wintun

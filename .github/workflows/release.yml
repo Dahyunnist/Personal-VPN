@@ -85,15 +85,13 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Install client dependencies
-        shell: pwsh
-        run: vcpkg install --triplet x64-windows-static
       - name: Configure, build, and test
         shell: pwsh
         run: |
           cmake -S . -B out/release-windows -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/out/release-windows/vcpkg_installed" `
             '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>' `
             -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF `
             -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON `
@@ -108,8 +106,10 @@ jobs:
           $artifact = Get-ChildItem out/release-windows -Filter 'personal-vpn-*.zip' | Select-Object -First 1
           if (-not $artifact) { throw 'Windows client ZIP package was not created' }
           cmake "-DPACKAGE_ARCHIVE=$($artifact.FullName)" -P cmake/verify-windows-package.cmake
-          $sbomFiles = Get-ChildItem vcpkg_installed -Recurse -Filter '*.spdx.json'
-          if (-not $sbomFiles) { throw 'vcpkg dependency SBOM was not created' }
+          $sbomRoot = Join-Path $env:GITHUB_WORKSPACE 'out/release-windows/vcpkg_installed'
+          if (-not (Test-Path -LiteralPath $sbomRoot -PathType Container)) { throw "vcpkg installed tree missing: $sbomRoot" }
+          $sbomFiles = Get-ChildItem $sbomRoot -Recurse -Filter '*.spdx.json'
+          if (-not $sbomFiles) { throw "vcpkg SPDX SBOM was not created under $sbomRoot" }
           $sbomArchive = Join-Path $artifact.DirectoryName "personal-vpn-$env:GITHUB_REF_NAME-Windows-dependencies-spdx.zip"
           Compress-Archive -Path $sbomFiles.FullName -DestinationPath $sbomArchive
           foreach ($file in @($artifact.FullName, $sbomArchive)) {
