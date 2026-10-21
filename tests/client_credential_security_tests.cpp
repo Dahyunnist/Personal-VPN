@@ -209,6 +209,16 @@ int main()
     }
     const auto remove_certificate = [&certificate_path]()
     { static_cast<void>(DeleteFileW(certificate_path.data())); };
+    std::array<wchar_t, MAX_PATH> oversized_key_path{};
+    if (GetTempFileNameW(temporary_path.c_str(), L"vpn", 0U, oversized_key_path.data()) == 0U)
+    {
+        remove_file();
+        remove_certificate();
+        std::cerr << "failed to create temporary oversized-key file\n";
+        return EXIT_FAILURE;
+    }
+    const auto remove_oversized_key = [&oversized_key_path]()
+    { static_cast<void>(DeleteFileW(oversized_key_path.data())); };
 
     try
     {
@@ -233,6 +243,54 @@ int main()
         {
             throw std::runtime_error("TLS context did not load the validated key handle");
         }
+
+        const std::wstring oversized_key(oversized_key_path.data());
+        const auto oversized_key_string = std::filesystem::path(oversized_key).string();
+        HANDLE oversized_writer = CreateFileW(oversized_key.c_str(),
+                                              GENERIC_WRITE,
+                                              0U,
+                                              nullptr,
+                                              OPEN_EXISTING,
+                                              FILE_ATTRIBUTE_NORMAL,
+                                              nullptr);
+        if (oversized_writer == INVALID_HANDLE_VALUE)
+        {
+            throw std::system_error(static_cast<int>(GetLastError()),
+                                    std::system_category(),
+                                    "open oversized test key for writing");
+        }
+        LARGE_INTEGER oversized_position{};
+        oversized_position.QuadPart = 1024LL * 1024LL + 1LL;
+        const auto moved = SetFilePointerEx(
+            oversized_writer, oversized_position, nullptr, FILE_BEGIN);
+        const auto sized = moved != FALSE && SetEndOfFile(oversized_writer) != FALSE;
+        const auto resize_error = sized ? ERROR_SUCCESS : GetLastError();
+        static_cast<void>(CloseHandle(oversized_writer));
+        if (!sized)
+        {
+            throw std::system_error(static_cast<int>(resize_error),
+                                    std::system_category(),
+                                    "create oversized test private key");
+        }
+        set_test_acl(oversized_key, user_sid, nullptr, false);
+        bool oversized_key_rejected = false;
+        try
+        {
+            static_cast<void>(personal_vpn::client::make_client_tls_context(
+                personal_vpn::client::ClientTlsConfig{certificate_path_string,
+                                                      certificate_path_string,
+                                                      oversized_key_string,
+                                                      "vpn.example.test"}));
+        }
+        catch (const std::invalid_argument&)
+        {
+            oversized_key_rejected = true;
+        }
+        if (!oversized_key_rejected)
+        {
+            throw std::runtime_error("client TLS loader accepted a private key larger than 1 MiB");
+        }
+
         {
             auto validated_file =
                 personal_vpn::client::open_validated_private_key_file(path);
@@ -302,6 +360,7 @@ int main()
         }
         remove_file();
         remove_certificate();
+        remove_oversized_key();
         std::cout << "Windows private-key ACL checks passed\n";
         return EXIT_SUCCESS;
     }
@@ -309,6 +368,7 @@ int main()
     {
         remove_file();
         remove_certificate();
+        remove_oversized_key();
         std::cerr << "Windows private-key ACL test failed: " << error.what() << '\n';
         return EXIT_FAILURE;
     }
