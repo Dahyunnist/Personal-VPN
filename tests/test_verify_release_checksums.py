@@ -51,6 +51,27 @@ class ReleaseChecksumVerifierTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum mismatch", result.stderr)
 
+    def test_accepts_linux_tarball_and_windows_zip(self) -> None:
+        self.sidecar.write_text(f"{self.digest}  {ARCHIVE_NAME}\n", encoding="ascii")
+        tarball_name = "personal-vpn-0.1.0-Linux-x86_64.tar.gz"
+        tarball = self.directory / tarball_name
+        tarball.write_bytes(b"test Linux release archive\n")
+        tarball_digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
+        (self.directory / f"{tarball_name}.sha256").write_text(
+            f"{tarball_digest}  {tarball_name}\n", encoding="ascii"
+        )
+
+        result = self.run_verifier()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Verified 2 release archive checksum(s).", result.stdout)
+
+    def test_rejects_missing_checksum_sidecar(self) -> None:
+        result = self.run_verifier()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("every archive must have exactly one", result.stderr)
+
     def test_rejects_non_basename_checksum_path(self) -> None:
         self.sidecar.write_text(f"{self.digest}  ../{ARCHIVE_NAME}\n", encoding="ascii")
 
