@@ -18,6 +18,12 @@ weekly schedule.
   Windows package.
 - The release workflow accepts only a tag equal to the CMake project version.
 - Linux and Windows archives receive SHA-256 checksum sidecars.
+- The release workflow generates keyless GitHub artifact attestations for Linux
+  archives/checksums and Windows ZIP assets before upload. Its `id-token`,
+  `attestations`, and `artifact-metadata` permissions are scoped to package jobs; no
+  long-lived signing secret is stored. Public CI execution still needs owner-side
+  verification. Consumers verify downloaded files with `gh attestation verify` as
+  described in [`../operations/authenticated-github-sop.md`](../operations/authenticated-github-sop.md).
 - CI and release jobs share `cmake/verify-windows-package.cmake` to check Windows
   executable, Wintun runtime, example profile, licenses, and bundled docs, and reject
   credential-like archive paths before upload.
@@ -49,12 +55,12 @@ retain protocol v1.
    documentation.
 3. Verify no development PKI or packet capture contains secrets or personal data.
 4. Create and push the matching signed or annotated `vX.Y.Z` tag.
-5. Let `.github/workflows/release.yml` create a draft, build and checksum both platform
-   packages plus the Windows dependency SBOM, then publish only after all package jobs
-   pass and required assets are present. Failed runs leave a private draft for repair;
+5. Let `.github/workflows/release.yml` create a draft, build, checksum, and attest both
+   platform packages plus the Windows dependency SBOM, then publish only after all
+   package jobs pass and required assets are present. Failed runs leave a private draft for repair;
    reruns refuse to modify a release that is already published.
-6. Download both assets on clean hosts, verify checksums, inspect archive contents, and
-   run the server `--help` plus a client smoke connection using disposable PKI.
+6. Download assets on clean hosts, verify checksums and attestations, inspect archive
+   contents, and run the server `--help` plus a client smoke connection using disposable PKI.
 7. Record the release test result and known limitations before announcing it.
 
 Release assets are engineering artifacts, not a claim that this educational prototype
