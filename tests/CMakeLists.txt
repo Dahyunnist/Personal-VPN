@@ -122,6 +122,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     find_program(BASH_EXECUTABLE bash REQUIRED)
     set(TEST_PKI_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-pki")
 
+    # DrvFS does not preserve chmod permissions unless metadata is enabled.
+    # Keep WSL test keys on the Linux filesystem so private-key checks stay meaningful.
+    if(EXISTS "/proc/sys/kernel/osrelease")
+        file(READ "/proc/sys/kernel/osrelease" KERNEL_RELEASE)
+        if(KERNEL_RELEASE MATCHES "[Mm]icrosoft")
+            string(SHA256 TEST_PKI_BUILD_HASH "${CMAKE_CURRENT_BINARY_DIR}")
+            string(SUBSTRING "${TEST_PKI_BUILD_HASH}" 0 16 TEST_PKI_BUILD_ID)
+            set(TEST_PKI_DIRECTORY "/tmp/personal-vpn-test-pki-${TEST_PKI_BUILD_ID}")
+        endif()
+    endif()
+
     add_executable(tls_security_tests tls_security_tests.cpp)
     target_link_libraries(tls_security_tests PRIVATE PersonalVPN::ServerTransport)
     target_compile_features(tls_security_tests PRIVATE cxx_std_17)
