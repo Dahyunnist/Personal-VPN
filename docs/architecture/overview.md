@@ -1,64 +1,53 @@
-# System architecture
+# 系统架构
 
-## Trust and ownership boundaries
+## 信任与资源所有权边界
 
-The Windows and Linux kernels own routing and virtual-interface state. The client and
-server own only resources they create for one process lifetime. TLS authenticates a
-device certificate, while the protocol state machine authorizes that identity to use
-exactly one server-issued address lease. Host firewall/NAT policy remains outside the
-VPN process.
+Windows 和 Linux 内核分别拥有路由及虚拟网卡状态。客户端和服务端只拥有各自进程生命周期内创建的资源。TLS 负责认证设备证书，协议状态机负责授权该身份使用且仅使用一个由服务端分配的地址租约。主机防火墙/NAT 策略由 VPN 进程之外的部署配置管理。
 
 ```text
-Windows kernel                     Untrusted network                Linux kernel
-┌──────────────┐                 ┌─────────────────┐              ┌──────────────┐
-│ IP stack     │                 │ ciphertext only │              │ routing/NAT  │
-│ route table  │                 └────────┬────────┘              │ TUN pvpn0    │
-│ Wintun       │                          │                       └──────▲───────┘
-└──────┬───────┘                          │                              │
-       │ packet                  mutual TLS/TCP                         │ packet
-┌──────▼────────────────┐        framed stream        ┌────────────────▼──────┐
-│ ClientRuntime         │◄───────────────────────────►│ TlsTunnelServer       │
-│ policy + transaction  │                             │ sessions + lease/router│
-└───────────────────────┘                             └───────────────────────┘
+Windows 内核                     不可信网络                    Linux 内核
+┌──────────────┐              ┌─────────────────┐           ┌──────────────┐
+│ IP 协议栈    │              │ 仅传输密文      │           │ 路由/NAT     │
+│ 路由表       │              └────────┬────────┘           │ TUN pvpn0    │
+│ Wintun       │                       │                    └──────▲───────┘
+└──────┬───────┘                       │                           │
+       │ 数据包              双向 TLS/TCP                           │ 数据包
+┌──────▼────────────────┐    帧化字节流      ┌────────────────▼──────┐
+│ ClientRuntime         │◄──────────────────►│ TlsTunnelServer       │
+│ 策略 + 事务           │                   │ 会话 + 租约/路由器    │
+└───────────────────────┘                   └───────────────────────┘
 ```
 
-## Outbound packet path
+## 上行数据包路径
 
-1. A profile route sends a Windows IPv4 packet into the Wintun interface.
-2. The client reader copies Wintun-owned bytes before releasing the receive packet.
-3. `ClientSessionController` verifies structure, MTU, and the assigned source address.
-4. `TlsTunnelClient` encodes `DATA_IPV4`; its strand and bounded queue guarantee one
-   outstanding TLS write with owned storage.
-5. The server frame decoder reconstructs records across arbitrary TLS read boundaries.
-6. The server controller verifies state, sequence, IPv4 length, MTU, and lease source.
-7. The TUN device performs one serialized asynchronous write using owned bytes.
-8. Linux routing/firewall/NAT forwards the packet according to administrator policy.
+1. 配置文件中的路由将 Windows IPv4 数据包导入 Wintun 接口。
+2. 客户端读取线程在释放 Wintun 接收数据包前，将其复制到自有内存。
+3. `ClientSessionController` 校验结构、MTU 和已分配的源地址。
+4. `TlsTunnelClient` 编码为 `DATA_IPV4`；其 strand 和有界队列保证同一时间最多一个 TLS 写操作，且缓冲区由客户端拥有。
+5. 服务端帧解码器跨任意 TLS 读取边界重组记录。
+6. 服务端控制器校验状态、序列号、IPv4 长度、MTU 和租约源地址。
+7. TUN 设备使用自有字节执行一次串行化异步写入。
+8. Linux 路由/防火墙/NAT 根据管理员策略转发数据包。
 
-## Return packet path
+## 回程数据包路径
 
-1. Linux routing sends a packet destined for a leased address into `pvpn0`.
-2. The single TUN read loop copies it and asks the router for the destination lease.
-3. The registry resolves only the current generation owner and releases its mutex
-   before invoking the session.
-4. The owning TLS session queues one `DATA_IPV4` frame under backpressure.
-5. The client verifies sequence, IPv4 length, MTU, and destination lease.
-6. The Windows backend allocates a Wintun send packet, copies the bytes, and submits it.
-7. The Windows stack delivers the original IP packet to the requesting application.
+1. Linux 路由把目标地址为租约地址的数据包发送到 `pvpn0`。
+2. 唯一的 TUN 读取循环复制数据包，并让路由器查询目标地址对应的租约。
+3. 租约注册表只解析当前代次的所有者；调用会话前会释放互斥锁。
+4. 租约所属 TLS 会话在背压控制下排队一个 `DATA_IPV4` 帧。
+5. 客户端校验序列号、IPv4 长度、MTU 和目标租约。
+6. Windows 后端分配 Wintun 发送数据包、复制字节并提交。
+7. Windows 协议栈将原始 IP 数据包交付给发起请求的应用。
 
-## Server concurrency model
+## 服务端并发模型
 
-- One acceptor admits no more than `max_sessions`.
-- One `io_context` runs on a bounded thread pool.
-- Each TLS stream has a strand; reads, writes, timers, and close transitions cannot
-  concurrently mutate session state.
-- One TUN owner serializes device reads and writes.
-- Per-session and global queues have explicit byte/frame bounds.
-- Lease generations prevent a delayed callback from releasing a reassigned address.
+- 一个 acceptor 接入的会话数不超过 `max_sessions`。
+- 一个 `io_context` 在有界线程池中运行。
+- 每条 TLS 流都有自己的 strand；读取、写入、定时器和关闭状态转换不会并发修改会话状态。
+- 一个 TUN 所有者串行处理设备读写。
+- 每会话及全局队列均有明确的字节数/帧数上限。
+- 租约代次可防止延迟回调释放已重新分配的地址。
 
-## Failure convergence
+## 故障收敛与关闭
 
-DNS, TCP, TLS, protocol, timeout, adapter, route, TUN, and callback failures converge
-on idempotent stop paths. Timers are cancelled, admissions/routes/leases are released,
-outstanding operations drain through their executors, Wintun wait is interrupted, and
-all owned threads are joined. No error path invokes shell commands or deletes network
-state it did not create.
+DNS、TCP、TLS、协议、超时、适配器、路由、TUN 和回调故障都会汇入幂等停止路径。定时器会取消，接入许可/路由/租约会释放，未完成操作会通过所属执行器排空，Wintun 等待会被中断，所有自有线程都会 join。错误路径不会调用 shell 命令，也不会删除本进程未创建的网络状态。

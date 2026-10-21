@@ -1,36 +1,23 @@
-# Server runtime
+# 服务端运行时
 
-`TlsTunnelServer` composes the authenticated session transport, lease manager, bounded
-Linux TUN adapter, and destination router into one multi-client runtime.
+`TlsTunnelServer` 将经过认证的会话传输、租约管理器、有界 Linux TUN 适配器和目标地址路由器组合成多客户端运行时。
 
-## Connection lifecycle
+## 连接生命周期
 
-1. The listener accepts TCP only while the configured session limit has capacity.
-2. `TlsTunnelSession` completes mTLS and derives the certificate fingerprint.
-3. `CLIENT_HELLO` acquires an exclusive, generation-tagged lease.
-4. The session registers its virtual IPv4 address before `IP_ASSIGN` is sent.
-5. Valid client IPv4 frames are queued to TUN; TUN packets are routed by destination
-   lease to the owning session.
-6. Close or transport failure releases the exact lease generation, removes the route,
-   and erases the session from the listener registry.
+1. 仅当当前会话数低于配置上限时，监听器才接受 TCP 连接。
+2. `TlsTunnelSession` 完成 mTLS 并导出证书指纹。
+3. 收到 `CLIENT_HELLO` 后，为其身份申请独占且带代次标记的租约。
+4. 发送 `IP_ASSIGN` 之前，先把会话虚拟 IPv4 地址注册到路由表。
+5. 有效的客户端 IPv4 帧进入 TUN 队列；TUN 数据包按目标租约路由到所属会话。
+6. 连接关闭或传输失败时，释放准确的租约代次、移除路由，并从监听器注册表删除会话。
 
-## Safety policy
+## 安全策略
 
-- The default active-session limit is 1024 and can be lowered at construction time.
-  Connections above the limit are closed before allocating TLS/session state.
-- A certificate identity may hold only one live lease. A concurrent connection with
-  the same certificate receives `LeaseUnavailable` and cannot disturb the first
-  session.
-- Reissued leases carry a monotonically increasing identifier. A stale session cannot
-  renew or release a newer lease, even if identity and address were reused.
-- The listener registry is confined to one Asio strand. Individual sessions keep their
-  own strands, while the lease manager and router provide thread-safe shared state.
-- An unrecoverable accept or TUN error stops the runtime rather than entering a retry
-  loop or continuing with partial packet forwarding.
-- `SO_REUSEADDR` is enabled before bind; listener setup failures are reported by
-  constructor exceptions.
+- 默认最多允许 1,024 个活动会话，可在构造时调低。超出上限的连接会在分配 TLS/会话状态之前关闭。
+- 一个证书身份只能持有一个活动租约。使用同一证书的并发连接会收到 `LeaseUnavailable`，且不能影响先建立的会话。
+- 重新签发的租约带有单调递增标识。即使身份和地址被复用，过期会话也不能续租或释放新租约。
+- 监听器注册表限制在一个 Asio strand 内访问。每个会话使用自己的 strand；租约管理器和路由器则保护共享线程状态。
+- accept 或 TUN 出现不可恢复错误时，运行时会停止，不会进入重试循环，也不会在仅转发部分数据包的状态下继续运行。
+- bind 前启用 `SO_REUSEADDR`；监听器初始化失败会通过构造异常报告。
 
-The integration test runs the server on four I/O workers with two distinct client
-certificates, a third duplicate-identity connection, and an over-capacity connection.
-It verifies distinct leases, duplicate rejection, admission control, bidirectional TUN
-traffic, route isolation, and complete cleanup.
+集成测试使用四个 I/O 工作线程、两个不同客户端证书、第三个重复身份连接以及一个超出容量的连接。测试验证租约隔离、重复身份拒绝、接入控制、双向 TUN 流量、路由隔离和完整清理。

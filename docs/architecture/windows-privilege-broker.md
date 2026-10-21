@@ -1,81 +1,42 @@
-# Windows privilege broker
+# Windows 特权 broker
 
-## Decision
+## 设计决策
 
-The desktop UI must run unelevated. The current route backend calls
-`CreateIpForwardEntry2`, which [Microsoft documents as requiring an administrator
-token](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-createipforwardentry2).
-A small Windows service owns the TLS client,
-credential loading, Wintun session, interface configuration, and route transaction.
-The service—not the UI—must authenticate the VPN server and validate `IP_ASSIGN`
-before changing network state. This prevents a compromised or modified UI from asking
-a privileged process to install arbitrary routes.
+桌面 UI 应以普通用户权限运行。当前路由后端调用 `CreateIpForwardEntry2`，而 [Microsoft 文档说明该 API 要求管理员令牌](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-createipforwardentry2)。小型 Windows 服务负责 TLS 客户端、凭据加载、Wintun 会话、接口配置和路由事务。
 
-The existing UI self-elevation path stays in place until the service path passes the
-acceptance gates below. Do not remove the old path or ship a UI that silently fails to
-connect before broker integration is complete.
+服务端必须先认证 VPN 服务端，并验证 `IP_ASSIGN`，之后才能修改网络状态。这样可以防止被攻破或篡改的 UI 要求特权进程安装任意路由。
 
-## Trust boundary and IPC contract
+在服务路径通过下述验收门槛前，保留现有 UI 自行提权路径。broker 集成完成前，不要删除旧路径，也不要发布会静默连接失败的 UI。
 
-Use a local named pipe with a versioned, length-prefixed protocol. The server rejects
-remote pipe clients, malformed or oversized messages, unknown versions, unknown message
-types, and duplicate request IDs. Initial messages contain only:
+## 信任边界与 IPC 约定
 
-- `Connect(profile_id)`;
-- `Disconnect(request_id)`; and
-- `GetStatus(request_id)`.
+使用带版本和长度前缀的本地命名管道协议。服务端拒绝远程管道客户端、格式错误或超大消息、未知版本、未知消息类型及重复请求 ID。初始消息只允许：
 
-The protocol must not accept caller-supplied IP addresses, gateways, route prefixes,
-interface names, adapter names, raw packets, executable paths, or arbitrary commands.
-The broker resolves a profile only inside the requesting user's approved profile root.
-It impersonates that user while opening configuration and credential files, checks the
-existing private-key ACL and size rules on the opened handle, then reverts before
-network work. Secret bytes never cross IPC.
+- `Connect(profile_id)`；
+- `Disconnect(request_id)`；
+- `GetStatus(request_id)`。
 
-The pipe DACL grants access only to explicitly authorized interactive user SIDs,
-Administrators, and SYSTEM. For every connection, the broker impersonates the caller,
-checks the token user and interactive session, and binds the request to that identity.
-It must not trust a SID, username, profile path, or session ID supplied in message data.
-Limit each user to one active tunnel. Disconnect, pipe loss, logoff, service stop, or
-transport failure must use the existing idempotent shutdown and route rollback path.
+协议不得接受调用方提供的 IP 地址、网关、路由前缀、接口名、适配器名、原始数据包、可执行文件路径或任意命令。broker 只能在请求用户获准的配置文件根目录中解析配置。读取配置和凭据文件时，应模拟该用户身份；针对已打开句柄检查现有私钥 ACL 和大小限制，再恢复 broker 身份后执行网络操作。密钥字节绝不通过 IPC 传输。
 
-Run the service under the least-privileged identity that can perform the required
-Wintun and network operations. Determine and document the exact required token rights
-in an elevated integration test; do not default to LocalSystem without evidence. Keep
-the UI and service binaries, service configuration, and update path protected from
-standard-user writes. Installation and service ACL changes require an explicit
-administrator-approved installer.
+管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 
-## Integration sequence
+服务应以执行所需 Wintun 和网络操作的最低权限身份运行。通过提升权限集成测试确定并记录准确令牌权限；没有证据时不得默认使用 LocalSystem。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入。安装及更改服务 ACL 必须通过管理员明确批准的安装程序执行。
 
-1. Extract a broker-facing tunnel lifecycle interface from `ClientRuntime`; preserve
-   its TLS, reconnect, transaction, and joined-shutdown invariants.
-2. The bounded request codec now has Windows/portable round-trip and negative tests and
-   is included in the libFuzzer target. Still add Windows tests for pipe ACLs, caller
-   token binding, remote-client rejection, and connection-level replay handling.
-3. Host the existing client runtime and `WindowsNetworkBackend` in the service. Ensure
-   profile and private-key reads occur under the caller's identity and TLS verification
-   remains in the service process.
-4. Replace `VPNClientCore`'s direct runtime ownership with the IPC client. UI messages
-   expose state and bounded diagnostics only; they never carry credentials or routes.
-5. Add installer, service recovery policy, upgrade/rollback/uninstall, and elevated
-   integration coverage. Then remove UI self-elevation and verify the UI token is not
-   elevated while real tunnel setup and cleanup still pass.
+## 集成顺序
 
-## Acceptance gates
+1. 从 `ClientRuntime` 抽取面向 broker 的隧道生命周期接口；保留 TLS、重连、事务和 join 完整关闭等不变量。
+2. 有界请求编解码器已有 Windows/可移植往返与负向测试，并已加入 libFuzzer 目标。仍需增加管道 ACL、调用方令牌绑定、拒绝远程客户端和连接级重放处理的 Windows 测试。
+3. 在服务中承载现有客户端运行时和 `WindowsNetworkBackend`。确保配置和私钥在调用方身份下读取，TLS 验证仍在服务进程内完成。
+4. 将 `VPNClientCore` 对运行时的直接所有权改为 IPC 客户端。UI 消息只公开状态和有界诊断，不携带凭据或路由。
+5. 增加安装程序、服务恢复策略、升级/回滚/卸载流程和提权集成测试。之后移除 UI 自行提权，并验证 UI 令牌未提权时，真实隧道配置和清理仍然成功。
 
-- UI starts and operates with a standard-user token; only install/upgrade prompts for
-  elevation.
-- A standard user cannot modify or replace service files, service configuration, or
-  broker policy.
-- Pipe callers cannot impersonate another user or session, connect remotely, or submit
-  network mutations outside a TLS-authenticated tunnel assignment.
-- Invalid, stale, oversized, replayed, and unsupported IPC messages fail closed.
-- Broker stop, UI crash, pipe loss, reconnect, and service restart leave no stale route,
-  address, adapter session, or worker thread.
-- Real Wintun and route integration passes on a disposable Windows VM under the
-  intended service identity, without running the UI elevated.
+## 验收门槛
 
-Do not claim the privilege split is complete until every gate passes. Current state is
-still single-process UI plus direct Windows network backend; this document is a target
-design, not evidence of implementation.
+- UI 可在普通用户令牌下启动和运行；只有安装/升级需要提权。
+- 普通用户无法修改或替换服务文件、服务配置或 broker 策略。
+- 管道调用方不能冒充其他用户/会话、远程连接，或绕过 TLS 认证后的地址分配请求直接提交网络变更。
+- 无效、过期、超大、重放或不支持的 IPC 消息必须失败并关闭。
+- broker 停止、UI 崩溃、管道中断、重连和服务重启后，不留下过期路由、地址、适配器会话或工作线程。
+- 在一次性 Windows 虚拟机中，以预期服务身份通过真实 Wintun 和路由集成测试，且 UI 不提权。
+
+所有门槛通过前，不得声称特权拆分已经完成。目前仍是单进程 UI 直接调用 Windows 网络后端；本文描述的是目标设计，不是已实现的功能证明。

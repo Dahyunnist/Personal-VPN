@@ -1,48 +1,27 @@
-# Client TLS transport
+# 客户端 TLS 传输
 
-`personal_vpn_client_transport` is the portable network boundary for the redesigned
-client. It deliberately does not configure a virtual adapter or routes. Those
-privileged operations are supplied through the assignment and packet callbacks,
-which keeps transport behavior independently testable.
+`personal_vpn_client_transport` 是重构后客户端可跨平台复用的网络边界。它刻意不配置虚拟适配器或路由。特权操作通过地址分配和数据包回调提供，使传输逻辑可以独立测试。
 
-## Connection sequence
+## 连接顺序
 
-1. The caller creates a TLS context with `make_client_tls_context` and opens the TCP
-   socket.
-2. `TlsTunnelClient::start` configures SNI for DNS names and performs an asynchronous
-   TLS client handshake.
-3. OpenSSL verifies the chain and the exact DNS name or IP address configured by the
-   caller. The client certificate and matching private key are also mandatory.
-4. After the TLS handshake succeeds, the protocol controller sends `CLIENT_HELLO`.
-5. The server-authoritative `IP_ASSIGN` is validated before it is published to the
-   adapter callback. Only then may IPv4 data flow.
+1. 调用方使用 `make_client_tls_context` 创建 TLS 上下文并打开 TCP 套接字。
+2. `TlsTunnelClient::start` 为 DNS 名称设置 SNI，并执行异步 TLS 客户端握手。
+3. OpenSSL 验证证书链，以及调用方配置的精确 DNS 名称或 IP 地址。客户端证书和与之匹配的私钥也必须提供。
+4. TLS 握手成功后，协议控制器发送 `CLIENT_HELLO`。
+5. 验证由服务端决定的 `IP_ASSIGN` 后，才会通过回调发布给适配器；只有此时 IPv4 数据才能开始流动。
 
-The same server name must be passed to the TLS-context factory and the transport.
-Configuration code owns that invariant; a later client-runtime layer will expose a
-single validated configuration object so the two values cannot diverge.
+创建 TLS 上下文的工厂和传输对象必须收到相同的服务端名称。配置代码负责保持这一约束；后续客户端运行时层将暴露单个经过验证的配置对象，避免两个值发生偏离。
 
-## Concurrency and memory ownership
+## 并发与内存所有权
 
-All public operations are dispatched onto one Boost.Asio strand. TLS reads, protocol
-state transitions, callbacks, queue mutation, and shutdown therefore have a single
-serialized execution order even when the I/O context uses multiple worker threads.
+所有公开操作都会分发到一个 Boost.Asio strand。TLS 读取、协议状态转换、回调、队列修改和关闭因此按单一顺序串行执行，即使 I/O 上下文使用多个工作线程也不例外。
 
-The frame decoder accepts arbitrary TLS record boundaries. Outbound frames are
-encoded into owned buffers in a bounded queue, and exactly one `async_write` is active
-at a time. The default limit is 256 frames or 1 MiB. Queue exhaustion fails closed
-instead of allowing an unbounded memory increase.
+帧解码器接受任意 TLS 记录边界。出站帧会编码到由客户端拥有的缓冲区，并进入有界队列；同一时刻最多执行一个 `async_write`。默认上限为 256 帧或 1 MiB。队列耗尽时连接会失败并关闭，不允许内存无界增长。
 
-## Shutdown contract
+## 关闭约定
 
-An orderly local stop queues one protocol `CLOSE` frame after preceding writes and
-closes the socket when the queue drains. TLS, decoder, protocol, callback, or queue
-failures close the transport immediately. The close callback is moved and invoked at
-most once, and a structured remote `ERROR` is retained for the caller.
+正常本地停止时，会在此前写入之后排入一个协议 `CLOSE` 帧，并在队列排空后关闭套接字。TLS、解码器、协议、回调或队列故障会立即关闭传输。关闭回调会被移出并最多调用一次；结构化的远端 `ERROR` 会保留给调用方。
 
-## Test evidence
+## 测试证据
 
-`tls_tunnel_client_tests` runs a real client and the multi-client Linux server over
-loopback with generated mutual-TLS credentials and a socket-pair-backed test TUN. It
-verifies assignment negotiation, full framed uplink/downlink delivery, orderly
-cleanup, and rejection of a certificate whose identity does not match the expected
-server name.
+`tls_tunnel_client_tests` 使用生成的双向 TLS 凭据，通过 loopback 让真实客户端与多客户端 Linux 服务端通信，并使用基于 socket pair 的测试 TUN。测试验证地址分配协商、完整帧化的上/下行交付、有序清理，以及拒绝身份与预期服务端名称不匹配的证书。

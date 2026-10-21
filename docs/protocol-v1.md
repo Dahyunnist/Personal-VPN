@@ -1,68 +1,66 @@
-# Tunnel Protocol v1
+# 隧道协议 v1
 
-## Status
+## 状态
 
-This document defines the first versioned wire format for Personal-VPN. It replaces the legacy assumption that one TLS read is equal to one IP packet. TLS over TCP is a byte stream and can split or coalesce application writes at any boundary.
+本文定义 Personal-VPN 的首个带版本号的线路格式，用于替代“每次 TLS 读取恰好对应一个 IP 数据包”的旧假设。TLS over TCP 是字节流，应用层写入可能在任意位置被拆分或合并。
 
-All integer fields use network byte order (big endian).
+所有整数均采用网络字节序（大端序）。
 
-## Frame header
+## 帧头
 
-| Offset | Size | Field | v1 rule |
+| 偏移 | 大小 | 字段 | v1 规则 |
 |---:|---:|---|---|
-| 0 | 4 | Magic | ASCII `PVPN`, hexadecimal `0x5056504e` |
-| 4 | 1 | Version | `1` |
-| 5 | 1 | Message type | One of the registered types below |
-| 6 | 2 | Flags | Must be zero in v1 |
-| 8 | 4 | Payload length | At most 65,535 bytes |
-| 12 | 8 | Sequence | Monotonically increasing within one direction of a session |
+| 0 | 4 | 魔数 | ASCII `PVPN`，十六进制 `0x5056504e` |
+| 4 | 1 | 版本 | `1` |
+| 5 | 1 | 消息类型 | 必须是下表已注册类型之一 |
+| 6 | 2 | 标志 | v1 必须为零 |
+| 8 | 4 | 载荷长度 | 不超过 65,535 字节 |
+| 12 | 8 | 序列号 | 在会话的每个方向内单调递增 |
 
-The 20-byte header is immediately followed by exactly `payload length` bytes. Receivers must read and validate a complete header before waiting for or allocating storage based on the payload length.
+20 字节帧头后紧跟长度恰好为 `payload length` 的载荷。接收方必须先读取并验证完整帧头，再等待载荷或据此分配存储空间。
 
-## Message types
+## 消息类型
 
-| Value | Name | Direction | Purpose |
+| 数值 | 名称 | 方向 | 用途 |
 |---:|---|---|---|
-| 1 | `CLIENT_HELLO` | Client to server | Advertise protocol capabilities after TLS authentication |
-| 2 | `IP_ASSIGN` | Server to client | Assign the server-authoritative virtual IPv4 lease |
-| 3 | `DATA_IPV4` | Both | Carry one complete IPv4 packet |
-| 4 | `PING` | Both | Session liveness probe |
-| 5 | `PONG` | Both | Reply to a liveness probe |
-| 6 | `ERROR` | Both | Report a protocol or policy error before closing when possible |
-| 7 | `CLOSE` | Both | Request an orderly tunnel shutdown |
+| 1 | `CLIENT_HELLO` | 客户端到服务端 | TLS 认证后声明协议能力 |
+| 2 | `IP_ASSIGN` | 服务端到客户端 | 分配由服务端决定的虚拟 IPv4 租约 |
+| 3 | `DATA_IPV4` | 双向 | 携带一个完整 IPv4 数据包 |
+| 4 | `PING` | 双向 | 探测会话是否存活 |
+| 5 | `PONG` | 双向 | 回复存活探测 |
+| 6 | `ERROR` | 双向 | 在可行时于关闭连接前报告协议或策略错误 |
+| 7 | `CLOSE` | 双向 | 请求有序关闭隧道 |
 
-Control-message payload schemas and deterministic client/server state machines are
-implemented by the redesigned root client and server. Unknown message types, versions,
-or flags are fatal protocol errors in v1.
+重构后的根目录客户端和服务端实现了控制消息载荷结构及确定性的客户端/服务端状态机。v1 中遇到未知消息类型、版本或标志都属于致命协议错误。
 
-## Control payloads
+## 控制消息载荷
 
-`CLIENT_HELLO` contains an unsigned 16-bit requested MTU, a zero 16-bit reserved field, and a 32-bit capability mask. The IPv4 capability bit is mandatory in v1.
+`CLIENT_HELLO` 依次包含：无符号 16 位请求 MTU、值为零的 16 位保留字段，以及 32 位能力掩码。v1 必须包含 IPv4 能力位。
 
-`IP_ASSIGN` is server-authoritative and contains, in order: the four-byte client IPv4 address, four-byte gateway IPv4 address, one-byte prefix length, one zero reserved byte, unsigned 16-bit MTU, and unsigned 32-bit lease duration in seconds. A client never selects or claims its own address.
+`IP_ASSIGN` 由服务端决定，依次包含：4 字节客户端 IPv4 地址、4 字节网关 IPv4 地址、1 字节前缀长度、值为零的 1 字节保留字段、无符号 16 位 MTU，以及无符号 32 位租约时长（秒）。客户端不得自行选择或声明地址。
 
-`PING` and `PONG` contain one unsigned 64-bit nonce. A `PONG` returns the nonce from the corresponding `PING`.
+`PING` 和 `PONG` 各包含一个无符号 64 位随机数。`PONG` 必须返回对应 `PING` 中的随机数。
 
-`ERROR` contains an unsigned 16-bit error code followed by at most 1,024 bytes of diagnostic UTF-8 text. Sensitive configuration or packet data must not be included.
+`ERROR` 包含无符号 16 位错误码，以及最多 1,024 字节的诊断 UTF-8 文本。不得在其中包含敏感配置或数据包内容。
 
-`CLOSE` contains one unsigned 16-bit reason code.
+`CLOSE` 包含一个无符号 16 位原因码。
 
-## Decoder behavior
+## 解码器行为
 
-- A partial header or partial payload is retained until more bytes arrive.
-- Multiple frames received in one TLS read are emitted in wire order.
-- Invalid magic, version, type, flags, or payload length fails the decoder closed.
-- A failed decoder cannot resume without an explicit reset and a new transport session.
-- The transport integration must bound its read buffers and outbound queues independently of the wire-format limit.
+- 收到不完整帧头或载荷时，保留已有字节并等待后续数据。
+- 一次 TLS 读取包含多个帧时，按线路顺序依次输出。
+- 魔数、版本、类型、标志或载荷长度无效时，解码器立即失败并关闭。
+- 解码失败后必须显式重置并建立新的传输会话，才能继续使用。
+- 传输层必须独立限制读取缓冲区和出站队列；不能只依赖线路格式上限。
 
-## Server session state
+## 服务端会话状态
 
-The first application frame in each authenticated TLS session must be `CLIENT_HELLO` with sequence number 1. The server acquires a lease for the authenticated identity and replies with `IP_ASSIGN`; a client-supplied virtual address is never accepted.
+每个通过认证的 TLS 会话，其第一条应用帧必须是序列号为 1 的 `CLIENT_HELLO`。服务端为已认证身份分配租约并回复 `IP_ASSIGN`；绝不接受客户端指定的虚拟地址。
 
-After establishment, every `DATA_IPV4` payload must contain exactly one structurally valid IPv4 packet. Its source address must match the authenticated session lease and its total length must equal the frame payload length. Packets exceeding the negotiated MTU are rejected before they reach TUN.
+会话建立后，每个 `DATA_IPV4` 载荷必须恰好包含一个结构有效的 IPv4 数据包。其源地址必须与已认证会话的租约一致，总长度必须等于帧载荷长度。超过协商 MTU 的数据包会在到达 TUN 前被拒绝。
 
-Sequence numbers increase by one independently in each direction. A gap, duplicate, invalid state transition, malformed control message, or source-address mismatch produces an `ERROR` and closes the transport. This fail-closed policy keeps the v1 state machine deterministic.
+每个方向的序列号都必须逐一递增。序列号跳跃或重复、状态转换无效、控制消息格式错误、源地址不匹配，都会触发 `ERROR` 并关闭传输。此失败即关闭策略保证 v1 状态机行为确定。
 
-## Security boundary
+## 安全边界
 
-Framing provides message boundaries and parser limits; it does not authenticate a peer or encrypt data. Authentication and confidentiality are provided by the mTLS transport. Session authorization and virtual IP ownership are enforced above this codec.
+帧格式负责提供消息边界和解析限制；它本身不认证对端，也不加密数据。认证和机密性由 mTLS 传输层提供，会话授权与虚拟 IP 所有权则由编解码器上层的逻辑强制执行。

@@ -1,10 +1,8 @@
-# Client configuration security
+# 客户端配置安全
 
-The redesigned client accepts a versioned JSON document containing references to
-credential files. Certificates and private keys are never embedded in the document,
-and the server assigns the virtual client address after mutual TLS succeeds.
+重构后的客户端接受带版本号的 JSON 文档，其中只保存凭据文件路径，不嵌入证书或私钥。双向 TLS 成功后，虚拟客户端地址由服务端分配。
 
-## Schema version 1
+## Schema 版本 1
 
 ```json
 {
@@ -27,33 +25,21 @@ and the server assigns the virtual client address after mutual TLS succeeds.
 }
 ```
 
-Credential paths relative to the profile are resolved against the profile directory,
-not the process working directory. All three paths must identify regular files. The
-same validated `expected_name` is used for OpenSSL hostname verification and client
-SNI, while `host` is used only for network resolution. This permits a pinned DNS
-identity when connecting to a fixed IP without weakening certificate checks.
+相对于配置文件的凭据路径以配置文件所在目录为基准解析，不以进程工作目录为基准。三个路径都必须指向普通文件。相同且已验证的 `expected_name` 同时用于 OpenSSL 主机名验证和客户端 SNI；`host` 仅用于网络解析。因此，即使连接固定 IP，也可以固定验证 DNS 身份，而不削弱证书检查。
 
-## Fail-closed validation
+## 失败即拒绝的校验规则
 
-- Profiles are limited to 64 KiB and must use exactly schema version 1.
-- Unknown and duplicate object fields are rejected.
-- Inline or legacy `certs` objects are rejected.
-- Ports, MTU, field length, route count, CIDR syntax, and canonical network addresses
-  are bounded before any connection starts.
-- `0.0.0.0/0` requires `allow_default_route: true`; a malformed or accidental default
-  route cannot silently turn a split tunnel into a full tunnel.
-- The profile contains no client-selected TUN address or gateway. Those values are
-  authenticated, server-authoritative protocol data.
+- 配置文件最大为 64 KiB，且 `schema_version` 必须恰好为 1。
+- 拒绝未知字段和重复对象字段。
+- 拒绝内嵌凭据以及旧版 `certs` 对象。
+- 在建立连接前限制端口、MTU、字段长度、路由数量，并校验 CIDR 语法及规范网络地址。
+- `0.0.0.0/0` 必须显式设置 `allow_default_route: true`；格式错误或意外的默认路由不能静默地把分流隧道变为全隧道。
+- 配置文件中没有客户端指定的 TUN 地址或网关；这些值由经过认证的服务端协议消息决定。
 
-## Windows storage policy
+## Windows 存储策略
 
-Production profiles and keys should live below a per-user application-data directory,
-with an ACL limited to that user, Administrators, and SYSTEM. The Windows client now
-rejects reparse-point private keys, unrestricted DACLs, and read access granted to
-Everyone, Authenticated Users, built-in Users, or Guests. Keys must not be placed
-beside the executable, in the repository, or in a shared Downloads/Desktop directory.
-Import into Windows protected key storage remains a future enhancement. Reparse and
-ACL checks run on the opened file handle; the client holds that handle without
-write/delete sharing and parses the key from the same handle, closing the path-swap
-window between validation and OpenSSL use. PEM input is limited to 1 MiB and its
-temporary memory buffer is cleared after parsing.
+生产配置文件和密钥应存放在当前用户的应用数据目录下，ACL 仅授予该用户、Administrators 和 SYSTEM。Windows 客户端会拒绝私钥重解析点、不受限制的 DACL，以及向 Everyone、Authenticated Users、内置 Users 或 Guests 授予的读取权限。
+
+不得将密钥放在可执行文件旁、仓库内或共享的 Downloads/Desktop 目录中。将密钥导入 Windows 受保护密钥存储仍是未来工作。
+
+重解析点和 ACL 检查针对已打开的文件句柄执行。客户端在持有该句柄期间禁止其他进程共享写入/删除，并从同一句柄读取和解析密钥，从而关闭权限校验与 OpenSSL 使用之间的路径替换窗口。PEM 输入限制为 1 MiB，临时内存缓冲区会在解析后清零。

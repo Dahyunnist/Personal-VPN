@@ -1,10 +1,8 @@
-# Linux server deployment
+# Linux 服务端部署
 
-The redesigned server is intentionally split into an unprivileged packet process and
-host network provisioning. The executable never invokes `ip`, `sysctl`, `iptables`, or
-`nft`, and it never embeds certificate material in configuration output.
+重构后的服务端有意将无特权的数据包进程与主机网络配置分开。可执行文件不会调用 `ip`、`sysctl`、`iptables` 或 `nft`，也不会把证书材料写进配置输出。
 
-## Build and install
+## 构建与安装
 
 ```bash
 cmake -S . -B out/release -G Ninja \
@@ -15,10 +13,9 @@ ctest --test-dir out/release --output-on-failure
 sudo cmake --install out/release
 ```
 
-## Host preparation
+## 主机准备
 
-Create a dedicated service account and a persistent TUN interface using the host's
-normal provisioning system. A manual development example is:
+使用主机常规配置工具创建专用服务账号和持久 TUN 接口。手动开发示例：
 
 ```bash
 sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin personal-vpn
@@ -27,19 +24,13 @@ sudo ip address add 10.8.0.1/24 dev pvpn0
 sudo ip link set dev pvpn0 mtu 1400 up
 ```
 
-IP forwarding and NAT/forwarding policy are environment-specific. Manage them in the
-host firewall configuration; do not flush existing rules from the VPN process or an
-installation script.
+IP 转发、NAT 和转发策略取决于具体环境。应在主机防火墙配置中管理这些策略；不要让 VPN 进程或安装脚本清空已有规则。
 
-Install the server certificate, private key, and client CA bundle under
-`/etc/personal-vpn/pki`. The service account needs read access to the server key; other
-users should not.
+将服务端证书、私钥和客户端 CA 证书包安装到 `/etc/personal-vpn/pki`。服务账号需要读取服务端密钥；其他用户不应具有读取权限。
 
-The server refuses a private key with any group or other permission bits; use mode
-`0600` and make the service account the owner. Linux private-key files must not exceed
-1 MiB. Install a current PEM client CRL when device revocation is required.
+若私钥包含任何组用户或其他用户权限位，服务端会拒绝加载。请设置 `0600`，并将文件所有者设为服务账号。Linux 私钥文件不得超过 1 MiB。需要吊销设备时，安装最新的 PEM 客户端 CRL。
 
-## Direct execution
+## 直接运行
 
 ```bash
 sudo -u personal-vpn /usr/local/bin/personal-vpn-server \
@@ -62,23 +53,12 @@ sudo -u personal-vpn /usr/local/bin/personal-vpn-server \
   --metrics-interval 60
 ```
 
-`SIGINT` and `SIGTERM` stop admission, cancel TUN I/O, close sessions, release leases,
-and allow outstanding asynchronous callbacks to drain.
-`SIGHUP` reloads the configured server certificate/key, client CA, and optional CRL.
-The server validates the complete replacement before swapping contexts. On failure,
-it logs `{"event":"tls_context_reload","success":false}` and keeps the current
-context. On success, it logs the same event with `success:true`; established sessions
-continue with their original context, while new handshakes use the replacement.
-Install new credential files atomically with restrictive key permissions before
-sending `SIGHUP` to the service process. A reload does not close current sessions.
-Send the reload signal with `sudo systemctl kill --signal=HUP personal-vpn-server`.
+收到 `SIGINT` 或 `SIGTERM` 后，服务会停止接入、取消 TUN I/O、关闭会话、释放租约，并等待未完成的异步回调排空。
 
-Periodic JSON metrics are written to stdout and therefore collected by journald. See
-[`observability-and-limits.md`](../architecture/observability-and-limits.md).
+`SIGHUP` 会重新加载配置的服务端证书/密钥、客户端 CA 和可选 CRL。服务端先验证完整替换材料再切换上下文。验证失败时记录 `{"event":"tls_context_reload","success":false}`，并继续使用当前上下文。验证成功时记录相同事件且 `success:true`；已有会话继续使用原上下文，新握手使用替换后的上下文。发送 `SIGHUP` 前，应以严格密钥权限原子安装新凭据文件。重载不会关闭当前会话。可用 `sudo systemctl kill --signal=HUP personal-vpn-server` 向服务进程发送重载信号。
+
+周期 JSON 指标写入标准输出，由 journald 收集。见[可观测性与运行限制](../architecture/observability-and-limits.md)。
 
 ## systemd
 
-An example hardened unit is provided at
-[`deploy/systemd/personal-vpn-server.service`](../../deploy/systemd/personal-vpn-server.service).
-Review paths, port, user, limits, and kernel/firewall provisioning before enabling it.
-The unit assumes `pvpn0` is already created and owned by `personal-vpn`.
+已提供[加固版服务单元示例](../../deploy/systemd/personal-vpn-server.service)。启用前请审查路径、端口、用户、资源限制及内核/防火墙配置。该服务单元假设 `pvpn0` 已创建且归 `personal-vpn` 所有。
