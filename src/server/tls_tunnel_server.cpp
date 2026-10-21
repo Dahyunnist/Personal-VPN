@@ -17,9 +17,32 @@ TlsTunnelServer::TlsTunnelServer(boost::asio::io_context& io_context,
                                  ShutdownHandler shutdown_handler,
                                  const std::chrono::milliseconds handshake_timeout,
                                  const std::chrono::milliseconds idle_timeout)
+    : TlsTunnelServer(io_context,
+                      std::move(listen_endpoint),
+                      std::shared_ptr<boost::asio::ssl::context>(
+                          &tls_context, [](boost::asio::ssl::context*) {}),
+                      lease_manager,
+                      std::move(tun_device),
+                      maximum_sessions,
+                      std::move(shutdown_handler),
+                      handshake_timeout,
+                      idle_timeout)
+{
+}
+
+TlsTunnelServer::TlsTunnelServer(
+    boost::asio::io_context& io_context,
+    Tcp::endpoint listen_endpoint,
+    std::shared_ptr<boost::asio::ssl::context> tls_context,
+    core::LeaseManager& lease_manager,
+    std::shared_ptr<LinuxTunDevice> tun_device,
+    const std::size_t maximum_sessions,
+    ShutdownHandler shutdown_handler,
+    const std::chrono::milliseconds handshake_timeout,
+    const std::chrono::milliseconds idle_timeout)
     : strand_(boost::asio::make_strand(io_context)),
       acceptor_(io_context),
-      tls_context_(tls_context),
+      tls_context_(std::move(tls_context)),
       lease_manager_(lease_manager),
       tun_device_(std::move(tun_device)),
       maximum_sessions_(maximum_sessions),
@@ -27,6 +50,10 @@ TlsTunnelServer::TlsTunnelServer(boost::asio::io_context& io_context,
       idle_timeout_(idle_timeout),
       shutdown_handler_(std::move(shutdown_handler))
 {
+    if (!tls_context_)
+    {
+        throw std::invalid_argument("TLS context must not be null");
+    }
     if (!tun_device_)
     {
         throw std::invalid_argument("TUN device must not be null");
@@ -54,6 +81,43 @@ void TlsTunnelServer::start()
 void TlsTunnelServer::stop()
 {
     boost::asio::post(strand_, [self = shared_from_this()] { self->stop_on_strand(); });
+}
+
+void TlsTunnelServer::reload_tls_context(ServerTlsConfig config,
+                                         std::function<void(bool)> completion)
+{
+    boost::asio::post(
+        strand_,
+        [self = shared_from_this(), config = std::move(config),
+         completion = std::move(completion)]() mutable
+        {
+            if (self->stopping_)
+            {
+                if (completion)
+                {
+                    completion(false);
+                }
+                return;
+            }
+            try
+            {
+                validate_server_private_key_permissions(config.private_key_file);
+                auto replacement = std::make_shared<boost::asio::ssl::context>(
+                    make_server_tls_context(config));
+                self->tls_context_ = std::move(replacement);
+                if (completion)
+                {
+                    completion(true);
+                }
+            }
+            catch (const std::exception&)
+            {
+                if (completion)
+                {
+                    completion(false);
+                }
+            }
+        });
 }
 
 TlsTunnelServer::Tcp::endpoint TlsTunnelServer::local_endpoint() const
@@ -130,7 +194,7 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
         ++metrics_.accepted_connections;
         std::weak_ptr<TlsTunnelServer> weak_self = shared_from_this();
         auto session = std::make_shared<TlsTunnelSession>(
-            TlsTunnelSession::TlsStream(std::move(socket), tls_context_),
+            TlsTunnelSession::TlsStream(std::move(socket), *tls_context_),
             lease_manager_,
             [weak_self](const std::vector<std::uint8_t>& packet)
             {
@@ -160,7 +224,8 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
             1U << 20U,
             handshake_timeout_,
             idle_timeout_,
-            &metrics_);
+            &metrics_,
+            tls_context_);
         sessions_.insert(session);
         active_session_count_.store(sessions_.size());
         session->start();

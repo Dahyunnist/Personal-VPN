@@ -2,18 +2,24 @@
 
 #include <boost/asio/ssl.hpp>
 
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 
 #include <array>
+#include <cerrno>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
+#include <system_error>
+#include <vector>
 
 #if defined(__unix__)
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace personal_vpn::server
@@ -35,6 +41,73 @@ struct FileCloser
 };
 
 using FilePtr = std::unique_ptr<FILE, FileCloser>;
+
+struct PrivateKeyBuffer
+{
+    std::vector<unsigned char> bytes;
+
+    ~PrivateKeyBuffer()
+    {
+        if (!bytes.empty())
+        {
+            OPENSSL_cleanse(bytes.data(), bytes.size());
+        }
+    }
+};
+
+constexpr std::size_t maximum_private_key_file_size = 1024U * 1024U;
+
+#if defined(__unix__)
+FilePtr open_validated_server_private_key(const std::string& path)
+{
+    const auto descriptor =
+        ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0)
+    {
+        const auto error = errno;
+        if (error == ELOOP)
+        {
+            throw std::invalid_argument("server private key must not be a symlink");
+        }
+        throw std::system_error(error,
+                                std::generic_category(),
+                                "failed to open server private key");
+    }
+
+    auto* raw_file = ::fdopen(descriptor, "rb");
+    if (raw_file == nullptr)
+    {
+        const auto error = errno;
+        static_cast<void>(::close(descriptor));
+        throw std::system_error(error,
+                                std::generic_category(),
+                                "failed to read server private key");
+    }
+    FilePtr file(raw_file);
+
+    struct stat status{};
+    if (::fstat(descriptor, &status) != 0)
+    {
+        throw std::system_error(errno,
+                                std::generic_category(),
+                                "failed to inspect server private key permissions");
+    }
+    if (!S_ISREG(status.st_mode))
+    {
+        throw std::invalid_argument("server private key must be a regular file");
+    }
+    if (status.st_uid != ::geteuid())
+    {
+        throw std::invalid_argument("server private key must be owned by the service user");
+    }
+    if ((status.st_mode & (S_IRWXG | S_IRWXO)) != 0)
+    {
+        throw std::invalid_argument(
+            "server private key must not grant group or other permissions");
+    }
+    return file;
+}
+#endif
 
 std::string openssl_error(const std::string& prefix)
 {
@@ -89,7 +162,38 @@ boost::asio::ssl::context make_server_tls_context(const ServerTlsConfig& config)
                         boost::asio::ssl::context::no_tlsv1 |
                         boost::asio::ssl::context::no_tlsv1_1);
     context.use_certificate_chain_file(config.certificate_chain_file);
+#if defined(__unix__)
+    auto private_key_file = open_validated_server_private_key(config.private_key_file);
+    PrivateKeyBuffer key_buffer{std::vector<unsigned char>(maximum_private_key_file_size + 1U)};
+    const auto key_size = std::fread(key_buffer.bytes.data(), 1U, key_buffer.bytes.size(),
+                                     private_key_file.get());
+    if (std::ferror(private_key_file.get()) != 0)
+    {
+        throw std::runtime_error("failed to read server private key");
+    }
+    if (key_size > maximum_private_key_file_size)
+    {
+        throw std::invalid_argument("server private key file must not exceed 1 MiB");
+    }
+    std::unique_ptr<BIO, decltype(&BIO_free)> key_bio(
+        BIO_new_mem_buf(key_buffer.bytes.data(), static_cast<int>(key_size)), &BIO_free);
+    if (!key_bio)
+    {
+        throw std::runtime_error(openssl_error("failed to buffer server private key"));
+    }
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> private_key(
+        PEM_read_bio_PrivateKey(key_bio.get(), nullptr, nullptr, nullptr), &EVP_PKEY_free);
+    if (!private_key)
+    {
+        throw std::runtime_error(openssl_error("failed to parse server private key"));
+    }
+    if (SSL_CTX_use_PrivateKey(context.native_handle(), private_key.get()) != 1)
+    {
+        throw std::runtime_error(openssl_error("failed to load server private key"));
+    }
+#else
     context.use_private_key_file(config.private_key_file, boost::asio::ssl::context::pem);
+#endif
     context.load_verify_file(config.client_ca_file);
     context.set_verify_mode(boost::asio::ssl::verify_peer |
                             boost::asio::ssl::verify_fail_if_no_peer_cert);
@@ -165,20 +269,7 @@ void validate_server_private_key_permissions(const std::string& private_key_file
         throw std::invalid_argument("server private key path must not be empty");
     }
 #if defined(__unix__)
-    struct stat status{};
-    if (::stat(private_key_file.c_str(), &status) != 0)
-    {
-        throw std::runtime_error("failed to inspect server private key permissions");
-    }
-    if (!S_ISREG(status.st_mode))
-    {
-        throw std::invalid_argument("server private key must be a regular file");
-    }
-    if ((status.st_mode & (S_IRWXG | S_IRWXO)) != 0)
-    {
-        throw std::invalid_argument(
-            "server private key must not grant group or other permissions");
-    }
+    static_cast<void>(open_validated_server_private_key(private_key_file));
 #endif
 }
 

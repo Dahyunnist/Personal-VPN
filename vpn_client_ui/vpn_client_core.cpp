@@ -11,12 +11,12 @@ VPNClientCore::~VPNClientCore()
     Stop();
 }
 
-bool VPNClientCore::Start(const std::string& config_path, LogCallback log_callback)
+bool VPNClientCore::Start(personal_vpn::client::ClientConfig config,
+                          LogCallback log_callback)
 {
     Stop();
     try
     {
-        auto config = personal_vpn::client::load_client_config(config_path);
         auto runtime = std::make_unique<personal_vpn::client::ClientRuntime>(
             std::move(config),
             std::make_unique<personal_vpn::client::WindowsNetworkBackend>(),
@@ -40,6 +40,7 @@ bool VPNClientCore::Start(const std::string& config_path, LogCallback log_callba
             last_error_ = error.what();
         }
         connected_ = false;
+        reconnecting_ = false;
         running_ = false;
         Log(std::string("启动失败：") + error.what(), true);
         return false;
@@ -59,6 +60,7 @@ void VPNClientCore::Stop()
         runtime->wait();
     }
     connected_ = false;
+    reconnecting_ = false;
     running_ = false;
 }
 
@@ -72,6 +74,7 @@ void VPNClientCore::OnRuntimeEvent(const personal_vpn::client::ClientRuntimeEven
 {
     using personal_vpn::client::ClientRuntimeState;
     connected_ = event.state == ClientRuntimeState::Connected;
+    reconnecting_ = event.state == ClientRuntimeState::Reconnecting;
     if (event.state == ClientRuntimeState::Stopped || event.state == ClientRuntimeState::Failed)
     {
         running_ = false;

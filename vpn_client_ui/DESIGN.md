@@ -26,11 +26,17 @@ thread pools. Destruction proceeds from the runtime down and never detaches a th
 ## State model
 
 ```text
-Stopped -> Starting -> Resolving -> Connecting
-                                 -> ConfiguringNetwork -> Connected
-any live state -> Stopping -> Stopped
-any non-user failure -> Failed
+Stopped -> Starting -> Resolving -> Connecting -> ConfiguringNetwork -> Connected
+Resolving / Connecting / Connected -- transient loss --> Reconnecting
+Reconnecting -- retry timer --> Resolving
+any live state -- user stop --> Stopping -> Stopped
+certificate, protocol, or local setup failure --> Failed
 ```
+
+Transient DNS, TCP, timeout, and transport failures retry indefinitely with capped
+exponential backoff and jitter (0.5-30 seconds). Before each retry, the runtime stops
+the packet reader and rolls back routes, interface address, MTU, packet session, and
+adapter state. A server rejection or non-retryable TLS error ends the runtime instead.
 
 `VPNClientCore::Start` reports only that startup was accepted. `UIMain::Update` reads
 the runtime's atomic state each frame. This prevents the old false-positive behavior

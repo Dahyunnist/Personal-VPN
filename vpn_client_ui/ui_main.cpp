@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <exception>
+#include <utility>
 
 UIMain::UIMain() {
     m_vpnClient = std::make_unique<VPNClientCore>();
@@ -130,7 +131,7 @@ std::string UIMain::OpenFileDialog(const char* filter) {
 
 bool UIMain::ImportConfig(const std::string& configPath) {
     try {
-        const auto config = personal_vpn::client::load_client_config(configPath);
+        auto config = personal_vpn::client::load_client_config(configPath);
         strncpy_s(m_serverHost, config.server_host.c_str(), _TRUNCATE);
         snprintf(m_serverPort, sizeof(m_serverPort), "%u",
                  static_cast<unsigned int>(config.server_port));
@@ -143,6 +144,7 @@ bool UIMain::ImportConfig(const std::string& configPath) {
         }
         strncpy_s(m_routes, routes.c_str(), _TRUNCATE);
         strncpy_s(m_configPath, configPath.c_str(), _TRUNCATE);
+        m_clientConfig = std::move(config);
         AddLog("配置文件校验成功；虚拟地址将由服务器分配");
         return true;
     } catch (const std::exception& error) {
@@ -164,7 +166,7 @@ void UIMain::StartVPN() {
         return;
     }
 
-    if (strlen(m_configPath) == 0) {
+    if (!m_clientConfig.has_value()) {
         AddLog("请先导入有效配置文件", true);
         return;
     }
@@ -174,7 +176,7 @@ void UIMain::StartVPN() {
         AddLog(line, isError);
     };
 
-    if (m_vpnClient->Start(m_configPath, logCallback)) {
+    if (m_vpnClient->Start(*m_clientConfig, logCallback)) {
         m_isStarting = true;
     } else {
         AddLog("启动请求失败", true);
@@ -246,7 +248,10 @@ void UIMain::Render() {
                 StopVPN();
             }
             ImGui::SameLine();
-            ImGui::TextUnformatted(m_isConnected ? "已连接" : (m_isStarting ? "连接中" : "未连接"));
+            const char* connection_state = m_isConnected ? "已连接" :
+                (m_isReconnecting ? "连接中断，正在重连" :
+                 (m_isStarting ? "连接中" : "未连接"));
+            ImGui::TextUnformatted(connection_state);
 
             ImGui::EndTabItem();
         }
@@ -289,5 +294,6 @@ void UIMain::Render() {
 
 void UIMain::Update() {
     m_isConnected = m_vpnClient->IsConnected();
+    m_isReconnecting = m_vpnClient->IsReconnecting();
     m_isStarting = m_vpnClient->IsRunning() && !m_isConnected;
 }

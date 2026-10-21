@@ -11,6 +11,7 @@ namespace
 {
 using personal_vpn::server::parse_server_arguments;
 using personal_vpn::server::server_usage;
+using personal_vpn::server::MetricsFormat;
 
 int failures = 0;
 
@@ -44,7 +45,8 @@ void test_defaults_and_overrides()
 {
     const auto defaults = parse_server_arguments(credentials());
     check(defaults.listen_address == "0.0.0.0" && defaults.listen_port == 8'443U &&
-              defaults.tun_name == "pvpn0" && defaults.maximum_sessions == 1'024U,
+              defaults.tun_name == "pvpn0" && defaults.maximum_sessions == 1'024U &&
+              defaults.metrics_format == MetricsFormat::Json,
           "safe runtime defaults are applied");
 
     auto arguments = credentials();
@@ -55,7 +57,7 @@ void test_defaults_and_overrides()
         "120", "--threads", "4", "--max-sessions", "64"};
     const std::vector<std::string> runtime_overrides{
         "--handshake-timeout", "7", "--idle-timeout", "90", "--metrics-interval", "5",
-        "--client-crl", "clients.crl"};
+        "--client-crl", "clients.crl", "--metrics-format", "prometheus"};
     arguments.insert(arguments.end(), overrides.begin(), overrides.end());
     arguments.insert(arguments.end(), runtime_overrides.begin(), runtime_overrides.end());
     const auto config = parse_server_arguments(arguments);
@@ -63,6 +65,7 @@ void test_defaults_and_overrides()
               config.first_lease_address == "10.9.0.10" && config.worker_threads == 4U &&
               config.maximum_sessions == 64U && config.handshake_timeout_seconds == 7U &&
               config.idle_timeout_seconds == 90U && config.metrics_interval_seconds == 5U &&
+              config.metrics_format == MetricsFormat::Prometheus &&
               config.client_crl_file == "clients.crl",
           "explicit runtime options override defaults");
 }
@@ -93,6 +96,11 @@ void test_invalid_input_fails_before_privileged_io()
     invalid_handshake_timeout.insert(invalid_handshake_timeout.end(),
                                      {"--handshake-timeout", "0"});
     expect_invalid(invalid_handshake_timeout, "zero handshake timeout is rejected");
+
+    auto invalid_metrics_format = credentials();
+    invalid_metrics_format.insert(invalid_metrics_format.end(),
+                                  {"--metrics-format", "xml"});
+    expect_invalid(invalid_metrics_format, "unknown metrics format is rejected");
 }
 
 void test_help_needs_no_credentials()
@@ -105,6 +113,15 @@ void test_help_needs_no_credentials()
           "usage documents security and admission options");
 }
 
+void test_version_needs_no_credentials()
+{
+    const auto config = parse_server_arguments({"--version"});
+    check(config.show_version && !config.show_help,
+          "version can be requested without privileged configuration");
+    check(server_usage("personal-vpn-server").find("--version") != std::string::npos,
+          "usage documents the version option");
+}
+
 } // namespace
 
 int main()
@@ -112,6 +129,7 @@ int main()
     test_defaults_and_overrides();
     test_invalid_input_fails_before_privileged_io();
     test_help_needs_no_credentials();
+    test_version_needs_no_credentials();
     if (failures != 0)
     {
         std::cerr << failures << " server-config test(s) failed\n";

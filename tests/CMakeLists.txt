@@ -8,7 +8,31 @@ else()
     target_compile_options(protocol_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
 
+if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+    add_executable(client_credential_security_tests client_credential_security_tests.cpp)
+    target_link_libraries(client_credential_security_tests PRIVATE PersonalVPN::ClientTransport)
+    target_compile_features(client_credential_security_tests PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(client_credential_security_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(client_credential_security_tests
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+    add_test(NAME client_credential_security_tests COMMAND client_credential_security_tests)
+    set_tests_properties(client_credential_security_tests PROPERTIES TIMEOUT 10)
+endif()
+
 add_test(NAME protocol_tests COMMAND protocol_tests)
+
+add_executable(broker_protocol_tests broker_protocol_tests.cpp)
+target_link_libraries(broker_protocol_tests PRIVATE PersonalVPN::BrokerProtocol)
+target_compile_features(broker_protocol_tests PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(broker_protocol_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(broker_protocol_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+add_test(NAME broker_protocol_tests COMMAND broker_protocol_tests)
 
 add_executable(control_message_tests control_message_tests.cpp)
 target_link_libraries(control_message_tests PRIVATE PersonalVPN::Protocol)
@@ -98,6 +122,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     find_program(BASH_EXECUTABLE bash REQUIRED)
     set(TEST_PKI_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-pki")
 
+    # DrvFS does not preserve chmod permissions unless metadata is enabled.
+    # Keep WSL test keys on the Linux filesystem so private-key checks stay meaningful.
+    if(EXISTS "/proc/sys/kernel/osrelease")
+        file(READ "/proc/sys/kernel/osrelease" KERNEL_RELEASE)
+        if(KERNEL_RELEASE MATCHES "[Mm]icrosoft")
+            string(SHA256 TEST_PKI_BUILD_HASH "${CMAKE_CURRENT_BINARY_DIR}")
+            string(SUBSTRING "${TEST_PKI_BUILD_HASH}" 0 16 TEST_PKI_BUILD_ID)
+            set(TEST_PKI_DIRECTORY "/tmp/personal-vpn-test-pki-${TEST_PKI_BUILD_ID}")
+        endif()
+    endif()
+
     add_executable(tls_security_tests tls_security_tests.cpp)
     target_link_libraries(tls_security_tests PRIVATE PersonalVPN::ServerTransport)
     target_compile_features(tls_security_tests PRIVATE cxx_std_17)
@@ -126,22 +161,24 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_features(tls_tunnel_server_tests PRIVATE cxx_std_17)
     target_compile_options(tls_tunnel_server_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
-    add_executable(tls_tunnel_client_tests tls_tunnel_client_tests.cpp)
-    target_link_libraries(tls_tunnel_client_tests
-        PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
-    target_compile_features(tls_tunnel_client_tests PRIVATE cxx_std_17)
-    target_compile_options(tls_tunnel_client_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+        add_executable(tls_tunnel_client_tests tls_tunnel_client_tests.cpp)
+        target_link_libraries(tls_tunnel_client_tests
+            PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
+        target_compile_features(tls_tunnel_client_tests PRIVATE cxx_std_17)
+        target_compile_options(tls_tunnel_client_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
-    add_executable(client_config_tests client_config_tests.cpp)
-    target_link_libraries(client_config_tests PRIVATE PersonalVPN::ClientTransport)
-    target_compile_features(client_config_tests PRIVATE cxx_std_17)
-    target_compile_options(client_config_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+        add_executable(client_config_tests client_config_tests.cpp)
+        target_link_libraries(client_config_tests PRIVATE PersonalVPN::ClientTransport)
+        target_compile_features(client_config_tests PRIVATE cxx_std_17)
+        target_compile_options(client_config_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
-    add_executable(client_runtime_tests client_runtime_tests.cpp)
-    target_link_libraries(client_runtime_tests
-        PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
-    target_compile_features(client_runtime_tests PRIVATE cxx_std_17)
-    target_compile_options(client_runtime_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+        add_executable(client_runtime_tests client_runtime_tests.cpp)
+        target_link_libraries(client_runtime_tests
+            PRIVATE PersonalVPN::ClientTransport PersonalVPN::ServerTransport)
+        target_compile_features(client_runtime_tests PRIVATE cxx_std_17)
+        target_compile_options(client_runtime_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
 
     add_executable(server_config_tests server_config_tests.cpp)
     target_link_libraries(server_config_tests PRIVATE PersonalVPN::ServerTransport)
@@ -149,6 +186,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     target_compile_options(server_config_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
     add_test(NAME server_config_tests COMMAND server_config_tests)
+
+    add_executable(metrics_exporter_tests metrics_exporter_tests.cpp)
+    target_link_libraries(metrics_exporter_tests PRIVATE PersonalVPN::ServerTransport)
+    target_compile_features(metrics_exporter_tests PRIVATE cxx_std_17)
+    target_compile_options(metrics_exporter_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    add_test(NAME metrics_exporter_tests COMMAND metrics_exporter_tests)
 
     add_test(
         NAME generate_test_pki
@@ -215,40 +258,42 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
         TIMEOUT 20
     )
 
-    add_test(
-        NAME tls_tunnel_client_tests
-        COMMAND tls_tunnel_client_tests
-                "${TEST_PKI_DIRECTORY}/ca.crt"
-                "${TEST_PKI_DIRECTORY}/server.crt"
-                "${TEST_PKI_DIRECTORY}/server.key"
-                "${TEST_PKI_DIRECTORY}/client.crt"
-                "${TEST_PKI_DIRECTORY}/client.key"
-    )
-    set_tests_properties(tls_tunnel_client_tests PROPERTIES
-        FIXTURES_REQUIRED test_pki
-        TIMEOUT 20
-    )
+    if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+        add_test(
+            NAME tls_tunnel_client_tests
+            COMMAND tls_tunnel_client_tests
+                    "${TEST_PKI_DIRECTORY}/ca.crt"
+                    "${TEST_PKI_DIRECTORY}/server.crt"
+                    "${TEST_PKI_DIRECTORY}/server.key"
+                    "${TEST_PKI_DIRECTORY}/client.crt"
+                    "${TEST_PKI_DIRECTORY}/client.key"
+        )
+        set_tests_properties(tls_tunnel_client_tests PROPERTIES
+            FIXTURES_REQUIRED test_pki
+            TIMEOUT 20
+        )
 
-    add_test(
-        NAME client_config_tests
-        COMMAND client_config_tests "${TEST_PKI_DIRECTORY}"
-    )
-    set_tests_properties(client_config_tests PROPERTIES
-        FIXTURES_REQUIRED test_pki
-        TIMEOUT 10
-    )
+        add_test(
+            NAME client_config_tests
+            COMMAND client_config_tests "${TEST_PKI_DIRECTORY}"
+        )
+        set_tests_properties(client_config_tests PROPERTIES
+            FIXTURES_REQUIRED test_pki
+            TIMEOUT 10
+        )
 
-    add_test(
-        NAME client_runtime_tests
-        COMMAND client_runtime_tests
-                "${TEST_PKI_DIRECTORY}/ca.crt"
-                "${TEST_PKI_DIRECTORY}/server.crt"
-                "${TEST_PKI_DIRECTORY}/server.key"
-                "${TEST_PKI_DIRECTORY}/client.crt"
-                "${TEST_PKI_DIRECTORY}/client.key"
-    )
-    set_tests_properties(client_runtime_tests PROPERTIES
-        FIXTURES_REQUIRED test_pki
-        TIMEOUT 20
-    )
+        add_test(
+            NAME client_runtime_tests
+            COMMAND client_runtime_tests
+                    "${TEST_PKI_DIRECTORY}/ca.crt"
+                    "${TEST_PKI_DIRECTORY}/server.crt"
+                    "${TEST_PKI_DIRECTORY}/server.key"
+                    "${TEST_PKI_DIRECTORY}/client.crt"
+                    "${TEST_PKI_DIRECTORY}/client.key"
+        )
+        set_tests_properties(client_runtime_tests PROPERTIES
+            FIXTURES_REQUIRED test_pki
+            TIMEOUT 20
+        )
+    endif()
 endif()

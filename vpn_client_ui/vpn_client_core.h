@@ -2,6 +2,7 @@
 #define VPN_CLIENT_CORE_H
 
 #include "personal_vpn/client_runtime.hpp"
+#include "personal_vpn/client_config.hpp"
 
 #include <atomic>
 #include <functional>
@@ -20,10 +21,11 @@ class VPNClientCore final
     VPNClientCore(const VPNClientCore&) = delete;
     VPNClientCore& operator=(const VPNClientCore&) = delete;
 
-    bool Start(const std::string& config_path, LogCallback log_callback = {});
+    bool Start(personal_vpn::client::ClientConfig config, LogCallback log_callback = {});
     void Stop();
 
     [[nodiscard]] bool IsConnected() const noexcept { return connected_.load(); }
+    [[nodiscard]] bool IsReconnecting() const noexcept { return reconnecting_.load(); }
     [[nodiscard]] bool IsRunning() const noexcept { return running_.load(); }
     [[nodiscard]] std::string LastError() const;
 
@@ -35,6 +37,7 @@ class VPNClientCore final
     std::unique_ptr<personal_vpn::client::ClientRuntime> runtime_;
     LogCallback log_callback_;
     std::atomic<bool> connected_{false};
+    std::atomic<bool> reconnecting_{false};
     std::atomic<bool> running_{false};
     std::string last_error_;
 };

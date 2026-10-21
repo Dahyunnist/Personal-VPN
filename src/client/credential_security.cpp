@@ -1,6 +1,8 @@
 #include "personal_vpn/credential_security.hpp"
 
+#include <cerrno>
 #include <stdexcept>
+#include <system_error>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -8,38 +10,43 @@
 #include <Aclapi.h>
 
 #include <array>
+#include <cstdint>
+#include <io.h>
 #include <memory>
-#include <system_error>
+#include <fcntl.h>
 #endif
 
 namespace personal_vpn::client
 {
-
-void validate_private_key_permissions(const std::filesystem::path& private_key_file)
+namespace
 {
-#if defined(_WIN32)
-    const auto attributes = GetFileAttributesW(private_key_file.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES)
-    {
-        throw std::system_error(static_cast<int>(GetLastError()),
-                                std::system_category(),
-                                "inspect client private key");
-    }
-    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
-    {
-        throw std::invalid_argument("client private key must not be a reparse point");
-    }
 
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
+#if defined(_WIN32)
+struct HandleCloser
+{
+    void operator()(void* value) const noexcept
+    {
+        if (value != nullptr && value != INVALID_HANDLE_VALUE)
+        {
+            static_cast<void>(CloseHandle(value));
+        }
+    }
+};
+
+using HandlePtr = std::unique_ptr<void, HandleCloser>;
+
+void validate_private_key_acl(HANDLE handle)
+{
     PACL dacl = nullptr;
-    const auto result = GetNamedSecurityInfoW(private_key_file.c_str(),
-                                              SE_FILE_OBJECT,
-                                              DACL_SECURITY_INFORMATION,
-                                              nullptr,
-                                              nullptr,
-                                              &dacl,
-                                              nullptr,
-                                              &descriptor);
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const auto result = GetSecurityInfo(handle,
+                                        SE_FILE_OBJECT,
+                                        DACL_SECURITY_INFORMATION,
+                                        nullptr,
+                                        nullptr,
+                                        &dacl,
+                                        nullptr,
+                                        &descriptor);
     const auto descriptor_deleter = [](void* value)
     {
         if (value != nullptr)
@@ -60,8 +67,18 @@ void validate_private_key_permissions(const std::filesystem::path& private_key_f
         throw std::invalid_argument("client private key must not have an unrestricted DACL");
     }
 
-    constexpr std::array<WELL_KNOWN_SID_TYPE, 4U> broad_principals{
-        WinWorldSid, WinAuthenticatedUserSid, WinBuiltinUsersSid, WinBuiltinGuestsSid};
+    constexpr std::array<WELL_KNOWN_SID_TYPE, 11U> broad_principals{
+        WinWorldSid,
+        WinAuthenticatedUserSid,
+        WinBuiltinUsersSid,
+        WinBuiltinGuestsSid,
+        WinInteractiveSid,
+        WinNetworkSid,
+        WinBatchSid,
+        WinServiceSid,
+        WinAnonymousSid,
+        WinTerminalServerSid,
+        WinRestrictedCodeSid};
     std::array<std::array<unsigned char, SECURITY_MAX_SID_SIZE>, broad_principals.size()>
         sid_storage{};
     std::array<PSID, broad_principals.size()> broad_sids{};
@@ -110,9 +127,83 @@ void validate_private_key_permissions(const std::filesystem::path& private_key_f
             }
         }
     }
-#else
-    static_cast<void>(private_key_file);
+}
 #endif
+
+} // namespace
+
+ValidatedPrivateKeyFile open_validated_private_key_file(
+    const std::filesystem::path& private_key_file)
+{
+#if defined(_WIN32)
+    const auto raw_handle = CreateFileW(private_key_file.c_str(),
+                                        GENERIC_READ | READ_CONTROL,
+                                        FILE_SHARE_READ,
+                                        nullptr,
+                                        OPEN_EXISTING,
+                                        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
+                                        nullptr);
+    if (raw_handle == INVALID_HANDLE_VALUE)
+    {
+        throw std::system_error(static_cast<int>(GetLastError()),
+                                std::system_category(),
+                                "open client private key");
+    }
+    HandlePtr handle_owner(raw_handle);
+
+    FILE_ATTRIBUTE_TAG_INFO file_info{};
+    if (GetFileInformationByHandleEx(raw_handle,
+                                     FileAttributeTagInfo,
+                                     &file_info,
+                                     static_cast<DWORD>(sizeof(file_info))) == FALSE)
+    {
+        throw std::system_error(static_cast<int>(GetLastError()),
+                                std::system_category(),
+                                "inspect client private key");
+    }
+    if ((file_info.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) !=
+        0U ||
+        GetFileType(raw_handle) != FILE_TYPE_DISK)
+    {
+        throw std::invalid_argument("client private key must be a regular non-reparse file");
+    }
+    validate_private_key_acl(raw_handle);
+
+    const auto descriptor = _open_osfhandle(reinterpret_cast<std::intptr_t>(raw_handle),
+                                             _O_RDONLY | _O_BINARY);
+    if (descriptor < 0)
+    {
+        throw std::system_error(errno,
+                                std::generic_category(),
+                                "create client private-key stream");
+    }
+    static_cast<void>(handle_owner.release());
+
+    auto* stream = _fdopen(descriptor, "rb");
+    if (stream == nullptr)
+    {
+        const auto error = errno;
+        static_cast<void>(_close(descriptor));
+        throw std::system_error(error,
+                                std::generic_category(),
+                                "read client private key");
+    }
+    return ValidatedPrivateKeyFile(stream, &std::fclose);
+#else
+    auto* stream = std::fopen(private_key_file.string().c_str(), "rb");
+    if (stream == nullptr)
+    {
+        throw std::system_error(errno,
+                                std::generic_category(),
+                                "open client private key");
+    }
+    return ValidatedPrivateKeyFile(stream, &std::fclose);
+#endif
+}
+
+void validate_private_key_permissions(const std::filesystem::path& private_key_file)
+{
+    static_cast<void>(open_validated_private_key_file(private_key_file));
 }
 
 } // namespace personal_vpn::client

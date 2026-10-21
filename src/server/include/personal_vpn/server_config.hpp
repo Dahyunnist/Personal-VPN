@@ -9,6 +9,12 @@
 namespace personal_vpn::server
 {
 
+enum class MetricsFormat
+{
+    Json,
+    Prometheus
+};
+
 struct ServerConfig
 {
     std::string listen_address{"0.0.0.0"};
@@ -29,7 +35,9 @@ struct ServerConfig
     std::uint32_t handshake_timeout_seconds{10U};
     std::uint32_t idle_timeout_seconds{300U};
     std::uint32_t metrics_interval_seconds{60U};
+    MetricsFormat metrics_format{MetricsFormat::Json};
     bool show_help{false};
+    bool show_version{false};
 };
 
 [[nodiscard]] ServerConfig parse_server_arguments(const std::vector<std::string>& arguments);

@@ -1,5 +1,6 @@
 #include "personal_vpn/lease_manager.hpp"
 #include "personal_vpn/linux_tun_device.hpp"
+#include "personal_vpn/metrics_exporter.hpp"
 #include "personal_vpn/server_config.hpp"
 #include "personal_vpn/tls_security.hpp"
 #include "personal_vpn/tls_tunnel_server.hpp"
@@ -15,11 +16,16 @@
 #include <thread>
 #include <vector>
 
+#ifndef PERSONAL_VPN_VERSION
+#define PERSONAL_VPN_VERSION "development"
+#endif
+
 namespace
 {
 using personal_vpn::core::LeaseManager;
 using personal_vpn::core::parse_ipv4_address;
 using personal_vpn::server::LinuxTunDevice;
+using personal_vpn::server::MetricsFormat;
 using personal_vpn::server::ServerTlsConfig;
 using personal_vpn::server::TlsTunnelServer;
 using personal_vpn::server::make_server_tls_context;
@@ -29,7 +35,8 @@ using personal_vpn::server::validate_server_private_key_permissions;
 
 void schedule_metrics(const std::shared_ptr<boost::asio::steady_timer>& timer,
                       const std::weak_ptr<TlsTunnelServer>& weak_server,
-                      const std::chrono::seconds interval)
+                      const std::chrono::seconds interval,
+                      const MetricsFormat format)
 {
     if (interval == std::chrono::seconds::zero())
     {
@@ -37,7 +44,7 @@ void schedule_metrics(const std::shared_ptr<boost::asio::steady_timer>& timer,
     }
     timer->expires_after(interval);
     timer->async_wait(
-        [timer, weak_server, interval](const boost::system::error_code& error)
+        [timer, weak_server, interval, format](const boost::system::error_code& error)
         {
             if (error)
             {
@@ -46,17 +53,18 @@ void schedule_metrics(const std::shared_ptr<boost::asio::steady_timer>& timer,
             if (const auto server = weak_server.lock())
             {
                 const auto metrics = server->metrics_snapshot();
-                std::cout << "{\"event\":\"server_metrics\",\"accepted\":"
-                          << metrics.accepted_connections << ",\"capacity_rejections\":"
-                          << metrics.capacity_rejections << ",\"handshake_failures\":"
-                          << metrics.handshake_failures << ",\"handshake_timeouts\":"
-                          << metrics.handshake_timeouts << ",\"idle_timeouts\":"
-                          << metrics.idle_timeouts << ",\"established\":"
-                          << metrics.established_sessions << ",\"active\":"
-                          << server->active_session_count() << ",\"uplink_packets\":"
-                          << metrics.uplink_packets << ",\"downlink_packets\":"
-                          << metrics.downlink_packets << "}\n";
-                schedule_metrics(timer, weak_server, interval);
+                const auto active_sessions = server->active_session_count();
+                if (format == MetricsFormat::Prometheus)
+                {
+                    std::cout << personal_vpn::server::render_server_metrics_prometheus(
+                        metrics, active_sessions);
+                }
+                else
+                {
+                    std::cout << personal_vpn::server::render_server_metrics_json(
+                        metrics, active_sessions);
+                }
+                schedule_metrics(timer, weak_server, interval, format);
             }
         });
 }
@@ -65,11 +73,11 @@ int run_server(const personal_vpn::server::ServerConfig& config)
 {
     boost::asio::io_context io_context;
     validate_server_private_key_permissions(config.private_key_file);
-    auto tls_context = make_server_tls_context(
+    auto tls_context = std::make_shared<boost::asio::ssl::context>(make_server_tls_context(
         ServerTlsConfig{config.certificate_chain_file,
                         config.private_key_file,
                         config.client_ca_file,
-                        config.client_crl_file});
+                        config.client_crl_file}));
     LeaseManager lease_manager(parse_ipv4_address(config.first_lease_address),
                                parse_ipv4_address(config.last_lease_address),
                                parse_ipv4_address(config.gateway_address),
@@ -78,7 +86,7 @@ int run_server(const personal_vpn::server::ServerConfig& config)
                                std::chrono::seconds(config.lease_seconds));
     auto tun_device = LinuxTunDevice::open(io_context, config.tun_name);
     const auto listen_address = boost::asio::ip::make_address_v4(config.listen_address);
-    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM, SIGHUP);
     auto metrics_timer = std::make_shared<boost::asio::steady_timer>(io_context);
     auto server = std::make_shared<TlsTunnelServer>(
         io_context,
@@ -96,18 +104,43 @@ int run_server(const personal_vpn::server::ServerConfig& config)
         std::chrono::seconds(config.handshake_timeout_seconds),
         std::chrono::seconds(config.idle_timeout_seconds));
 
-    signals.async_wait(
-        [server](const boost::system::error_code& error, const int)
-        {
-            if (!error)
+    std::function<void()> wait_for_signal;
+    wait_for_signal = [&signals, &wait_for_signal, server, config]
+    {
+        signals.async_wait(
+            [&wait_for_signal, server, config](const boost::system::error_code& error,
+                                                const int signal)
             {
-                server->stop();
-            }
-        });
+                if (error)
+                {
+                    return;
+                }
+                if (signal == SIGHUP)
+                {
+                    server->reload_tls_context(
+                        ServerTlsConfig{config.certificate_chain_file,
+                                        config.private_key_file,
+                                        config.client_ca_file,
+                                        config.client_crl_file},
+                        [](const bool success)
+                        {
+                            std::cout << "{\"event\":\"tls_context_reload\",\"success\":"
+                                      << (success ? "true" : "false") << "}\n";
+                        });
+                    wait_for_signal();
+                }
+                else
+                {
+                    server->stop();
+                }
+            });
+    };
+    wait_for_signal();
     server->start();
     schedule_metrics(metrics_timer,
                      server,
-                     std::chrono::seconds(config.metrics_interval_seconds));
+                     std::chrono::seconds(config.metrics_interval_seconds),
+                     config.metrics_format);
     std::cout << "Personal-VPN server listening on " << config.listen_address << ':'
               << config.listen_port << " using TUN " << tun_device->name() << '\n';
 
@@ -150,6 +183,11 @@ int main(int argc, char* argv[])
         if (config.show_help)
         {
             std::cout << server_usage(argc > 0 ? argv[0] : "personal-vpn-server");
+            return EXIT_SUCCESS;
+        }
+        if (config.show_version)
+        {
+            std::cout << "personal-vpn-server " << PERSONAL_VPN_VERSION << '\n';
             return EXIT_SUCCESS;
         }
         return run_server(config);

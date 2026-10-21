@@ -45,7 +45,8 @@ class TlsTunnelSession final : public core::TunnelPeer,
                      std::size_t maximum_queued_bytes = 1U << 20U,
                      std::chrono::milliseconds handshake_timeout = std::chrono::seconds(10),
                      std::chrono::milliseconds idle_timeout = std::chrono::minutes(5),
-                     ServerMetrics* metrics = nullptr);
+                     ServerMetrics* metrics = nullptr,
+                     std::shared_ptr<boost::asio::ssl::context> tls_context_owner = {});
 
     void start();
     void send_ipv4_from_tun(std::vector<std::uint8_t> packet) override;
@@ -65,6 +66,8 @@ class TlsTunnelSession final : public core::TunnelPeer,
     void arm_idle_timeout();
     void close_now();
 
+    // Must outlive stream_: SSL objects retain their SSL_CTX until destruction.
+    std::shared_ptr<boost::asio::ssl::context> tls_context_owner_;
     TlsStream stream_;
     boost::asio::strand<boost::asio::any_io_executor> strand_;
     core::LeaseManager& lease_manager_;

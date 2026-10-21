@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  create-release:
+    name: Validate tag and create release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Match tag to project version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^project\(PersonalVPN VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          test -n "$version"
+          test "$GITHUB_REF_NAME" = "v$version"
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')
+            if [[ "$draft" != true ]]; then
+              echo 'Refusing to mutate an already-published release.' >&2
+              exit 1
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes
+          fi
+
+  linux-package:
+    name: Linux server package
+    needs: create-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build libboost-dev libssl-dev
+      - name: Configure, build, and test
+        run: |
+          cmake -S . -B out/release-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPERSONAL_VPN_WARNINGS_AS_ERRORS=ON
+          cmake --build out/release-linux --parallel 2
+          ctest --test-dir out/release-linux --output-on-failure --timeout 30
+      - name: Package and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build out/release-linux --target package
+          artifact=$(find out/release-linux -maxdepth 1 -name 'personal-vpn-*.tar.gz' -print -quit)
+          test -n "$artifact"
+          tar -tzf "$artifact" > "$RUNNER_TEMP/package-contents.txt"
+          grep -q '/bin/personal-vpn-server$' "$RUNNER_TEMP/package-contents.txt"
+          grep -q '/lib/systemd/system/personal-vpn-server.service$' "$RUNNER_TEMP/package-contents.txt"
+          artifact_name=$(basename "$artifact")
+          (cd "$(dirname "$artifact")" && sha256sum "$artifact_name" > "$artifact_name.sha256")
+      - name: Attest Linux release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            out/release-linux/personal-vpn-*.tar.gz
+            out/release-linux/personal-vpn-*.tar.gz.sha256
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" --clobber out/release-linux/personal-vpn-*.tar.gz out/release-linux/personal-vpn-*.sha256
+
+  windows-package:
+    name: Windows desktop client package
+    needs: create-release
+    runs-on: windows-2022
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Configure, build, and test
+        shell: pwsh
+        run: |
+          cmake -S . -B out/release-windows -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/out/release-windows/vcpkg_installed" `
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>' `
+            -DPERSONAL_VPN_BUILD_LINUX_TRANSPORT=OFF `
+            -DPERSONAL_VPN_BUILD_CLIENT_TRANSPORT=ON `
+            -DPERSONAL_VPN_BUILD_WINDOWS_UI=ON `
+            -DPERSONAL_VPN_FETCH_WINTUN=ON
+          cmake --build out/release-windows --config Release --parallel 2
+          ctest --test-dir out/release-windows -C Release --output-on-failure --timeout 30
+      - name: Package and checksum
+        shell: pwsh
+        run: |
+          cmake --build out/release-windows --config Release --target package
+          $artifact = Get-ChildItem out/release-windows -Filter 'personal-vpn-*.zip' | Select-Object -First 1
+          if (-not $artifact) { throw 'Windows client ZIP package was not created' }
+          cmake "-DPACKAGE_ARCHIVE=$($artifact.FullName)" -P cmake/verify-windows-package.cmake
+          $sbomRoot = Join-Path $env:GITHUB_WORKSPACE 'out/release-windows/vcpkg_installed'
+          if (-not (Test-Path -LiteralPath $sbomRoot -PathType Container)) { throw "vcpkg installed tree missing: $sbomRoot" }
+          $sbomFiles = Get-ChildItem $sbomRoot -Recurse -Filter '*.spdx.json'
+          if (-not $sbomFiles) { throw "vcpkg SPDX SBOM was not created under $sbomRoot" }
+          $sbomArchive = Join-Path $artifact.DirectoryName "personal-vpn-$env:GITHUB_REF_NAME-Windows-dependencies-spdx.zip"
+          & "$env:GITHUB_WORKSPACE/scripts/package-vcpkg-sbom.ps1" `
+            -SbomRoot $sbomRoot `
+            -DestinationPath $sbomArchive
+          foreach ($file in @($artifact.FullName, $sbomArchive)) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+            $checksumLine = "$hash  $(Split-Path $file -Leaf)`n"
+            [System.IO.File]::WriteAllText("$file.sha256", $checksumLine, [System.Text.Encoding]::ASCII)
+          }
+      - name: Attest Windows release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            out/release-windows/personal-vpn-*.zip
+            out/release-windows/personal-vpn-*.zip.sha256
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload $env:GITHUB_REF_NAME --clobber out/release-windows/personal-vpn-*.zip out/release-windows/personal-vpn-*.sha256
+
+  publish-release:
+    name: Publish verified release
+    needs: [linux-package, windows-package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify draft assets and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+          if [[ "$draft" != true ]]; then
+            echo 'Release is no longer a draft; refusing to publish or mutate it.' >&2
+            exit 1
+          fi
+          assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          grep -Eq '^personal-vpn-.*-Linux-.*\.tar\.gz$' <<< "$assets"
+          grep -Eq '^personal-vpn-.*-Linux-.*\.tar\.gz\.sha256$' <<< "$assets"
+          grep -Eq '^personal-vpn-.*-Windows-.*\.zip$' <<< "$assets"
+          grep -Eq '^personal-vpn-.*-Windows-dependencies-spdx\.zip$' <<< "$assets"
+          checksum_count=$(grep -Ec '\.sha256$' <<< "$assets" || true)
+          if (( checksum_count < 3 )); then
+            echo 'Expected checksums for Linux, Windows, and SBOM assets.' >&2
+            exit 1
+          fi
+          asset_dir=$(mktemp -d)
+          trap 'rm -rf "$asset_dir"' EXIT
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$asset_dir"
+          python3 scripts/verify-release-checksums.py "$asset_dir"
+          shopt -s nullglob
+          release_assets=("$asset_dir"/*)
+          if (( ${#release_assets[@]} != 6 )); then
+            echo "Expected six checksummed and attested release assets; found ${#release_assets[@]}." >&2
+            exit 1
+          fi
+          for artifact in "${release_assets[@]}"; do
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners
+          done
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

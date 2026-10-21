@@ -36,8 +36,8 @@ Install the server certificate, private key, and client CA bundle under
 users should not.
 
 The server refuses a private key with any group or other permission bits; use mode
-`0600` and make the service account the owner. Install a current PEM client CRL when
-device revocation is required.
+`0600` and make the service account the owner. Linux private-key files must not exceed
+1 MiB. Install a current PEM client CRL when device revocation is required.
 
 ## Direct execution
 
@@ -64,6 +64,14 @@ sudo -u personal-vpn /usr/local/bin/personal-vpn-server \
 
 `SIGINT` and `SIGTERM` stop admission, cancel TUN I/O, close sessions, release leases,
 and allow outstanding asynchronous callbacks to drain.
+`SIGHUP` reloads the configured server certificate/key, client CA, and optional CRL.
+The server validates the complete replacement before swapping contexts. On failure,
+it logs `{"event":"tls_context_reload","success":false}` and keeps the current
+context. On success, it logs the same event with `success:true`; established sessions
+continue with their original context, while new handshakes use the replacement.
+Install new credential files atomically with restrictive key permissions before
+sending `SIGHUP` to the service process. A reload does not close current sessions.
+Send the reload signal with `sudo systemctl kill --signal=HUP personal-vpn-server`.
 
 Periodic JSON metrics are written to stdout and therefore collected by journald. See
 [`observability-and-limits.md`](../architecture/observability-and-limits.md).

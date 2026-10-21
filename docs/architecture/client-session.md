@@ -22,14 +22,18 @@ an unsolicited or mismatched PONG is a protocol error. A structured server `ERRO
 retained in the result so the UI can show a safe diagnostic instead of scraping global
 standard output.
 
-## Legacy boundary
+## Runtime integration
 
-The files under `vpn_client_ui/client/` and `vpn_client_ui/client_core_impl.cpp` still
-contain the original connection and Wintun implementation. They currently assume TLS
-read boundaries are packet boundaries, accept a client-selected virtual IP, embed key
-material in JSON, and use process-global state. They must not be connected directly to
-the redesigned server.
+`ClientRuntime` connects this controller to the serialized TLS transport and the
+transactional Windows network backend. Wintun configuration begins only after a
+validated `IP_ASSIGN`; any later failure converges on joined shutdown and exact route,
+address, session, adapter, and module rollback. The historical duplicated client is no
+longer part of the root desktop executable.
 
-The next adapter phase will replace those behaviors with a serialized TLS frame
-transport, path-based certificate configuration, and transactional Wintun route
-application driven by the validated `IP_ASSIGN` result.
+Transient DNS, TCP, connection-timeout, and transport failures enter `Reconnecting`.
+The runtime retries indefinitely with equal jitter between half the exponential cap and
+the cap; the cap grows from 1 second to 30 seconds. It invalidates stale async callbacks,
+interrupts and joins the packet reader, and rolls back network state before retrying.
+Successful tunnel establishment resets the backoff. TLS verification/protocol errors,
+server rejections, and local network-setup failures remain terminal. User stop cancels
+the retry timer and joins the runtime without leaving routes installed.

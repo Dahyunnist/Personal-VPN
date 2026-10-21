@@ -42,7 +42,7 @@ const std::string& require_value(const std::vector<std::string>& arguments,
 
 void validate(const ServerConfig& config)
 {
-    if (config.show_help)
+    if (config.show_help || config.show_version)
     {
         return;
     }
@@ -82,6 +82,11 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
         if (option == "--help" || option == "-h")
         {
             config.show_help = true;
+            continue;
+        }
+        if (option == "--version")
+        {
+            config.show_version = true;
             continue;
         }
         const auto& value = require_value(arguments, index);
@@ -166,6 +171,21 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
             config.metrics_interval_seconds =
                 static_cast<std::uint32_t>(parse_unsigned(option, value, 0U, 86'400U));
         }
+        else if (option == "--metrics-format")
+        {
+            if (value == "json")
+            {
+                config.metrics_format = MetricsFormat::Json;
+            }
+            else if (value == "prometheus")
+            {
+                config.metrics_format = MetricsFormat::Prometheus;
+            }
+            else
+            {
+                throw std::invalid_argument("--metrics-format must be json or prometheus");
+            }
+        }
         else
         {
             throw std::invalid_argument("unknown option: " + option);
@@ -199,7 +219,9 @@ std::string server_usage(const std::string& executable_name)
            "  --max-sessions NUMBER    Admission limit (default: 1024)\n"
            "  --handshake-timeout SEC  TLS handshake deadline, 1-300 (default: 10)\n"
            "  --idle-timeout SEC       Inbound frame idle deadline (default: 300)\n"
-           "  --metrics-interval SEC   JSON metrics interval; 0 disables (default: 60)\n"
+           "  --metrics-interval SEC   Metrics interval; 0 disables (default: 60)\n"
+           "  --metrics-format FORMAT  json or prometheus (default: json)\n"
+           "  --version                Show the product version\n"
            "  -h, --help               Show this help\n";
 }
 

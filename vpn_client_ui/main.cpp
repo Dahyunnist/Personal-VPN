@@ -45,7 +45,7 @@ struct D3D11Data {
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
-void CreateRenderTarget();
+bool CreateRenderTarget();
 void CleanupRenderTarget();
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -70,8 +70,11 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_d3d.height = (UINT)HIWORD(lParam);
             CleanupRenderTarget();
             if (g_d3d.swapChain) {
-                g_d3d.swapChain->ResizeBuffers(0, g_d3d.width, g_d3d.height, DXGI_FORMAT_UNKNOWN, 0);
-                CreateRenderTarget();
+                const auto resizeResult = g_d3d.swapChain->ResizeBuffers(
+                    0, g_d3d.width, g_d3d.height, DXGI_FORMAT_UNKNOWN, 0);
+                if (SUCCEEDED(resizeResult)) {
+                    static_cast<void>(CreateRenderTarget());
+                }
             }
         }
         return 0;
@@ -128,8 +131,7 @@ bool CreateDeviceD3D(HWND hWnd) {
         return false;
     }
 
-    CreateRenderTarget();
-    return true;
+    return CreateRenderTarget();
 }
 
 void CleanupDeviceD3D() {
@@ -139,13 +141,31 @@ void CleanupDeviceD3D() {
     if (g_d3d.device) { g_d3d.device->Release(); g_d3d.device = nullptr; }
 }
 
-void CreateRenderTarget() {
-    ID3D11Texture2D* pBackBuffer;
-    g_d3d.swapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-    if (pBackBuffer) {
-        g_d3d.device->CreateRenderTargetView(pBackBuffer, nullptr, &g_d3d.renderTargetView);
-        pBackBuffer->Release();
+bool CreateRenderTarget() {
+    if (!g_d3d.swapChain || !g_d3d.device) {
+        return false;
     }
+
+    ID3D11Texture2D* pBackBuffer = nullptr;
+    const auto bufferResult = g_d3d.swapChain->GetBuffer(
+        0, IID_PPV_ARGS(&pBackBuffer));
+    if (FAILED(bufferResult) || !pBackBuffer) {
+        return false;
+    }
+
+    ID3D11RenderTargetView* renderTargetView = nullptr;
+    const auto targetResult = g_d3d.device->CreateRenderTargetView(
+        pBackBuffer, nullptr, &renderTargetView);
+    pBackBuffer->Release();
+    if (FAILED(targetResult) || !renderTargetView) {
+        if (renderTargetView) {
+            renderTargetView->Release();
+        }
+        return false;
+    }
+
+    g_d3d.renderTargetView = renderTargetView;
+    return true;
 }
 
 void CleanupRenderTarget() {
@@ -211,6 +231,11 @@ int main(int argc, char*[]) {
         if (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
+            continue;
+        }
+
+        if (!g_d3d.renderTargetView && !CreateRenderTarget()) {
+            Sleep(16);
             continue;
         }
 

@@ -8,6 +8,7 @@
 #include <mutex>
 #include <memory>
 #include <functional>
+#include <optional>
 
 // 必须在windows.h之前包含winsock2.h
 #ifndef WIN32_LEAN_AND_MEAN
@@ -48,11 +49,13 @@ private:
 
     // UI状态
     char m_configPath[512] = "";
+    std::optional<personal_vpn::client::ClientConfig> m_clientConfig;
     char m_serverHost[256] = "";
     char m_serverPort[16] = "";
     char m_routes[512] = "";
 
     bool m_isConnected = false;
+    bool m_isReconnecting = false;
     bool m_isStarting = false;
     bool m_imguiInitialized = false;  // 标记 ImGui 是否已初始化
 

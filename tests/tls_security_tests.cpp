@@ -202,7 +202,63 @@ int main(int argc, char* argv[])
         broad_key_rejected = true;
     }
     check(broad_key_rejected, "server rejects a private key readable by its group");
+    bool broad_key_load_rejected = false;
+    try
+    {
+        static_cast<void>(make_server_tls_context(
+            ServerTlsConfig{server_certificate, permission_test_key.string(), ca_file}));
+    }
+    catch (const std::invalid_argument&)
+    {
+        broad_key_load_rejected = true;
+    }
+    check(broad_key_load_rejected,
+          "server TLS context loader rejects a broadly readable private key itself");
     std::error_code remove_error;
+#if defined(__unix__)
+    std::filesystem::permissions(permission_test_key,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace);
+    std::filesystem::resize_file(permission_test_key, 1024U * 1024U + 1U);
+    bool oversized_key_rejected = false;
+    try
+    {
+        static_cast<void>(make_server_tls_context(
+            ServerTlsConfig{server_certificate, permission_test_key.string(), ca_file}));
+    }
+    catch (const std::invalid_argument&)
+    {
+        oversized_key_rejected = true;
+    }
+    check(oversized_key_rejected, "server rejects a private key file larger than 1 MiB");
+
+    const auto permission_test_link = permission_test_key.string() + ".link";
+    std::filesystem::create_symlink(permission_test_key, permission_test_link);
+    bool symlink_key_rejected = false;
+    try
+    {
+        validate_server_private_key_permissions(permission_test_link);
+    }
+    catch (const std::invalid_argument&)
+    {
+        symlink_key_rejected = true;
+    }
+    check(symlink_key_rejected, "server rejects a private key path that is a symlink");
+    bool symlink_key_load_rejected = false;
+    try
+    {
+        static_cast<void>(make_server_tls_context(
+            ServerTlsConfig{server_certificate, permission_test_link, ca_file}));
+    }
+    catch (const std::invalid_argument&)
+    {
+        symlink_key_load_rejected = true;
+    }
+    check(symlink_key_load_rejected,
+          "server TLS context loader refuses to follow a private-key symlink");
+    std::filesystem::remove(permission_test_link, remove_error);
+#endif
     std::filesystem::remove(permission_test_key, remove_error);
 
     if (failures != 0)

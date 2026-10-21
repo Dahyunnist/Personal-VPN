@@ -112,6 +112,7 @@ void TlsTunnelClient::start_on_strand()
     }
     catch (const std::exception&)
     {
+        retryable_close_ = false;
         close_now();
         return;
     }
@@ -131,11 +132,13 @@ void TlsTunnelClient::handle_handshake(const boost::system::error_code& error)
     }
     if (error)
     {
+        retryable_close_ = error.category() != boost::asio::error::get_ssl_category();
         close_now();
         return;
     }
     if (!enqueue_frame(controller_.start()))
     {
+        retryable_close_ = false;
         close_now();
         return;
     }
@@ -166,6 +169,7 @@ void TlsTunnelClient::handle_read(const boost::system::error_code& error,
     }
     if (error)
     {
+        retryable_close_ = error.category() != boost::asio::error::get_ssl_category();
         close_now();
         return;
     }
@@ -183,6 +187,7 @@ void TlsTunnelClient::handle_read(const boost::system::error_code& error,
     }
     catch (const std::exception&)
     {
+        retryable_close_ = false;
         close_now();
         return;
     }
@@ -192,15 +197,22 @@ void TlsTunnelClient::handle_read(const boost::system::error_code& error,
     }
 }
 
+void TlsTunnelClient::abort()
+{
+    boost::asio::post(strand_, [self = shared_from_this()] { self->close_now(); });
+}
+
 void TlsTunnelClient::apply_result(core::ClientSessionResult result)
 {
     if (result.remote_error.has_value())
     {
         remote_error_ = std::move(result.remote_error);
+        retryable_close_ = false;
     }
     if (result.assignment.has_value() && assignment_handler_ &&
         !assignment_handler_(*result.assignment))
     {
+        retryable_close_ = false;
         close_now();
         return;
     }
@@ -215,6 +227,7 @@ void TlsTunnelClient::apply_result(core::ClientSessionResult result)
     {
         if (!enqueue_frame(frame))
         {
+            retryable_close_ = false;
             close_now();
             return;
         }
@@ -233,6 +246,7 @@ bool TlsTunnelClient::enqueue_frame(const protocol::Frame& frame)
 {
     if (stopped_ || !outbound_queue_.try_enqueue(frame))
     {
+        retryable_close_ = false;
         return false;
     }
     if (!write_in_progress_)
@@ -274,6 +288,7 @@ void TlsTunnelClient::handle_write(const boost::system::error_code& error,
     }
     if (error)
     {
+        retryable_close_ = error.category() != boost::asio::error::get_ssl_category();
         close_now();
         return;
     }
@@ -297,7 +312,7 @@ void TlsTunnelClient::close_now()
     if (close_handler_)
     {
         auto handler = std::move(close_handler_);
-        handler(remote_error_);
+        handler(remote_error_, retryable_close_);
     }
 }
 

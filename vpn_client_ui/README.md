@@ -34,16 +34,16 @@ cmake -S . -B out/windows-client -A x64 `
 cmake --build out/windows-client --config Release --parallel
 ```
 
-Dear ImGui is fetched at the pinned `v1.91.9b` tag. Set
-`PERSONAL_VPN_IMGUI_DIR` to an existing checkout for offline builds. The Wintun DLL is
-not fetched implicitly: supply a pinned, independently verified DLL path and CMake
-copies it beside `personal-vpn-client.exe`.
+Dear ImGui v1.91.9b is fetched at its pinned full commit ID. Set
+`PERSONAL_VPN_IMGUI_DIR` to an existing checkout for offline builds. Supply a pinned,
+independently verified `PERSONAL_VPN_WINTUN_DLL` for offline builds, or explicitly set
+`PERSONAL_VPN_FETCH_WINTUN=ON` to download Wintun 0.14.1 with a fixed SHA-256 check.
 
 ## Run
 
 The application requires an elevated token to create the Wintun interface and IP
 Helper entries. Import a schema-version-1 profile such as
-`vpn_base/client/config.example.json`, then click **连接VPN** once. Routes come from the
+`configs/client.example.json`, then click **连接VPN** once. Routes come from the
 profile; the client address is intentionally not editable.
 
 Private keys must be stored outside the repository with a per-user ACL. See

@@ -31,7 +31,9 @@ The 20-byte header is immediately followed by exactly `payload length` bytes. Re
 | 6 | `ERROR` | Both | Report a protocol or policy error before closing when possible |
 | 7 | `CLOSE` | Both | Request an orderly tunnel shutdown |
 
-Control-message payload schemas and the connection state machine will be finalized before the protocol is connected to the legacy client and server. Unknown message types, versions, or flags are fatal protocol errors in v1.
+Control-message payload schemas and deterministic client/server state machines are
+implemented by the redesigned root client and server. Unknown message types, versions,
+or flags are fatal protocol errors in v1.
 
 ## Control payloads
 
