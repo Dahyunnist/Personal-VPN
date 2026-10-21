@@ -42,7 +42,10 @@ retain protocol v1.
    documentation.
 3. Verify no development PKI or packet capture contains secrets or personal data.
 4. Create and push the matching signed or annotated `vX.Y.Z` tag.
-5. Let `.github/workflows/release.yml` build, test, checksum, and upload both archives.
+5. Let `.github/workflows/release.yml` create a draft, build and checksum both platform
+   packages plus the Windows dependency SBOM, then publish only after all package jobs
+   pass and required assets are present. Failed runs leave a private draft for repair;
+   reruns refuse to modify a release that is already published.
 6. Download both assets on clean hosts, verify checksums, inspect archive contents, and
    run the server `--help` plus a client smoke connection using disposable PKI.
 7. Record the release test result and known limitations before announcing it.
