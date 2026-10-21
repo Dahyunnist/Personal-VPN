@@ -73,7 +73,8 @@ jobs:
           tar -tzf "$artifact" > "$RUNNER_TEMP/package-contents.txt"
           grep -q '/bin/personal-vpn-server$' "$RUNNER_TEMP/package-contents.txt"
           grep -q '/lib/systemd/system/personal-vpn-server.service$' "$RUNNER_TEMP/package-contents.txt"
-          sha256sum "$artifact" > "$artifact.sha256"
+          artifact_name=$(basename "$artifact")
+          (cd "$(dirname "$artifact")" && sha256sum "$artifact_name" > "$artifact_name.sha256")
       - name: Attest Linux release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
@@ -128,7 +129,8 @@ jobs:
             -DestinationPath $sbomArchive
           foreach ($file in @($artifact.FullName, $sbomArchive)) {
             $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
-            "$hash  $(Split-Path $file -Leaf)" | Set-Content -Encoding ascii "$file.sha256"
+            $checksumLine = "$hash  $(Split-Path $file -Leaf)`n"
+            [System.IO.File]::WriteAllText("$file.sha256", $checksumLine, [System.Text.Encoding]::ASCII)
           }
       - name: Attest Windows release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
@@ -148,19 +150,22 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      attestations: read
     steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Verify draft assets and publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')
+          draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
           if [[ "$draft" != true ]]; then
             echo 'Release is no longer a draft; refusing to publish or mutate it.' >&2
             exit 1
           fi
-          assets=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
           grep -Eq '^personal-vpn-.*-Linux-.*\.tar\.gz$' <<< "$assets"
           grep -Eq '^personal-vpn-.*-Linux-.*\.tar\.gz\.sha256$' <<< "$assets"
           grep -Eq '^personal-vpn-.*-Windows-.*\.zip$' <<< "$assets"
@@ -170,4 +175,21 @@ jobs:
             echo 'Expected checksums for Linux, Windows, and SBOM assets.' >&2
             exit 1
           fi
-          gh release edit "$GITHUB_REF_NAME" --draft=false
+          asset_dir=$(mktemp -d)
+          trap 'rm -rf "$asset_dir"' EXIT
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$asset_dir"
+          python3 scripts/verify-release-checksums.py "$asset_dir"
+          shopt -s nullglob
+          release_assets=("$asset_dir"/*)
+          if (( ${#release_assets[@]} != 6 )); then
+            echo "Expected six checksummed and attested release assets; found ${#release_assets[@]}." >&2
+            exit 1
+          fi
+          for artifact in "${release_assets[@]}"; do
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners
+          done
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

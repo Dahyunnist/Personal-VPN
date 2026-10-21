@@ -48,7 +48,11 @@ Keep build directories under the repository so outputs remain ignored.
   hardening; 9/9 CTest tests passed, including current-user-only and 11 broad-principal
   DACL cases. The ZIP passed `cmake/verify-windows-package.cmake`.
 - Release workflow YAML parsed successfully, and `git diff --check` passed after
-  adding keyless artifact attestations.
+  adding release-time checksum and provenance verification. The release-checksum
+  verifier passed 4/4 tests for valid CRLF input, tampered digests, path traversal, and
+  unexpected assets. Workflow YAML parsed with repository-scoped attestation-read
+  permission and source checkout; publish verification binds signer workflow and tag,
+  and rejects self-hosted runners.
 - Linux Release and sanitizer CTest could not run from this Windows host: the cached
   build trees use `/mnt/e/vpn`, and WSL launch was denied with `WSL_E_ACCESSDENIED`.
   Do not count those Linux gates as reverified by this host run.

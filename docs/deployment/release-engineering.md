@@ -24,6 +24,10 @@ weekly schedule.
   long-lived signing secret is stored. Public CI execution still needs owner-side
   verification. Consumers verify downloaded files with `gh attestation verify` as
   described in [`../operations/authenticated-github-sop.md`](../operations/authenticated-github-sop.md).
+- Before publication, the workflow downloads all six draft assets, verifies every
+  archive against its portable SHA-256 sidecar, and verifies each attestation against
+  the exact release workflow, triggering tag, and GitHub-hosted runner identity. Any
+  missing, unexpected, altered, or unattested file leaves the release as a draft.
 - CI and release jobs share `cmake/verify-windows-package.cmake` to check Windows
   executable, Wintun runtime, example profile, licenses, and bundled docs, and reject
   credential-like archive paths before upload.
@@ -57,7 +61,8 @@ retain protocol v1.
 4. Create and push the matching signed or annotated `vX.Y.Z` tag.
 5. Let `.github/workflows/release.yml` create a draft, build, checksum, and attest both
    platform packages plus the Windows dependency SBOM, then publish only after all
-   package jobs pass and required assets are present. Failed runs leave a private draft for repair;
+   package jobs pass and downloaded assets pass checksum and provenance verification.
+   Failed runs leave a private draft for repair;
    reruns refuse to modify a release that is already published.
 6. Download assets on clean hosts, verify checksums and attestations, inspect archive
    contents, and run the server `--help` plus a client smoke connection using disposable PKI.

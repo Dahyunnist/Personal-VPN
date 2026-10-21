@@ -32,6 +32,8 @@ jobs:
             echo "$forbidden" >&2
             exit 1
           fi
+      - name: Test release checksum verifier
+        run: python3 tests/test_verify_release_checksums.py
 
   linux:
     name: Linux ${{ matrix.build_type }}

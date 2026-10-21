@@ -119,7 +119,10 @@ gh run watch $runId --repo Dahyunnist/Personal-VPN --exit-status
 The tag must exactly match `project(PersonalVPN VERSION 0.1.0 ...)` in `CMakeLists.txt`.
 The release workflow creates `.tar.gz` and `.zip` archives plus SHA-256 files. It also
 creates GitHub artifact attestations for release archives and checksum files. Attestation
-creation is a release gate; no signing secret or user certificate is required.
+creation is a release gate; no signing secret or user certificate is required. Before
+publishing, the workflow downloads all six draft assets and checks every digest and
+attestation against the exact release workflow and triggering tag. Any mismatch keeps
+the release draft.
 
 ## 6. Verify downloaded assets
 
