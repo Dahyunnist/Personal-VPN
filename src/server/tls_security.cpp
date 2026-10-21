@@ -8,12 +8,16 @@
 #include <openssl/x509.h>
 
 #include <array>
+#include <cerrno>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
+#include <system_error>
 
 #if defined(__unix__)
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace personal_vpn::server
@@ -35,6 +39,58 @@ struct FileCloser
 };
 
 using FilePtr = std::unique_ptr<FILE, FileCloser>;
+
+#if defined(__unix__)
+FilePtr open_validated_server_private_key(const std::string& path)
+{
+    const auto descriptor =
+        ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0)
+    {
+        const auto error = errno;
+        if (error == ELOOP)
+        {
+            throw std::invalid_argument("server private key must not be a symlink");
+        }
+        throw std::system_error(error,
+                                std::generic_category(),
+                                "failed to open server private key");
+    }
+
+    auto* raw_file = ::fdopen(descriptor, "rb");
+    if (raw_file == nullptr)
+    {
+        const auto error = errno;
+        static_cast<void>(::close(descriptor));
+        throw std::system_error(error,
+                                std::generic_category(),
+                                "failed to read server private key");
+    }
+    FilePtr file(raw_file);
+
+    struct stat status{};
+    if (::fstat(descriptor, &status) != 0)
+    {
+        throw std::system_error(errno,
+                                std::generic_category(),
+                                "failed to inspect server private key permissions");
+    }
+    if (!S_ISREG(status.st_mode))
+    {
+        throw std::invalid_argument("server private key must be a regular file");
+    }
+    if (status.st_uid != ::geteuid())
+    {
+        throw std::invalid_argument("server private key must be owned by the service user");
+    }
+    if ((status.st_mode & (S_IRWXG | S_IRWXO)) != 0)
+    {
+        throw std::invalid_argument(
+            "server private key must not grant group or other permissions");
+    }
+    return file;
+}
+#endif
 
 std::string openssl_error(const std::string& prefix)
 {
@@ -89,7 +145,21 @@ boost::asio::ssl::context make_server_tls_context(const ServerTlsConfig& config)
                         boost::asio::ssl::context::no_tlsv1 |
                         boost::asio::ssl::context::no_tlsv1_1);
     context.use_certificate_chain_file(config.certificate_chain_file);
+#if defined(__unix__)
+    auto private_key_file = open_validated_server_private_key(config.private_key_file);
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> private_key(
+        PEM_read_PrivateKey(private_key_file.get(), nullptr, nullptr, nullptr), &EVP_PKEY_free);
+    if (!private_key)
+    {
+        throw std::runtime_error(openssl_error("failed to parse server private key"));
+    }
+    if (SSL_CTX_use_PrivateKey(context.native_handle(), private_key.get()) != 1)
+    {
+        throw std::runtime_error(openssl_error("failed to load server private key"));
+    }
+#else
     context.use_private_key_file(config.private_key_file, boost::asio::ssl::context::pem);
+#endif
     context.load_verify_file(config.client_ca_file);
     context.set_verify_mode(boost::asio::ssl::verify_peer |
                             boost::asio::ssl::verify_fail_if_no_peer_cert);
@@ -165,21 +235,7 @@ void validate_server_private_key_permissions(const std::string& private_key_file
         throw std::invalid_argument("server private key path must not be empty");
     }
 #if defined(__unix__)
-    struct stat status{};
-    // Do not follow a replaceable symlink: inspect the configured key object itself.
-    if (::lstat(private_key_file.c_str(), &status) != 0)
-    {
-        throw std::runtime_error("failed to inspect server private key permissions");
-    }
-    if (!S_ISREG(status.st_mode))
-    {
-        throw std::invalid_argument("server private key must be a regular file");
-    }
-    if ((status.st_mode & (S_IRWXG | S_IRWXO)) != 0)
-    {
-        throw std::invalid_argument(
-            "server private key must not grant group or other permissions");
-    }
+    static_cast<void>(open_validated_server_private_key(private_key_file));
 #endif
 }
 

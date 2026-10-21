@@ -202,6 +202,18 @@ int main(int argc, char* argv[])
         broad_key_rejected = true;
     }
     check(broad_key_rejected, "server rejects a private key readable by its group");
+    bool broad_key_load_rejected = false;
+    try
+    {
+        static_cast<void>(make_server_tls_context(
+            ServerTlsConfig{server_certificate, permission_test_key.string(), ca_file}));
+    }
+    catch (const std::invalid_argument&)
+    {
+        broad_key_load_rejected = true;
+    }
+    check(broad_key_load_rejected,
+          "server TLS context loader rejects a broadly readable private key itself");
     std::error_code remove_error;
 #if defined(__unix__)
     const auto permission_test_link = permission_test_key.string() + ".link";
@@ -216,6 +228,18 @@ int main(int argc, char* argv[])
         symlink_key_rejected = true;
     }
     check(symlink_key_rejected, "server rejects a private key path that is a symlink");
+    bool symlink_key_load_rejected = false;
+    try
+    {
+        static_cast<void>(make_server_tls_context(
+            ServerTlsConfig{server_certificate, permission_test_link, ca_file}));
+    }
+    catch (const std::invalid_argument&)
+    {
+        symlink_key_load_rejected = true;
+    }
+    check(symlink_key_load_rejected,
+          "server TLS context loader refuses to follow a private-key symlink");
     std::filesystem::remove(permission_test_link, remove_error);
 #endif
     std::filesystem::remove(permission_test_key, remove_error);
