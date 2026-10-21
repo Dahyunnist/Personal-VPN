@@ -44,6 +44,9 @@ Keep build directories under the repository so outputs remain ignored.
   failure.
 - Rebuilt the current MSVC core Debug tree with MSVC 14.51.36231; 8/8 CTest tests
   passed.
+- Windows Release desktop package rebuilt with MinGW GCC 14.2.0 after private-key ACL
+  hardening; 9/9 CTest tests passed, including current-user-only and 11 broad-principal
+  DACL cases. The ZIP passed `cmake/verify-windows-package.cmake`.
 - Release workflow YAML parsed successfully, and `git diff --check` passed after
   adding keyless artifact attestations.
 - Linux Release and sanitizer CTest could not run from this Windows host: the cached

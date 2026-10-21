@@ -8,6 +8,20 @@ else()
     target_compile_options(protocol_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
 
+if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+    add_executable(client_credential_security_tests client_credential_security_tests.cpp)
+    target_link_libraries(client_credential_security_tests PRIVATE PersonalVPN::ClientTransport)
+    target_compile_features(client_credential_security_tests PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(client_credential_security_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(client_credential_security_tests
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+    add_test(NAME client_credential_security_tests COMMAND client_credential_security_tests)
+    set_tests_properties(client_credential_security_tests PROPERTIES TIMEOUT 10)
+endif()
+
 add_test(NAME protocol_tests COMMAND protocol_tests)
 
 add_executable(control_message_tests control_message_tests.cpp)

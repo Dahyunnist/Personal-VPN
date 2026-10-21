@@ -60,8 +60,18 @@ void validate_private_key_permissions(const std::filesystem::path& private_key_f
         throw std::invalid_argument("client private key must not have an unrestricted DACL");
     }
 
-    constexpr std::array<WELL_KNOWN_SID_TYPE, 4U> broad_principals{
-        WinWorldSid, WinAuthenticatedUserSid, WinBuiltinUsersSid, WinBuiltinGuestsSid};
+    constexpr std::array<WELL_KNOWN_SID_TYPE, 11U> broad_principals{
+        WinWorldSid,
+        WinAuthenticatedUserSid,
+        WinBuiltinUsersSid,
+        WinBuiltinGuestsSid,
+        WinInteractiveSid,
+        WinNetworkSid,
+        WinBatchSid,
+        WinServiceSid,
+        WinAnonymousSid,
+        WinTerminalServerSid,
+        WinRestrictedCodeSid};
     std::array<std::array<unsigned char, SECURITY_MAX_SID_SIZE>, broad_principals.size()>
         sid_storage{};
     std::array<PSID, broad_principals.size()> broad_sids{};
