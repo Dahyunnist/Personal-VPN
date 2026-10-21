@@ -36,6 +36,20 @@ Keep build directories under the repository so outputs remain ignored.
   Wintun DLL and license, ImGui license, example profile, and README. ZIP SHA-256:
   `917A629638730F7044B97A97B04B2D8D4BBA18FB8A6C19B78520590D279BBB03`.
 
+## Additional host verification (2026-10-21)
+
+- Rebuilt the current MinGW client-core Release tree with GCC 14.2.0; 8/8 CTest tests
+  passed when `C:\msys64\mingw64\bin` was on `PATH`. Without that runtime path, the
+  tests fail to load MinGW runtime DLLs; this is a host invocation issue, not a code
+  failure.
+- Rebuilt the current MSVC core Debug tree with MSVC 14.51.36231; 8/8 CTest tests
+  passed.
+- Release workflow YAML parsed successfully, and `git diff --check` passed after
+  adding keyless artifact attestations.
+- Linux Release and sanitizer CTest could not run from this Windows host: the cached
+  build trees use `/mnt/e/vpn`, and WSL launch was denied with `WSL_E_ACCESSDENIED`.
+  Do not count those Linux gates as reverified by this host run.
+
 These checks do not verify a real Windows VPN tunnel or establish end-to-end performance.
 The remote Windows package gate and controlled two-host evidence remain pending; the
 local ZIP check does not replace the vcpkg SBOM gate. See
