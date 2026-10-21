@@ -38,7 +38,7 @@
 
 ## Windows 存储策略
 
-生产配置文件和密钥应存放在当前用户的应用数据目录下，ACL 仅授予该用户、Administrators 和 SYSTEM。Windows 客户端会拒绝私钥重解析点、不受限制的 DACL，以及向 Everyone、Authenticated Users、内置 Users 或 Guests 授予的读取权限。
+生产配置文件和密钥应存放在当前用户的应用数据目录下，ACL 仅授予该用户、Administrators 和 SYSTEM。Windows 客户端会拒绝私钥重解析点、不受限制的 DACL、未知授权 ACE，以及向白名单外主体授予的读取权限。
 
 不得将密钥放在可执行文件旁、仓库内或共享的 Downloads/Desktop 目录中。将密钥导入 Windows 受保护密钥存储仍是未来工作。
 

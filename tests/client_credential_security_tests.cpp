@@ -419,6 +419,41 @@ int main()
                 throw std::runtime_error("private-key read was allowed for a broad principal");
             }
         }
+
+        PSID unauthorized_sid = nullptr;
+        check_windows(ConvertStringSidToSidW(
+                          L"S-1-5-21-1111111111-2222222222-3333333333-4444",
+                          &unauthorized_sid),
+                      "create unauthorized user SID");
+        const auto free_sid = [](void* value)
+        {
+            if (value != nullptr)
+            {
+                LocalFree(value);
+            }
+        };
+        std::unique_ptr<void, decltype(free_sid)> unauthorized_sid_owner(
+            unauthorized_sid, free_sid);
+        set_test_acl(path, user_sid, unauthorized_sid, true);
+        bool unauthorized_principal_rejected = false;
+        try
+        {
+            static_cast<void>(personal_vpn::client::make_client_tls_context(
+                personal_vpn::client::ClientTlsConfig{certificate_path_string,
+                                                      certificate_path_string,
+                                                      key_path_string,
+                                                      "vpn.example.test"}));
+        }
+        catch (const std::invalid_argument&)
+        {
+            unauthorized_principal_rejected = true;
+        }
+        if (!unauthorized_principal_rejected)
+        {
+            throw std::runtime_error(
+                "private-key read was allowed for an unapproved user SID");
+        }
+
         remove_file();
         remove_certificate();
         remove_oversized_key();
