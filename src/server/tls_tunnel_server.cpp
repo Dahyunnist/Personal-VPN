@@ -179,6 +179,11 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
     }
     if (error)
     {
+        if (error == boost::asio::error::connection_aborted)
+        {
+            accept_next();
+            return;
+        }
         stop_on_strand();
         return;
     }
