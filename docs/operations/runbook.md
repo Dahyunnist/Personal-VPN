@@ -100,3 +100,26 @@ sharing.
 - Revoke a suspected credential, issue a distinct replacement, update the CRL, and
   restart/reload according to the current release capability.
 - Preserve the failure evidence before changing configuration.
+
+## Client certificate revocation
+
+Revoking a certificate does not terminate a tunnel that already completed its TLS
+handshake. The server checks the refreshed CRL for new handshakes; established sessions
+retain their original TLS context.
+
+1. Revoke the client certificate in the issuing CA and generate a fresh CRL.
+2. Atomically install the CRL at the configured path. Keep ownership and file mode
+   restrictive; never edit the live CRL in place.
+3. Reload the server and confirm the structured success event:
+
+   ```bash
+   sudo systemctl kill --signal=HUP personal-vpn-server
+   journalctl -u personal-vpn-server --since '-2 min' --no-pager |
+     grep '"event":"tls_context_reload","success":true'
+   ```
+
+4. Test a new connection with the revoked certificate; it must fail. Test a valid
+   client certificate; it must still connect.
+5. If policy requires immediate termination of an already-established revoked
+   session, schedule a coordinated server restart. This disconnects every active
+   client; the current server does not selectively evict a session by certificate.

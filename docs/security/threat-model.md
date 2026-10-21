@@ -29,7 +29,7 @@ compromised endpoint are out of scope.
 | Threat | Control | Residual risk / verification |
 |---|---|---|
 | Network interception | TLS, CA validation, exact server-name verification, mTLS | TCP endpoints/timing remain visible; verify with disposable PKI E2E tests |
-| Stolen/revoked client cert | CRL verification and fingerprint identity | CRL distribution is operational and not live-reloaded |
+| Stolen/revoked client cert | CRL verification and fingerprint identity; server validates and atomically reloads a new CRL on `SIGHUP` | Revocation applies to new TLS handshakes after a successful reload; established sessions keep their original TLS context and need a coordinated server restart to terminate |
 | Address spoofing | Server-issued leases plus source/destination validation | IPv6 is unsupported and rejected |
 | Stream confusion | Magic/version/type/flags/length/sequence validation | Protocol v1 has no extension negotiation |
 | Memory/CPU exhaustion | Payload, queue, sessions, threads, MTU, profile, timeout bounds | Volumetric DoS needs upstream firewall/rate controls |
