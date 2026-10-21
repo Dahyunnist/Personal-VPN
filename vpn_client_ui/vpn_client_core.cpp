@@ -64,6 +64,11 @@ void VPNClientCore::Stop()
     running_ = false;
 }
 
+void VPNClientCore::DisableKillSwitch()
+{
+    personal_vpn::client::WindowsNetworkBackend::disable_kill_switch();
+}
+
 std::string VPNClientCore::LastError() const
 {
     std::lock_guard<std::mutex> lock(mutex_);

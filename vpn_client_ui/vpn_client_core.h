@@ -23,6 +23,7 @@ class VPNClientCore final
 
     bool Start(personal_vpn::client::ClientConfig config, LogCallback log_callback = {});
     void Stop();
+    static void DisableKillSwitch();
 
     [[nodiscard]] bool IsConnected() const noexcept { return connected_.load(); }
     [[nodiscard]] bool IsReconnecting() const noexcept { return reconnecting_.load(); }

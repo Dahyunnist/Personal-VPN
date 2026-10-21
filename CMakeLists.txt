@@ -144,7 +144,10 @@ else()
 endif()
 
 if(WIN32)
-    add_library(personal_vpn_windows_network src/client/windows_network_backend.cpp)
+    add_library(personal_vpn_windows_network
+        src/client/windows_network_backend.cpp
+        src/client/windows_kill_switch.cpp
+    )
     add_library(PersonalVPN::WindowsNetwork ALIAS personal_vpn_windows_network)
     target_include_directories(personal_vpn_windows_network
         PUBLIC
@@ -152,7 +155,7 @@ if(WIN32)
     )
     target_link_libraries(personal_vpn_windows_network
         PUBLIC PersonalVPN::Core
-        PRIVATE iphlpapi
+        PRIVATE fwpuclnt iphlpapi
     )
     target_compile_definitions(personal_vpn_windows_network
         PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
@@ -186,7 +189,8 @@ if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
     )
     target_compile_features(personal_vpn_client_transport PUBLIC cxx_std_17)
     if(WIN32)
-        target_link_libraries(personal_vpn_client_transport PRIVATE advapi32)
+        target_link_libraries(personal_vpn_client_transport
+            PRIVATE advapi32 PersonalVPN::WindowsNetwork)
         target_link_libraries(personal_vpn_client_transport PUBLIC ws2_32)
     endif()
     if(MSVC)

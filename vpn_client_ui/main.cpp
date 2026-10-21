@@ -1,7 +1,9 @@
 #include "ui_main.h"
+#include "vpn_client_core.h"
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <iostream>
+#include <cstring>
 #include <shellapi.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -175,7 +177,27 @@ void CleanupRenderTarget() {
     }
 }
 
-int main(int argc, char*[]) {
+int main(int argc, char* argv[]) {
+    if (argc == 2 && std::strcmp(argv[1], "--disable-kill-switch") == 0) {
+        if (!IsRunAsAdmin()) {
+            wchar_t exePath[MAX_PATH]{};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(
+                nullptr, L"runas", exePath, L"--disable-kill-switch", nullptr, SW_SHOWNORMAL));
+            return result > 32 ? 0 : 1;
+        }
+        try {
+            VPNClientCore::DisableKillSwitch();
+            MessageBoxW(nullptr, L"PersonalVPN 全局断线保护已关闭。",
+                        L"PersonalVPN", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        } catch (const std::exception& error) {
+            const auto message = std::string("关闭断线保护失败：") + error.what();
+            MessageBoxA(nullptr, message.c_str(), "PersonalVPN", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+    }
+
     // 检查管理员权限
     if (!IsRunAsAdmin()) {
         MessageBoxW(nullptr, 

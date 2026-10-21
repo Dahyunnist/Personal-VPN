@@ -4,9 +4,11 @@
 #include "personal_vpn/lease_manager.hpp"
 #include "personal_vpn/protocol.hpp"
 
+#include <boost/asio/ip/address.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <cctype>
 #include <limits>
@@ -238,6 +240,18 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
             throw std::invalid_argument("duplicate route: " + route);
         }
         config.routes.push_back(route);
+    }
+    if (config.allow_default_route &&
+        std::find(config.routes.begin(), config.routes.end(), "0.0.0.0/0") !=
+            config.routes.end())
+    {
+        boost::system::error_code address_error;
+        const auto address = boost::asio::ip::make_address(config.server_host, address_error);
+        if (address_error || (address.is_v6() && address.to_v6().scope_id() != 0U))
+        {
+            throw std::invalid_argument(
+                "full-tunnel mode requires a numeric server IP to prevent DNS leakage");
+        }
     }
     return config;
 }

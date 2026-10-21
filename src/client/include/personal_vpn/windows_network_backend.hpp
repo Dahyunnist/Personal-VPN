@@ -4,6 +4,7 @@
 #include "personal_vpn/client_network_transaction.hpp"
 
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,6 +12,13 @@
 
 namespace personal_vpn::client
 {
+
+struct WindowsVpnEndpoint
+{
+    std::array<std::uint8_t, 16U> address{};
+    std::uint16_t port{0U};
+    bool ipv6{false};
+};
 
 class WindowsNetworkBackend final : public ClientPacketDevice
 {
@@ -36,6 +44,9 @@ class WindowsNetworkBackend final : public ClientPacketDevice
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> receive_packet() override;
     void interrupt_receive() noexcept override;
     void send_packet(const std::vector<std::uint8_t>& packet) override;
+
+    void enable_kill_switch(const std::vector<WindowsVpnEndpoint>& endpoints);
+    static void disable_kill_switch();
 
    private:
     class Impl;

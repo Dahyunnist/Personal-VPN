@@ -1,4 +1,5 @@
 #include "personal_vpn/windows_network_backend.hpp"
+#include "windows_kill_switch.hpp"
 
 #if !defined(_WIN32)
 #error "WindowsNetworkBackend must only be built on Windows"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <array>
 #include <stdexcept>
 #include <system_error>
 #include <type_traits>
@@ -117,6 +119,7 @@ class WindowsNetworkBackend::Impl
 
     ~Impl()
     {
+        close_windows_tunnel_permit(tunnel_policy_session_);
         stop_packet_session();
         close_adapter();
         if (module_ != nullptr)
@@ -172,7 +175,7 @@ class WindowsNetworkBackend::Impl
     {
         if (adapter_ != nullptr)
         {
-            throw std::logic_error("Wintun adapter is already open");
+            return;
         }
         load_library();
         adapter_ = open_adapter_(adapter_name_.c_str());
@@ -190,6 +193,21 @@ class WindowsNetworkBackend::Impl
             close_adapter();
             throw std::runtime_error("Wintun returned an invalid interface LUID");
         }
+    }
+
+    void enable_kill_switch(const std::vector<WindowsVpnEndpoint>& endpoints)
+    {
+        open_adapter();
+        enable_windows_kill_switch(endpoints);
+        remove_owned_default_routes(luid_);
+        add_transport_bypass_routes(endpoints, luid_);
+        NET_IFINDEX interface_index = 0U;
+        const auto index_result = ConvertInterfaceLuidToIndex(&luid_, &interface_index);
+        if (index_result != NO_ERROR)
+        {
+            throw_windows_error("read Wintun interface index for WFP", index_result);
+        }
+        replace_windows_tunnel_permit(tunnel_policy_session_, interface_index);
     }
 
     void start_packet_session()
@@ -359,6 +377,130 @@ class WindowsNetworkBackend::Impl
         return std::vector<std::uint8_t>(packet, packet + packet_size);
     }
 
+    static void remove_owned_default_routes(const NET_LUID luid)
+    {
+        PMIB_IPFORWARD_TABLE2 table = nullptr;
+        const auto table_result = GetIpForwardTable2(AF_UNSPEC, &table);
+        if (table_result != NO_ERROR)
+        {
+            throw_windows_error("enumerate stale VPN default routes", table_result);
+        }
+        struct TableOwner
+        {
+            PMIB_IPFORWARD_TABLE2 value;
+            ~TableOwner() { FreeMibTable(value); }
+        } table_owner{table};
+
+        for (ULONG index = 0U; index < table->NumEntries; ++index)
+        {
+            const auto& route = table->Table[index];
+            bool default_route = route.DestinationPrefix.PrefixLength == 0U;
+            if (default_route && route.DestinationPrefix.Prefix.si_family == AF_INET)
+            {
+                default_route = route.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr == 0U;
+            }
+            else if (default_route && route.DestinationPrefix.Prefix.si_family == AF_INET6)
+            {
+                static constexpr std::array<unsigned char, 16U> any_address{};
+                default_route = std::memcmp(route.DestinationPrefix.Prefix.Ipv6.sin6_addr.u.Byte,
+                                            any_address.data(),
+                                            any_address.size()) == 0;
+            }
+            else
+            {
+                default_route = false;
+            }
+            if (!default_route || route.InterfaceLuid.Value != luid.Value ||
+                route.Protocol != MIB_IPPROTO_NETMGMT || route.Metric != 5U)
+            {
+                continue;
+            }
+            auto removable_route = route;
+            const auto delete_result = DeleteIpForwardEntry2(&removable_route);
+            if (delete_result != NO_ERROR && delete_result != ERROR_NOT_FOUND)
+            {
+                throw_windows_error("remove stale VPN default route", delete_result);
+            }
+        }
+        static_cast<void>(FlushIpPathTable(AF_INET));
+        static_cast<void>(FlushIpPathTable(AF_INET6));
+    }
+
+    static void add_transport_bypass_routes(
+        const std::vector<WindowsVpnEndpoint>& endpoints,
+        const NET_LUID tunnel_luid)
+    {
+        for (const auto& endpoint : endpoints)
+        {
+            MIB_IPFORWARD_ROW2 prior_route{};
+            SOCKADDR_INET destination{};
+            SOCKADDR_INET source{};
+            if (endpoint.ipv6)
+            {
+                destination.Ipv6.sin6_family = AF_INET6;
+                std::memcpy(destination.Ipv6.sin6_addr.u.Byte,
+                            endpoint.address.data(),
+                            endpoint.address.size());
+            }
+            else
+            {
+                destination.Ipv4.sin_family = AF_INET;
+                std::memcpy(&destination.Ipv4.sin_addr,
+                            endpoint.address.data(),
+                            sizeof(destination.Ipv4.sin_addr));
+            }
+            const auto route_result = GetBestRoute2(nullptr,
+                                                    0U,
+                                                    nullptr,
+                                                    &destination,
+                                                    0U,
+                                                    &prior_route,
+                                                    &source);
+            if (route_result != NO_ERROR)
+            {
+                throw_windows_error("find physical route to VPN server", route_result);
+            }
+            if (prior_route.InterfaceLuid.Value == tunnel_luid.Value)
+            {
+                throw std::runtime_error(
+                    "VPN server route resolves through the tunnel adapter; refusing recursion");
+            }
+
+            MIB_IPFORWARD_ROW2 bypass{};
+            InitializeIpForwardEntry(&bypass);
+            bypass.InterfaceLuid = prior_route.InterfaceLuid;
+            bypass.Metric = 1U;
+            bypass.Protocol = static_cast<NL_ROUTE_PROTOCOL>(MIB_IPPROTO_NETMGMT);
+            if (endpoint.ipv6)
+            {
+                bypass.DestinationPrefix.Prefix.Ipv6.sin6_family = AF_INET6;
+                std::memcpy(bypass.DestinationPrefix.Prefix.Ipv6.sin6_addr.u.Byte,
+                            endpoint.address.data(),
+                            endpoint.address.size());
+                bypass.DestinationPrefix.PrefixLength = 128U;
+                bypass.NextHop.Ipv6 = prior_route.NextHop.Ipv6;
+                bypass.SitePrefixLength = 128U;
+            }
+            else
+            {
+                bypass.DestinationPrefix.Prefix.Ipv4.sin_family = AF_INET;
+                std::memcpy(&bypass.DestinationPrefix.Prefix.Ipv4.sin_addr,
+                            endpoint.address.data(),
+                            sizeof(bypass.DestinationPrefix.Prefix.Ipv4.sin_addr));
+                bypass.DestinationPrefix.PrefixLength = 32U;
+                bypass.NextHop.Ipv4 = prior_route.NextHop.Ipv4;
+                bypass.SitePrefixLength = 32U;
+            }
+            const auto add_result = CreateIpForwardEntry2(&bypass);
+            if (add_result != NO_ERROR && add_result != ERROR_OBJECT_ALREADY_EXISTS)
+            {
+                throw_windows_error("add VPN server bypass route", add_result);
+            }
+        }
+        static_cast<void>(FlushIpPathTable(AF_INET));
+        static_cast<void>(FlushIpPathTable(AF_INET6));
+    }
+
     void send_packet(const std::vector<std::uint8_t>& packet) const
     {
         require_session();
@@ -424,6 +566,7 @@ class WindowsNetworkBackend::Impl
     ReleaseReceivePacketFunction release_receive_packet_{nullptr};
     AllocateSendPacketFunction allocate_send_packet_{nullptr};
     SendPacketFunction send_packet_{nullptr};
+    HANDLE tunnel_policy_session_{nullptr};
 };
 
 WindowsNetworkBackend::WindowsNetworkBackend(std::wstring adapter_name)
@@ -467,6 +610,22 @@ void WindowsNetworkBackend::interrupt_receive() noexcept { impl_->interrupt_rece
 void WindowsNetworkBackend::send_packet(const std::vector<std::uint8_t>& packet)
 {
     impl_->send_packet(packet);
+}
+
+void WindowsNetworkBackend::enable_kill_switch(
+    const std::vector<WindowsVpnEndpoint>& endpoints)
+{
+    impl_->enable_kill_switch(endpoints);
+}
+
+void WindowsNetworkBackend::disable_kill_switch()
+{
+    NET_LUID luid{};
+    if (ConvertInterfaceAliasToLuid(L"PersonalVPN", &luid) == NO_ERROR)
+    {
+        Impl::remove_owned_default_routes(luid);
+    }
+    disable_windows_kill_switch();
 }
 
 } // namespace personal_vpn::client
