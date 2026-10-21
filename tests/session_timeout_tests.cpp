@@ -93,7 +93,7 @@ void handshake_deadline_releases_session(const std::vector<std::string>& paths)
                 lease_manager,
                 TlsTunnelSession::PacketSink{},
                 TlsTunnelSession::EstablishedHandler{},
-                [&closed_promise](const std::optional<Ipv4Address>&, const TunnelPeer*)
+                [&closed_promise](const std::optional<personal_vpn::core::Lease>&, const TunnelPeer*)
                 { closed_promise.set_value(); },
                 16U,
                 64U * 1024U,
@@ -139,7 +139,7 @@ void frame_idle_deadline_releases_session(const std::vector<std::string>& paths)
                 lease_manager,
                 TlsTunnelSession::PacketSink{},
                 TlsTunnelSession::EstablishedHandler{},
-                [&closed_promise](const std::optional<Ipv4Address>&, const TunnelPeer*)
+                [&closed_promise](const std::optional<personal_vpn::core::Lease>&, const TunnelPeer*)
                 { closed_promise.set_value(); },
                 16U,
                 64U * 1024U,

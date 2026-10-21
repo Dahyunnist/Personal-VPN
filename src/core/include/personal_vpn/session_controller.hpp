@@ -28,6 +28,7 @@ enum class SessionErrorCode : std::uint16_t
     LeaseUnavailable = 4U,
     InvalidIpv4Packet = 5U,
     SourceAddressMismatch = 6U,
+    InvalidIpv6Packet = 7U,
 };
 
 struct SessionResult
@@ -65,6 +66,9 @@ class SessionController
     [[nodiscard]] protocol::Frame make_outbound(protocol::MessageType type,
                                                 std::vector<std::uint8_t> payload);
     [[nodiscard]] bool validate_ipv4_packet(const std::vector<std::uint8_t>& packet,
+                                            SessionErrorCode& error_code,
+                                            std::string& error_message) const;
+    [[nodiscard]] bool validate_ipv6_packet(const std::vector<std::uint8_t>& packet,
                                             SessionErrorCode& error_code,
                                             std::string& error_message) const;
     void release_lease() noexcept;

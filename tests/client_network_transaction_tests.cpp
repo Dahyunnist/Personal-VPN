@@ -44,7 +44,13 @@ class FakeBackend final : public ClientNetworkBackend
         return create_address;
     }
 
-    std::optional<std::uint32_t> set_interface_mtu(const std::uint32_t)
+    bool add_interface_address(const Ipv6InterfaceAddress&) override
+    {
+        events.push_back("add-address-v6");
+        return true;
+    }
+
+    std::optional<InterfaceMtuSnapshot> set_interface_mtu(const std::uint32_t)
         override
     {
         events.push_back("set-mtu");
@@ -60,12 +66,23 @@ class FakeBackend final : public ClientNetworkBackend
         return route_calls != preexisting_route_call;
     }
 
+    bool add_route(const Ipv6Route& route) override
+    {
+        events.push_back("add-route-v6-" + std::to_string(route.prefix_length));
+        return true;
+    }
+
     void remove_route(const Ipv4Route& route) noexcept override
     {
         events.push_back("remove-route-" + std::to_string(route.prefix_length));
     }
 
-    void restore_interface_mtu(const std::uint32_t) noexcept override
+    void remove_route(const Ipv6Route& route) noexcept override
+    {
+        events.push_back("remove-route-v6-" + std::to_string(route.prefix_length));
+    }
+
+    void restore_interface_mtu(const InterfaceMtuSnapshot&) noexcept override
     {
         events.push_back("restore-mtu");
     }
@@ -73,6 +90,11 @@ class FakeBackend final : public ClientNetworkBackend
     void remove_interface_address(const InterfaceAddress&) noexcept override
     {
         events.push_back("remove-address");
+    }
+
+    void remove_interface_address(const Ipv6InterfaceAddress&) noexcept override
+    {
+        events.push_back("remove-address-v6");
     }
 
     void stop_packet_session() noexcept override { events.push_back("stop-session"); }
@@ -91,7 +113,7 @@ class FakeBackend final : public ClientNetworkBackend
     int route_calls{0};
     int preexisting_route_call{0};
     bool create_address{true};
-    std::optional<std::uint32_t> prior_mtu{1'500U};
+    std::optional<InterfaceMtuSnapshot> prior_mtu{InterfaceMtuSnapshot{1'500U, 1'500U}};
 };
 
 IpAssignment assignment()
@@ -102,6 +124,30 @@ IpAssignment assignment()
     value.prefix_length = 24U;
     value.mtu = 1'400U;
     return value;
+}
+
+IpAssignment dual_stack_assignment()
+{
+    auto value = assignment();
+    value.client_ipv6_address = personal_vpn::core::parse_ipv6_address("fd00:8::2");
+    value.gateway_ipv6_address = personal_vpn::core::parse_ipv6_address("fd00:8::1");
+    value.ipv6_prefix_length = 64U;
+    return value;
+}
+
+void dual_stack_transaction_installs_and_removes_ipv6_resources()
+{
+    FakeBackend backend;
+    ClientNetworkTransaction transaction(backend);
+    transaction.activate(dual_stack_assignment(), {"10.20.0.0/16", "2001:db8:1::/48"});
+    check(transaction.active(), "dual-stack network setup becomes active");
+    transaction.rollback();
+    const std::vector<std::string> expected{
+        "open", "start-session", "add-address", "add-address-v6", "set-mtu",
+        "add-route-16", "add-route-v6-48", "remove-route-v6-48", "remove-route-16",
+        "restore-mtu", "remove-address-v6", "remove-address", "stop-session", "close"};
+    check(backend.events == expected,
+          "dual-stack rollback removes created routes, MTUs, and addresses in reverse order");
 }
 
 void successful_transaction_rolls_back_exactly()
@@ -161,6 +207,7 @@ void each_failure_rolls_back_completed_steps()
 int main()
 {
     successful_transaction_rolls_back_exactly();
+    dual_stack_transaction_installs_and_removes_ipv6_resources();
     each_failure_rolls_back_completed_steps();
     if (failures != 0)
     {

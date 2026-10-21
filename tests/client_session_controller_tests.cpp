@@ -1,6 +1,8 @@
 #include "personal_vpn/client_session_controller.hpp"
+#include "personal_vpn/lease_manager.hpp"
 
 #include <cstdlib>
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -25,11 +27,15 @@ void check(const bool condition, const std::string& message)
 
 IpAssignment valid_assignment()
 {
-    return IpAssignment{{10U, 8U, 0U, 2U},
-                        {10U, 8U, 0U, 1U},
-                        24U,
-                        1'280U,
-                        3'600U};
+    auto assignment = IpAssignment{{10U, 8U, 0U, 2U},
+                                  {10U, 8U, 0U, 1U},
+                                  24U,
+                                  1'280U,
+                                  3'600U};
+    assignment.client_ipv6_address = parse_ipv6_address("fd00:8::a08:2");
+    assignment.gateway_ipv6_address = parse_ipv6_address("fd00:8::1");
+    assignment.ipv6_prefix_length = 64U;
+    return assignment;
 }
 
 std::vector<std::uint8_t> ipv4_packet(const std::array<std::uint8_t, 4U>& source,
@@ -48,12 +54,25 @@ std::vector<std::uint8_t> ipv4_packet(const std::array<std::uint8_t, 4U>& source
     return packet;
 }
 
+std::vector<std::uint8_t> ipv6_packet(const Ipv6Address& source, const Ipv6Address& destination)
+{
+    std::vector<std::uint8_t> packet(48U, 0U);
+    packet[0] = 0x60U;
+    packet[5] = 8U;
+    packet[6] = 58U;
+    packet[7] = 64U;
+    std::copy(source.begin(), source.end(), packet.begin() + 8);
+    std::copy(destination.begin(), destination.end(), packet.begin() + 24);
+    return packet;
+}
+
 void establish(ClientSessionController& controller)
 {
     const auto hello = controller.start();
     check(hello.type == MessageType::ClientHello && hello.sequence == 1U &&
-              decode_client_hello(hello.payload) == ClientHello{1'400U, kCapabilityIpv4},
-          "client starts with a versioned IPv4 CLIENT_HELLO");
+              decode_client_hello(hello.payload) ==
+                  ClientHello{1'400U, kCapabilityIpv4 | kCapabilityIpv6},
+          "client starts with a versioned dual-stack CLIENT_HELLO");
     const auto assignment = valid_assignment();
     const auto result = controller.handle(
         Frame{MessageType::IpAssign, 0U, 1U, encode_ip_assignment(assignment)});
@@ -88,6 +107,19 @@ void test_server_authoritative_assignment_and_bidirectional_data()
         controller.handle(Frame{MessageType::DataIpv4, 0U, 2U, downlink});
     check(result.packets_to_tun.size() == 1U && result.packets_to_tun.front() == downlink,
           "server packet for the assigned destination reaches Wintun boundary");
+
+    const auto uplink_v6 = ipv6_packet(assignment.client_ipv6_address,
+                                       parse_ipv6_address("2001:db8::10"));
+    const auto uplink_v6_frame = controller.make_data_to_server(uplink_v6);
+    check(uplink_v6_frame.has_value() && uplink_v6_frame->type == MessageType::DataIpv6,
+          "IPv6 packet with assigned source becomes DATA_IPV6");
+    const auto downlink_v6 = ipv6_packet(parse_ipv6_address("2001:db8::10"),
+                                         assignment.client_ipv6_address);
+    const auto downlink_v6_result = controller.handle(
+        Frame{MessageType::DataIpv6, 0U, 3U, downlink_v6});
+    check(downlink_v6_result.packets_to_tun.size() == 1U &&
+              downlink_v6_result.packets_to_tun.front() == downlink_v6,
+          "IPv6 packet for assigned destination reaches Wintun boundary");
 }
 
 void test_assignment_policy_is_enforced()

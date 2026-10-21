@@ -1,5 +1,8 @@
 #include "personal_vpn/client_session_controller.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <stdexcept>
 #include <limits>
 #include <string>
@@ -24,7 +27,7 @@ ClientSessionController::ClientSessionController(const std::uint16_t requested_m
     : requested_mtu_(requested_mtu)
 {
     static_cast<void>(protocol::encode_client_hello(
-        protocol::ClientHello{requested_mtu_, protocol::kCapabilityIpv4}));
+        protocol::ClientHello{requested_mtu_, protocol::kCapabilityIpv4 | protocol::kCapabilityIpv6}));
 }
 
 protocol::Frame ClientSessionController::start()
@@ -37,7 +40,7 @@ protocol::Frame ClientSessionController::start()
     return make_outbound(
         protocol::MessageType::ClientHello,
         protocol::encode_client_hello(
-            protocol::ClientHello{requested_mtu_, protocol::kCapabilityIpv4}));
+            protocol::ClientHello{requested_mtu_, protocol::kCapabilityIpv4 | protocol::kCapabilityIpv6}));
 }
 
 ClientSessionResult ClientSessionController::handle(const protocol::Frame& frame)
@@ -89,6 +92,18 @@ ClientSessionResult ClientSessionController::handle(const protocol::Frame& frame
             ClientSessionErrorCode error_code = ClientSessionErrorCode::InvalidIpv4Packet;
             std::string error_message;
             if (!validate_ipv4_packet(frame.payload, true, error_code, error_message))
+            {
+                return fail(error_code, error_message);
+            }
+            ClientSessionResult result;
+            result.packets_to_tun.push_back(frame.payload);
+            return result;
+        }
+        case protocol::MessageType::DataIpv6:
+        {
+            ClientSessionErrorCode error_code = ClientSessionErrorCode::InvalidIpv6Packet;
+            std::string error_message;
+            if (!validate_ipv6_packet(frame.payload, true, error_code, error_message))
             {
                 return fail(error_code, error_message);
             }
@@ -172,6 +187,16 @@ std::optional<protocol::Frame> ClientSessionController::make_data_to_server(
     if (state_ != ClientSessionState::Established)
     {
         return std::nullopt;
+    }
+    if (!packet.empty() && (packet[0] >> 4U) == 6U)
+    {
+        ClientSessionErrorCode error_code = ClientSessionErrorCode::InvalidIpv6Packet;
+        std::string error_message;
+        if (!validate_ipv6_packet(packet, false, error_code, error_message))
+        {
+            return std::nullopt;
+        }
+        return make_outbound(protocol::MessageType::DataIpv6, packet);
     }
     ClientSessionErrorCode error_code = ClientSessionErrorCode::InvalidIpv4Packet;
     std::string error_message;
@@ -260,6 +285,19 @@ bool ClientSessionController::assignment_is_acceptable(
             return false;
         }
     }
+    if (assignment.ipv6_prefix_length == 0U)
+    {
+        return assignment.client_ipv6_address == std::array<std::uint8_t, 16U>{} &&
+               assignment.gateway_ipv6_address == std::array<std::uint8_t, 16U>{};
+    }
+    if (assignment.ipv6_prefix_length != 64U ||
+        assignment.client_ipv6_address == assignment.gateway_ipv6_address ||
+        !std::equal(assignment.client_ipv6_address.begin(),
+                    assignment.client_ipv6_address.begin() + 8,
+                    assignment.gateway_ipv6_address.begin()))
+    {
+        return false;
+    }
     return true;
 }
 
@@ -295,6 +333,43 @@ bool ClientSessionController::validate_ipv4_packet(
         error_message = from_server
                             ? "server IPv4 destination does not match the assigned client address"
                             : "local IPv4 source does not match the assigned client address";
+        return false;
+    }
+    return true;
+}
+
+bool ClientSessionController::validate_ipv6_packet(
+    const std::vector<std::uint8_t>& packet,
+    const bool from_server,
+    ClientSessionErrorCode& error_code,
+    std::string& error_message) const
+{
+    if (!assignment_ || assignment_->ipv6_prefix_length == 0U || packet.size() < 40U ||
+        packet.size() > assignment_->mtu || (packet[0] >> 4U) != 6U)
+    {
+        error_message = "IPv6 packet size or version is outside the assigned tunnel policy";
+        return false;
+    }
+    const auto payload_length = static_cast<std::size_t>(
+        (static_cast<std::uint16_t>(packet[4]) << 8U) | packet[5]);
+    if (payload_length + 40U != packet.size())
+    {
+        error_message = "IPv6 payload length does not match the tunnel frame";
+        return false;
+    }
+    const auto offset = from_server ? 24U : 8U;
+    std::array<std::uint8_t, 16U> packet_address{};
+    std::copy_n(packet.begin() + static_cast<std::ptrdiff_t>(offset),
+                packet_address.size(),
+                packet_address.begin());
+    const auto& expected = from_server ? assignment_->client_ipv6_address
+                                       : assignment_->client_ipv6_address;
+    if (packet_address != expected)
+    {
+        error_code = ClientSessionErrorCode::AddressMismatch;
+        error_message = from_server
+                            ? "server IPv6 destination does not match assigned client address"
+                            : "local IPv6 source does not match assigned client address";
         return false;
     }
     return true;

@@ -36,7 +36,7 @@ void expect_invalid(const std::function<void()>& operation, const std::string& m
 
 void test_round_trips()
 {
-    const ClientHello hello{1'280U, kCapabilityIpv4};
+    const ClientHello hello{1'280U, kCapabilityIpv4 | kCapabilityIpv6};
     check(decode_client_hello(encode_client_hello(hello)) == hello, "CLIENT_HELLO round trip");
 
     const IpAssignment assignment{{10U, 8U, 0U, 2U},

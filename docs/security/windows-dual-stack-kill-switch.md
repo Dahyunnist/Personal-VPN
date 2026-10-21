@@ -2,13 +2,13 @@
 
 ## 保护目标
 
-全隧道配置启用后，客户端只允许 VPN 外层 TCP 连接和发往专用 Wintun 接口的流量离开本机。IPv4、IPv6 其他出口均在 Windows Filtering Platform（WFP）阻断。当前 VPN 数据面只支持 IPv4；IPv6 被明确封锁，不会伪称已进入 VPN。
+全隧道配置启用后，客户端只允许 VPN 外层 TCP 连接和发往专用 Wintun 接口的流量离开本机。IPv4、IPv6 其他出口均在 Windows Filtering Platform（WFP）阻断。协议 v2 支持 IPv4 与 IPv6 内层数据包；配置 `::/0` 后 IPv6 经隧道传输。
 
 保护持续到用户显式关闭。断开 VPN、网络重连、客户端崩溃或 Windows 重启都不自动移除过滤策略。管理员可以修改或删除策略，因此它不抵御本机管理员或内核级恶意软件。
 
 ## 启用约束
 
-- 必须同时配置 `allow_default_route: true` 和 `0.0.0.0/0`。
+- 全隧道需配置 `allow_default_route: true`，IPv4/IPv6 按需分别加入 `0.0.0.0/0`、`::/0`。
 - `server.host` 必须是数字 IP。域名解析会在锁定生效前产生 DNS 流量；数字 IP 避免该泄漏，也使重启后仍可连接固定端点。
 - `expected_name` 仍独立用于 TLS 证书身份验证，不能改成跳过名称校验。
 - Linux 客户端传输没有可用的全隧道 kill switch；会拒绝全隧道连接，不会降级成无保护模式。

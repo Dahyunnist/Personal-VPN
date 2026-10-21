@@ -27,6 +27,8 @@ struct ServerConfig
     std::string first_lease_address{"10.8.0.2"};
     std::string last_lease_address{"10.8.0.254"};
     std::string gateway_address{"10.8.0.1"};
+    std::string ipv6_prefix_address{"fd00:8::"};
+    std::string ipv6_gateway_address{"fd00:8::1"};
     std::uint8_t prefix_length{24U};
     std::uint16_t mtu{1'400U};
     std::uint32_t lease_seconds{3'600U};

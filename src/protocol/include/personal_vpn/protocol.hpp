@@ -11,7 +11,7 @@ namespace personal_vpn::protocol
 {
 
 constexpr std::uint32_t kMagic = 0x5056504EU; // "PVPN"
-constexpr std::uint8_t kVersion = 1U;
+constexpr std::uint8_t kVersion = 2U;
 constexpr std::size_t kHeaderSize = 20U;
 constexpr std::size_t kMaxPayloadSize = 65'535U;
 
@@ -24,6 +24,7 @@ enum class MessageType : std::uint8_t
     Pong = 5U,
     Error = 6U,
     Close = 7U,
+    DataIpv6 = 8U,
 };
 
 enum class ProtocolErrorCode

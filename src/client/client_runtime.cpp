@@ -21,8 +21,9 @@ namespace
 bool requests_full_tunnel(const ClientConfig& config)
 {
     return config.allow_default_route &&
-           std::find(config.routes.begin(), config.routes.end(), "0.0.0.0/0") !=
-               config.routes.end();
+           (std::find(config.routes.begin(), config.routes.end(), "0.0.0.0/0") !=
+                config.routes.end() ||
+            std::find(config.routes.begin(), config.routes.end(), "::/0") != config.routes.end());
 }
 
 } // namespace

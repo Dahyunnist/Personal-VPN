@@ -99,6 +99,38 @@ MIB_IPFORWARD_ROW2 route_row(const NET_LUID luid, const Ipv4Route& route)
     return row;
 }
 
+MIB_UNICASTIPADDRESS_ROW address_row(const NET_LUID luid,
+                                     const Ipv6InterfaceAddress& address)
+{
+    MIB_UNICASTIPADDRESS_ROW row{};
+    InitializeUnicastIpAddressEntry(&row);
+    row.InterfaceLuid = luid;
+    row.Address.Ipv6.sin6_family = AF_INET6;
+    std::memcpy(row.Address.Ipv6.sin6_addr.u.Byte, address.address.data(), address.address.size());
+    row.OnLinkPrefixLength = address.prefix_length;
+    row.PrefixOrigin = IpPrefixOriginManual;
+    row.SuffixOrigin = IpSuffixOriginManual;
+    row.DadState = IpDadStatePreferred;
+    return row;
+}
+
+MIB_IPFORWARD_ROW2 route_row(const NET_LUID luid, const Ipv6Route& route)
+{
+    MIB_IPFORWARD_ROW2 row{};
+    InitializeIpForwardEntry(&row);
+    row.InterfaceLuid = luid;
+    row.DestinationPrefix.Prefix.Ipv6.sin6_family = AF_INET6;
+    std::memcpy(row.DestinationPrefix.Prefix.Ipv6.sin6_addr.u.Byte,
+                route.network.data(), route.network.size());
+    row.DestinationPrefix.PrefixLength = route.prefix_length;
+    row.NextHop.Ipv6.sin6_family = AF_INET6;
+    std::memcpy(row.NextHop.Ipv6.sin6_addr.u.Byte, route.gateway.data(), route.gateway.size());
+    row.SitePrefixLength = route.prefix_length;
+    row.Metric = 5U;
+    row.Protocol = static_cast<NL_ROUTE_PROTOCOL>(MIB_IPPROTO_NETMGMT);
+    return row;
+}
+
 } // namespace
 
 class WindowsNetworkBackend::Impl
@@ -240,6 +272,21 @@ class WindowsNetworkBackend::Impl
         return true;
     }
 
+    bool add_interface_address(const Ipv6InterfaceAddress& address) const
+    {
+        const auto row = address_row(require_luid(), address);
+        const auto result = CreateUnicastIpAddressEntry(&row);
+        if (result == ERROR_OBJECT_ALREADY_EXISTS)
+        {
+            return false;
+        }
+        if (result != NO_ERROR)
+        {
+            throw_windows_error("add Wintun IPv6 interface address", result);
+        }
+        return true;
+    }
+
     bool add_route(const Ipv4Route& route) const
     {
         const auto row = route_row(require_luid(), route);
@@ -256,21 +303,46 @@ class WindowsNetworkBackend::Impl
         return true;
     }
 
-    std::optional<std::uint32_t> set_interface_mtu(const std::uint32_t mtu) const
+    bool add_route(const Ipv6Route& route) const
     {
-        auto row = interface_row();
-        if (row.NlMtu == mtu)
+        const auto row = route_row(require_luid(), route);
+        const auto result = CreateIpForwardEntry2(&row);
+        if (result == ERROR_OBJECT_ALREADY_EXISTS)
+        {
+            return false;
+        }
+        if (result != NO_ERROR)
+        {
+            throw_windows_error("add Wintun IPv6 route", result);
+        }
+        static_cast<void>(FlushIpPathTable(AF_INET6));
+        return true;
+    }
+
+    std::optional<InterfaceMtuSnapshot> set_interface_mtu(const std::uint32_t mtu) const
+    {
+        auto ipv4 = interface_row(AF_INET);
+        auto ipv6 = interface_row(AF_INET6);
+        if (ipv4.NlMtu == mtu && ipv6.NlMtu == mtu)
         {
             return std::nullopt;
         }
-        const auto prior_mtu = row.NlMtu;
-        row.NlMtu = mtu;
-        const auto result = SetIpInterfaceEntry(&row);
+        const InterfaceMtuSnapshot prior{ipv4.NlMtu, ipv6.NlMtu};
+        ipv4.NlMtu = mtu;
+        auto result = SetIpInterfaceEntry(&ipv4);
         if (result != NO_ERROR)
         {
             throw_windows_error("set Wintun interface MTU", result);
         }
-        return prior_mtu;
+        ipv6.NlMtu = mtu;
+        result = SetIpInterfaceEntry(&ipv6);
+        if (result != NO_ERROR)
+        {
+            ipv4.NlMtu = prior.ipv4;
+            static_cast<void>(SetIpInterfaceEntry(&ipv4));
+            throw_windows_error("set Wintun IPv6 interface MTU", result);
+        }
+        return prior;
     }
 
     void remove_route(const Ipv4Route& route) const noexcept
@@ -284,13 +356,27 @@ class WindowsNetworkBackend::Impl
         static_cast<void>(FlushIpPathTable(AF_INET));
     }
 
-    void restore_interface_mtu(const std::uint32_t mtu) const noexcept
+    void remove_route(const Ipv6Route& route) const noexcept
+    {
+        if (luid_.Value == 0U)
+        {
+            return;
+        }
+        const auto row = route_row(luid_, route);
+        static_cast<void>(DeleteIpForwardEntry2(&row));
+        static_cast<void>(FlushIpPathTable(AF_INET6));
+    }
+
+    void restore_interface_mtu(const InterfaceMtuSnapshot& mtu) const noexcept
     {
         try
         {
-            auto row = interface_row();
-            row.NlMtu = mtu;
-            static_cast<void>(SetIpInterfaceEntry(&row));
+            auto ipv4 = interface_row(AF_INET);
+            ipv4.NlMtu = mtu.ipv4;
+            static_cast<void>(SetIpInterfaceEntry(&ipv4));
+            auto ipv6 = interface_row(AF_INET6);
+            ipv6.NlMtu = mtu.ipv6;
+            static_cast<void>(SetIpInterfaceEntry(&ipv6));
         }
         catch (...)
         {
@@ -298,6 +384,16 @@ class WindowsNetworkBackend::Impl
     }
 
     void remove_interface_address(const InterfaceAddress& address) const noexcept
+    {
+        if (luid_.Value == 0U)
+        {
+            return;
+        }
+        const auto row = address_row(luid_, address);
+        static_cast<void>(DeleteUnicastIpAddressEntry(&row));
+    }
+
+    void remove_interface_address(const Ipv6InterfaceAddress& address) const noexcept
     {
         if (luid_.Value == 0U)
         {
@@ -527,11 +623,11 @@ class WindowsNetworkBackend::Impl
         return luid_;
     }
 
-    MIB_IPINTERFACE_ROW interface_row() const
+    MIB_IPINTERFACE_ROW interface_row(const ADDRESS_FAMILY family) const
     {
         MIB_IPINTERFACE_ROW row{};
         InitializeIpInterfaceEntry(&row);
-        row.Family = AF_INET;
+        row.Family = family;
         row.InterfaceLuid = require_luid();
         const auto result = GetIpInterfaceEntry(&row);
         if (result != NO_ERROR)
@@ -582,21 +678,37 @@ bool WindowsNetworkBackend::add_interface_address(const InterfaceAddress& addres
 {
     return impl_->add_interface_address(address);
 }
-std::optional<std::uint32_t> WindowsNetworkBackend::set_interface_mtu(
+
+bool WindowsNetworkBackend::add_interface_address(const Ipv6InterfaceAddress& address)
+{
+    return impl_->add_interface_address(address);
+}
+std::optional<InterfaceMtuSnapshot> WindowsNetworkBackend::set_interface_mtu(
     const std::uint32_t mtu)
 {
     return impl_->set_interface_mtu(mtu);
 }
 bool WindowsNetworkBackend::add_route(const Ipv4Route& route) { return impl_->add_route(route); }
+bool WindowsNetworkBackend::add_route(const Ipv6Route& route) { return impl_->add_route(route); }
 void WindowsNetworkBackend::remove_route(const Ipv4Route& route) noexcept
 {
     impl_->remove_route(route);
 }
-void WindowsNetworkBackend::restore_interface_mtu(const std::uint32_t mtu) noexcept
+
+void WindowsNetworkBackend::remove_route(const Ipv6Route& route) noexcept
+{
+    impl_->remove_route(route);
+}
+void WindowsNetworkBackend::restore_interface_mtu(const InterfaceMtuSnapshot& mtu) noexcept
 {
     impl_->restore_interface_mtu(mtu);
 }
 void WindowsNetworkBackend::remove_interface_address(const InterfaceAddress& address) noexcept
+{
+    impl_->remove_interface_address(address);
+}
+
+void WindowsNetworkBackend::remove_interface_address(const Ipv6InterfaceAddress& address) noexcept
 {
     impl_->remove_interface_address(address);
 }

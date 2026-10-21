@@ -92,6 +92,24 @@ void validate_ip_assignment(const IpAssignment& message)
     {
         throw std::invalid_argument("IP lease duration must be non-zero");
     }
+    const bool has_ipv6 = message.ipv6_prefix_length != 0U;
+    const bool client_v6_unspecified = std::all_of(message.client_ipv6_address.begin(),
+                                                   message.client_ipv6_address.end(),
+                                                   [](std::uint8_t value) { return value == 0U; });
+    const bool gateway_v6_unspecified = std::all_of(message.gateway_ipv6_address.begin(),
+                                                    message.gateway_ipv6_address.end(),
+                                                    [](std::uint8_t value) { return value == 0U; });
+    if (has_ipv6 && (message.ipv6_prefix_length > 128U || client_v6_unspecified ||
+                     gateway_v6_unspecified ||
+                     message.client_ipv6_address == message.gateway_ipv6_address ||
+                     message.mtu < kMinimumIpv6Mtu))
+    {
+        throw std::invalid_argument("IPv6 assignment is invalid");
+    }
+    if (!has_ipv6 && (!client_v6_unspecified || !gateway_v6_unspecified))
+    {
+        throw std::invalid_argument("IPv6 addresses require a non-zero prefix length");
+    }
 }
 
 } // namespace
@@ -105,7 +123,10 @@ bool IpAssignment::operator==(const IpAssignment& other) const noexcept
 {
     return client_address == other.client_address && gateway_address == other.gateway_address &&
            prefix_length == other.prefix_length && mtu == other.mtu &&
-           lease_seconds == other.lease_seconds;
+           lease_seconds == other.lease_seconds &&
+           client_ipv6_address == other.client_ipv6_address &&
+           gateway_ipv6_address == other.gateway_ipv6_address &&
+           ipv6_prefix_length == other.ipv6_prefix_length;
 }
 
 bool LivenessProbe::operator==(const LivenessProbe& other) const noexcept
@@ -125,10 +146,16 @@ bool CloseMessage::operator==(const CloseMessage& other) const noexcept
 
 std::vector<std::uint8_t> encode_client_hello(const ClientHello& message)
 {
-    validate_mtu(message.requested_mtu);
-    if ((message.capabilities & kCapabilityIpv4) == 0U)
+    if (message.requested_mtu < kMinimumIpv6Mtu ||
+        message.requested_mtu > kMaximumTunnelMtu)
     {
-        throw std::invalid_argument("client must advertise IPv4 tunnel support");
+        throw std::invalid_argument("dual-stack tunnel MTU is outside the supported range");
+    }
+    if ((message.capabilities & kCapabilityIpv4) == 0U ||
+        (message.capabilities & kCapabilityIpv6) == 0U ||
+        (message.capabilities & ~(kCapabilityIpv4 | kCapabilityIpv6)) != 0U)
+    {
+        throw std::invalid_argument("client must advertise supported IPv4 and IPv6 capabilities");
     }
     std::vector<std::uint8_t> output;
     output.reserve(8U);
@@ -154,19 +181,25 @@ std::vector<std::uint8_t> encode_ip_assignment(const IpAssignment& message)
 {
     validate_ip_assignment(message);
     std::vector<std::uint8_t> output;
-    output.reserve(16U);
+    output.reserve(52U);
     output.insert(output.end(), message.client_address.begin(), message.client_address.end());
     output.insert(output.end(), message.gateway_address.begin(), message.gateway_address.end());
     output.push_back(message.prefix_length);
     output.push_back(0U);
     append_u16(output, message.mtu);
     append_u32(output, message.lease_seconds);
+    output.insert(output.end(), message.client_ipv6_address.begin(), message.client_ipv6_address.end());
+    output.insert(output.end(), message.gateway_ipv6_address.begin(), message.gateway_ipv6_address.end());
+    output.push_back(message.ipv6_prefix_length);
+    output.push_back(0U);
+    output.push_back(0U);
+    output.push_back(0U);
     return output;
 }
 
 IpAssignment decode_ip_assignment(const std::vector<std::uint8_t>& payload)
 {
-    require_size(payload, 16U, "IP_ASSIGN");
+    require_size(payload, 52U, "IP_ASSIGN");
     if (payload[9] != 0U)
     {
         throw std::invalid_argument("IP_ASSIGN reserved field must be zero");
@@ -177,6 +210,13 @@ IpAssignment decode_ip_assignment(const std::vector<std::uint8_t>& payload)
     message.prefix_length = payload[8];
     message.mtu = read_u16(payload.data() + 10U);
     message.lease_seconds = read_u32(payload.data() + 12U);
+    std::copy_n(payload.begin() + 16, 16U, message.client_ipv6_address.begin());
+    std::copy_n(payload.begin() + 32, 16U, message.gateway_ipv6_address.begin());
+    message.ipv6_prefix_length = payload[48];
+    if (payload[49] != 0U || payload[50] != 0U || payload[51] != 0U)
+    {
+        throw std::invalid_argument("IP_ASSIGN reserved fields must be zero");
+    }
     validate_ip_assignment(message);
     return message;
 }

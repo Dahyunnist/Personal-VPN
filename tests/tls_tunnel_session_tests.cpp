@@ -153,7 +153,7 @@ void run_end_to_end_session(const std::string& ca_file,
                     [&packet_promise](const std::vector<std::uint8_t>& packet)
                     { packet_promise.set_value(packet); },
                     TlsTunnelSession::EstablishedHandler{},
-                    [&closed_promise](const std::optional<Ipv4Address>&, const TunnelPeer*)
+                    [&closed_promise](const std::optional<Lease>&, const TunnelPeer*)
                     { closed_promise.set_value(); });
                 session_promise.set_value(session);
                 session->start();
@@ -178,7 +178,7 @@ void run_end_to_end_session(const std::string& ca_file,
     const Frame hello{MessageType::ClientHello,
                       0U,
                       1U,
-                      encode_client_hello(ClientHello{1'280U, kCapabilityIpv4})};
+                      encode_client_hello(ClientHello{1'280U, kCapabilityIpv4 | kCapabilityIpv6})};
     const auto hello_bytes = encode_frame(hello);
     constexpr std::size_t fragment_size = 7U;
     boost::asio::write(client, boost::asio::buffer(hello_bytes.data(), fragment_size));

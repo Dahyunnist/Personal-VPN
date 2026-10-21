@@ -32,12 +32,16 @@ class WindowsNetworkBackend final : public ClientPacketDevice
     void open_adapter() override;
     void start_packet_session() override;
     [[nodiscard]] bool add_interface_address(const InterfaceAddress& address) override;
-    [[nodiscard]] std::optional<std::uint32_t> set_interface_mtu(
+    [[nodiscard]] bool add_interface_address(const Ipv6InterfaceAddress& address) override;
+    [[nodiscard]] std::optional<InterfaceMtuSnapshot> set_interface_mtu(
         std::uint32_t mtu) override;
     [[nodiscard]] bool add_route(const Ipv4Route& route) override;
+    [[nodiscard]] bool add_route(const Ipv6Route& route) override;
     void remove_route(const Ipv4Route& route) noexcept override;
-    void restore_interface_mtu(std::uint32_t mtu) noexcept override;
+    void remove_route(const Ipv6Route& route) noexcept override;
+    void restore_interface_mtu(const InterfaceMtuSnapshot& mtu) noexcept override;
     void remove_interface_address(const InterfaceAddress& address) noexcept override;
+    void remove_interface_address(const Ipv6InterfaceAddress& address) noexcept override;
     void stop_packet_session() noexcept override;
     void close_adapter() noexcept override;
 

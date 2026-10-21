@@ -11,14 +11,16 @@ namespace personal_vpn::protocol
 {
 
 constexpr std::uint16_t kMinimumIpv4Mtu = 576U;
+constexpr std::uint16_t kMinimumIpv6Mtu = 1'280U;
 constexpr std::uint16_t kMaximumTunnelMtu = 9'000U;
 constexpr std::uint32_t kCapabilityIpv4 = 1U << 0U;
+constexpr std::uint32_t kCapabilityIpv6 = 1U << 1U;
 constexpr std::size_t kMaximumErrorMessageSize = 1'024U;
 
 struct ClientHello
 {
     std::uint16_t requested_mtu{1'400U};
-    std::uint32_t capabilities{kCapabilityIpv4};
+    std::uint32_t capabilities{kCapabilityIpv4 | kCapabilityIpv6};
 
     [[nodiscard]] bool operator==(const ClientHello& other) const noexcept;
 };
@@ -30,6 +32,9 @@ struct IpAssignment
     std::uint8_t prefix_length{24U};
     std::uint16_t mtu{1'400U};
     std::uint32_t lease_seconds{3'600U};
+    std::array<std::uint8_t, 16U> client_ipv6_address{};
+    std::array<std::uint8_t, 16U> gateway_ipv6_address{};
+    std::uint8_t ipv6_prefix_length{0U};
 
     [[nodiscard]] bool operator==(const IpAssignment& other) const noexcept;
 };

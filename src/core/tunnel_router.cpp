@@ -1,5 +1,6 @@
 #include "personal_vpn/tunnel_router.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace personal_vpn::core
@@ -94,11 +95,87 @@ bool TunnelRouter::route_ipv4_packet(std::vector<std::uint8_t> packet)
     return true;
 }
 
+bool TunnelRouter::register_peer(const Ipv6Address& address,
+                                 const std::shared_ptr<TunnelPeer>& peer)
+{
+    if (!peer)
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto existing = ipv6_peers_.find(address);
+    if (existing != ipv6_peers_.end())
+    {
+        const auto active = existing->second.lock();
+        if (active)
+        {
+            return active.get() == peer.get();
+        }
+        ipv6_peers_.erase(existing);
+    }
+    ipv6_peers_.emplace(address, peer);
+    return true;
+}
+
+bool TunnelRouter::unregister_peer(const Ipv6Address& address, const TunnelPeer* expected_peer)
+{
+    if (expected_peer == nullptr)
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto existing = ipv6_peers_.find(address);
+    if (existing == ipv6_peers_.end())
+    {
+        return false;
+    }
+    const auto active = existing->second.lock();
+    if (active && active.get() != expected_peer)
+    {
+        return false;
+    }
+    ipv6_peers_.erase(existing);
+    return true;
+}
+
+bool TunnelRouter::route_ipv6_packet(std::vector<std::uint8_t> packet)
+{
+    if (packet.size() < 40U || (packet[0] >> 4U) != 6U)
+    {
+        return false;
+    }
+    const auto payload_length = static_cast<std::size_t>(
+        (static_cast<std::uint16_t>(packet[4]) << 8U) | packet[5]);
+    if (payload_length + 40U != packet.size())
+    {
+        return false;
+    }
+    Ipv6Address destination{};
+    std::copy_n(packet.begin() + 24, destination.size(), destination.begin());
+    std::shared_ptr<TunnelPeer> peer;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto existing = ipv6_peers_.find(destination);
+        if (existing == ipv6_peers_.end())
+        {
+            return false;
+        }
+        peer = existing->second.lock();
+        if (!peer)
+        {
+            ipv6_peers_.erase(existing);
+            return false;
+        }
+    }
+    peer->send_ipv6_from_tun(std::move(packet));
+    return true;
+}
+
 std::size_t TunnelRouter::active_routes()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     remove_expired_locked();
-    return peers_.size();
+    return peers_.size() + ipv6_peers_.size();
 }
 
 std::uint32_t TunnelRouter::address_key(const Ipv4Address& address) noexcept
@@ -116,6 +193,17 @@ void TunnelRouter::remove_expired_locked()
         if (current->second.expired())
         {
             current = peers_.erase(current);
+        }
+        else
+        {
+            ++current;
+        }
+    }
+    for (auto current = ipv6_peers_.begin(); current != ipv6_peers_.end();)
+    {
+        if (current->second.expired())
+        {
+            current = ipv6_peers_.erase(current);
         }
         else
         {

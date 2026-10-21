@@ -3,6 +3,7 @@
 #include "personal_vpn/control_messages.hpp"
 
 #include <chrono>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -32,7 +33,10 @@ LeaseManager make_manager(const std::string& last = "10.8.0.10")
                         parse_ipv4_address("10.8.0.1"),
                         24U,
                         1'400U,
-                        60s);
+                        60s,
+                        parse_ipv6_address("fd00:8::"),
+                        parse_ipv6_address("fd00:8::1"),
+                        64U);
 }
 
 Frame hello_frame(const std::uint64_t sequence = 1U)
@@ -40,7 +44,7 @@ Frame hello_frame(const std::uint64_t sequence = 1U)
     return Frame{MessageType::ClientHello,
                  0U,
                  sequence,
-                 encode_client_hello(ClientHello{1'280U, kCapabilityIpv4})};
+                 encode_client_hello(ClientHello{1'280U, kCapabilityIpv4 | kCapabilityIpv6})};
 }
 
 std::vector<std::uint8_t> ipv4_packet(const Ipv4Address source,
@@ -57,6 +61,19 @@ std::vector<std::uint8_t> ipv4_packet(const Ipv4Address source,
         packet[12U + index] = source[index];
         packet[16U + index] = destination[index];
     }
+    return packet;
+}
+
+std::vector<std::uint8_t> ipv6_packet(const Ipv6Address& source,
+                                      const Ipv6Address& destination)
+{
+    std::vector<std::uint8_t> packet(48U, 0U);
+    packet[0] = 0x60U;
+    packet[5] = 8U;
+    packet[6] = 58U;
+    packet[7] = 64U;
+    std::copy(source.begin(), source.end(), packet.begin() + 8);
+    std::copy(destination.begin(), destination.end(), packet.begin() + 24);
     return packet;
 }
 
@@ -245,6 +262,37 @@ void test_server_to_client_packet_targets_lease()
           "TUN packet for another address is not sent to session");
 }
 
+void test_ipv6_source_validation_and_routing()
+{
+    auto manager = make_manager();
+    const auto now = LeaseManager::TimePoint{};
+    SessionController controller(manager, "cert:ipv6");
+    establish(controller, now);
+    const auto client_v6 = controller.lease()->ipv6_address;
+    check(client_v6 == parse_ipv6_address("fd00:8::a08:2"),
+          "lease derives a stable IPv6 address from the IPv4 lease");
+    const auto packet = ipv6_packet(client_v6, parse_ipv6_address("2001:db8::10"));
+    const auto accepted = controller.handle(Frame{MessageType::DataIpv6, 0U, 2U, packet}, now);
+    check(!accepted.close_transport && accepted.packets_to_tun.size() == 1U,
+          "valid IPv6 packet reaches TUN");
+
+    auto spoofed = packet;
+    spoofed[23] ^= 1U;
+    const auto rejected = controller.handle(Frame{MessageType::DataIpv6, 0U, 3U, spoofed}, now);
+    check(rejected.close_transport && rejected.packets_to_tun.empty() &&
+              result_error(rejected).code ==
+                  static_cast<std::uint16_t>(SessionErrorCode::SourceAddressMismatch),
+          "IPv6 source spoofing fails closed");
+
+    SessionController downlink_controller(manager, "cert:downlink");
+    establish(downlink_controller, now);
+    auto downlink = ipv6_packet(parse_ipv6_address("2001:db8::20"),
+                                downlink_controller.lease()->ipv6_address);
+    const auto frame = downlink_controller.make_data_to_client(downlink, now);
+    check(frame.has_value() && frame->type == MessageType::DataIpv6,
+          "TUN IPv6 packet routes only to the leased destination");
+}
+
 } // namespace
 
 int main()
@@ -258,6 +306,7 @@ int main()
     test_pool_exhaustion_is_protocol_error();
     test_activity_renews_but_cannot_revive_expired_lease();
     test_server_to_client_packet_targets_lease();
+    test_ipv6_source_validation_and_routing();
 
     if (failures != 0)
     {

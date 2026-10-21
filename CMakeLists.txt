@@ -121,6 +121,9 @@ target_include_directories(personal_vpn_core
 )
 
 target_link_libraries(personal_vpn_core PUBLIC PersonalVPN::Protocol)
+if(WIN32)
+    target_link_libraries(personal_vpn_core PUBLIC ws2_32)
+endif()
 target_compile_features(personal_vpn_core PUBLIC cxx_std_17)
 
 if(MSVC)

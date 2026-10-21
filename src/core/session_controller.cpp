@@ -69,7 +69,9 @@ SessionResult SessionController::handle(const protocol::Frame& frame,
         }
     }
 
-    if (frame.type == protocol::MessageType::DataIpv4 || frame.type == protocol::MessageType::Ping)
+    if (frame.type == protocol::MessageType::DataIpv4 ||
+        frame.type == protocol::MessageType::DataIpv6 ||
+        frame.type == protocol::MessageType::Ping)
     {
         const auto renewed = lease_manager_.renew(*lease_, now);
         if (!renewed.has_value())
@@ -87,6 +89,18 @@ SessionResult SessionController::handle(const protocol::Frame& frame,
             SessionErrorCode error_code = SessionErrorCode::InvalidIpv4Packet;
             std::string error_message;
             if (!validate_ipv4_packet(frame.payload, error_code, error_message))
+            {
+                return fail(error_code, error_message);
+            }
+            SessionResult result;
+            result.packets_to_tun.push_back(frame.payload);
+            return result;
+        }
+        case protocol::MessageType::DataIpv6:
+        {
+            SessionErrorCode error_code = SessionErrorCode::InvalidIpv6Packet;
+            std::string error_message;
+            if (!validate_ipv6_packet(frame.payload, error_code, error_message))
             {
                 return fail(error_code, error_message);
             }
@@ -148,16 +162,73 @@ SessionResult SessionController::handle(const protocol::Frame& frame,
     return fail(SessionErrorCode::UnexpectedMessage, "unhandled tunnel message type");
 }
 
+bool SessionController::validate_ipv6_packet(const std::vector<std::uint8_t>& packet,
+                                             SessionErrorCode& error_code,
+                                             std::string& error_message) const
+{
+    if (!lease_ || lease_->ipv6_address == Ipv6Address{} || packet.size() < 40U ||
+        packet.size() > negotiated_mtu_ || (packet[0] >> 4U) != 6U)
+    {
+        error_message = "IPv6 packet is invalid or outside the negotiated tunnel policy";
+        return false;
+    }
+    const auto payload_length = static_cast<std::size_t>(
+        (static_cast<std::uint16_t>(packet[4]) << 8U) | packet[5]);
+    if (payload_length + 40U != packet.size())
+    {
+        error_message = "IPv6 payload length does not match the tunnel frame";
+        return false;
+    }
+    const Ipv6Address source{packet[8], packet[9], packet[10], packet[11], packet[12], packet[13],
+                             packet[14], packet[15], packet[16], packet[17], packet[18], packet[19],
+                             packet[20], packet[21], packet[22], packet[23]};
+    if (source != lease_->ipv6_address)
+    {
+        error_code = SessionErrorCode::SourceAddressMismatch;
+        error_message = "IPv6 source does not match the authenticated lease";
+        return false;
+    }
+    return true;
+}
+
 std::optional<protocol::Frame> SessionController::make_data_to_client(
     const std::vector<std::uint8_t>& packet,
     const LeaseManager::TimePoint now)
 {
-    if (state_ != SessionState::Established || !lease_ || packet.size() < 20U ||
+    if (state_ != SessionState::Established || !lease_ || packet.empty() ||
         packet.size() > negotiated_mtu_)
     {
         return std::nullopt;
     }
     const auto version = static_cast<std::uint8_t>(packet[0] >> 4U);
+    if (version == 6U)
+    {
+        if (packet.size() < 40U || lease_->ipv6_address == Ipv6Address{})
+        {
+            return std::nullopt;
+        }
+        const auto payload_length = static_cast<std::size_t>(
+            (static_cast<std::uint16_t>(packet[4]) << 8U) | packet[5]);
+        Ipv6Address destination{};
+        std::copy_n(packet.begin() + 24, destination.size(), destination.begin());
+        if (payload_length + 40U != packet.size() || destination != lease_->ipv6_address)
+        {
+            return std::nullopt;
+        }
+        const auto renewed = lease_manager_.renew(*lease_, now);
+        if (!renewed.has_value())
+        {
+            state_ = SessionState::Closing;
+            release_lease();
+            return std::nullopt;
+        }
+        *lease_ = *renewed;
+        return make_outbound(protocol::MessageType::DataIpv6, packet);
+    }
+    if (packet.size() < 20U)
+    {
+        return std::nullopt;
+    }
     const auto header_length = static_cast<std::size_t>(packet[0] & 0x0FU) * 4U;
     const auto total_length = static_cast<std::size_t>(
         (static_cast<std::uint16_t>(packet[2]) << 8U) | static_cast<std::uint16_t>(packet[3]));

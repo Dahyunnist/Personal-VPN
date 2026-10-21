@@ -172,8 +172,10 @@ void UIMain::StartVPN() {
         return;
     }
     const bool fullTunnel = m_clientConfig->allow_default_route &&
-        std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "0.0.0.0/0") !=
-            m_clientConfig->routes.end();
+        (std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "0.0.0.0/0") !=
+             m_clientConfig->routes.end() ||
+         std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "::/0") !=
+             m_clientConfig->routes.end());
     if (fullTunnel && MessageBoxW(
             m_hwnd,
             L"全隧道会启用系统级 IPv4/IPv6 断线保护。\n"
@@ -207,8 +209,10 @@ void UIMain::StopVPN() {
     m_isConnected = false;
     m_isStarting = false;
     if (m_clientConfig.has_value() && m_clientConfig->allow_default_route &&
-        std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "0.0.0.0/0") !=
-            m_clientConfig->routes.end()) {
+        (std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "0.0.0.0/0") !=
+             m_clientConfig->routes.end() ||
+         std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "::/0") !=
+             m_clientConfig->routes.end())) {
         AddLog("隧道已断开；系统级断线保护仍生效。手动关闭后才会恢复普通网络");
     } else {
         AddLog("VPN 已断开，地址、MTU 和路由已回滚");
