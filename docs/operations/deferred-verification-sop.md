@@ -21,6 +21,8 @@ Keep build directories under the repository so outputs remain ignored.
   both metrics formats.
 - The local MinGW Windows ZIP passed the shared package verifier. A Linux archive was
   rejected for missing the Windows executable, proving the verifier's negative path.
+- The SBOM archiver regression test used two `vcpkg.spdx.json` files under different
+  package paths; the output retained both paths and passed archive count checks.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
 - Clang ASan/UBSan Debug suite: 18/18 CTest tests passed with leak detection and

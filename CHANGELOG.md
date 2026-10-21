@@ -13,6 +13,9 @@ implementation; `vpn_base/` is historical prototype material.
   before atomic context swap and established-session context retention.
 - Versioned JSON Lines and Prometheus text metrics, including byte, queue, and lifecycle
   counters without client-specific labels.
+- Windows release gates verify required package files and credentials exclusions, place
+  vcpkg SPDX records under their original dependency paths, and publish only after both
+  platform packages pass.
 - Protocol v1 framing, incremental decoder, control messages, and deterministic state
   machines.
 - Certificate-fingerprint identities, server-authoritative generation-isolated leases,

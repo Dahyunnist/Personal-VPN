@@ -111,7 +111,9 @@ jobs:
           $sbomFiles = Get-ChildItem $sbomRoot -Recurse -Filter '*.spdx.json'
           if (-not $sbomFiles) { throw "vcpkg SPDX SBOM was not created under $sbomRoot" }
           $sbomArchive = Join-Path $artifact.DirectoryName "personal-vpn-$env:GITHUB_REF_NAME-Windows-dependencies-spdx.zip"
-          Compress-Archive -Path $sbomFiles.FullName -DestinationPath $sbomArchive
+          & "$env:GITHUB_WORKSPACE/scripts/package-vcpkg-sbom.ps1" `
+            -SbomRoot $sbomRoot `
+            -DestinationPath $sbomArchive
           foreach ($file in @($artifact.FullName, $sbomArchive)) {
             $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
             "$hash  $(Split-Path $file -Leaf)" | Set-Content -Encoding ascii "$file.sha256"

@@ -21,6 +21,9 @@ weekly schedule.
 - CI and release jobs share `cmake/verify-windows-package.cmake` to check Windows
   executable, Wintun runtime, example profile, licenses, and bundled docs, and reject
   credential-like archive paths before upload.
+- `scripts/package-vcpkg-sbom.ps1` preserves each SPDX file's path relative to the
+  vcpkg installation tree and verifies the resulting archive has no missing or
+  duplicate entries.
 - Repository policy rejects private keys, certificate bundles, local profiles, DLLs,
   executables, logs, and build trees from source control.
 
