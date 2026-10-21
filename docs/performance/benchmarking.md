@@ -21,7 +21,9 @@ out/benchmark/protocol-benchmark 200000
 ```
 
 The program prints one JSON record so CI and later comparison tools can retain the
-raw result. Never use a microbenchmark result as the advertised tunnel throughput.
+raw result. CI verifies the record fields, propagates benchmark failures through the
+output pipeline, and writes the exact JSON into the workflow-run summary. Never use a
+microbenchmark result as the advertised tunnel throughput.
 
 ### Recorded development result
 

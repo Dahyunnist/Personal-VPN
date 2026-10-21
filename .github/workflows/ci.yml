@@ -170,7 +170,32 @@ jobs:
       - name: Build
         run: cmake --build out/ci-benchmark --parallel 2
       - name: Run benchmark
-        run: out/ci-benchmark/protocol-benchmark 200000 | tee protocol-benchmark.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          out/ci-benchmark/protocol-benchmark 200000 | tee protocol-benchmark.json
+          python3 - <<'PY'
+          import json
+          import math
+          from pathlib import Path
+
+          result = json.loads(Path("protocol-benchmark.json").read_text())
+          assert result.get("benchmark") == "protocol_frame_1400"
+          assert result.get("iterations") == 200000
+          assert isinstance(result.get("encoded_bytes"), int) and result["encoded_bytes"] > 0
+          assert isinstance(result.get("checksum"), int)
+          for field in ("encode_mib_per_second", "decode_mib_per_second"):
+              value = result.get(field)
+              assert isinstance(value, (int, float)) and math.isfinite(value) and value > 0
+          PY
+          {
+            echo '### Protocol microbenchmark (smoke result; not tunnel throughput)'
+            echo
+            echo '```json'
+            cat protocol-benchmark.json
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   windows-client:
     name: Windows desktop client package
