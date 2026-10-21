@@ -17,6 +17,9 @@ weekly schedule.
   published beside the Windows package.
 - The release workflow accepts only a tag equal to the CMake project version.
 - Linux and Windows archives receive SHA-256 checksum sidecars.
+- CI and release jobs share `cmake/verify-windows-package.cmake` to check Windows
+  executable, Wintun runtime, example profile, licenses, and bundled docs, and reject
+  credential-like archive paths before upload.
 - Repository policy rejects private keys, certificate bundles, local profiles, DLLs,
   executables, logs, and build trees from source control.
 

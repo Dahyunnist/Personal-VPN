@@ -19,6 +19,8 @@ Keep build directories under the repository so outputs remain ignored.
   passed 19/19 tests. Exporter tests check JSON schema v1, Prometheus counter/gauge
   output, byte and queue counters, and absence of client-specific labels. CLI help lists
   both metrics formats.
+- The local MinGW Windows ZIP passed the shared package verifier. A Linux archive was
+  rejected for missing the Windows executable, proving the verifier's negative path.
 - Linux Release with client transport disabled and warnings-as-errors enabled: 15/15
   CTest tests passed.
 - Clang ASan/UBSan Debug suite: 18/18 CTest tests passed with leak detection and
@@ -133,7 +135,14 @@ cmake --build out/final-msvc-client --config Release --target package
 
 Extract the ZIP into a new directory. It must contain the client executable, Wintun
 DLL, example profile, documentation, and both ImGui and Wintun licenses. Verify that
-the Wintun archive download reports no hash mismatch.
+the Wintun archive download reports no hash mismatch. Run the same package gate used by
+CI and releases:
+
+```powershell
+$package = Get-ChildItem out/final-msvc-client -Filter 'personal-vpn-*.zip' |
+    Select-Object -First 1
+cmake "-DPACKAGE_ARCHIVE=$($package.FullName)" -P cmake/verify-windows-package.cmake
+```
 
 ## 5. Controlled tunnel evidence
 

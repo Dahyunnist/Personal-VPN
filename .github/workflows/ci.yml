@@ -201,11 +201,7 @@ jobs:
           cmake --build out/ci-windows-client --config Release --target package
           $package = Get-ChildItem out/ci-windows-client -Filter 'personal-vpn-*.zip' | Select-Object -First 1
           if (-not $package) { throw 'Windows client ZIP package was not created' }
-          $packageCheck = Join-Path $env:RUNNER_TEMP 'personal-vpn-package-check'
-          Expand-Archive $package.FullName -DestinationPath $packageCheck
-          if (-not (Get-ChildItem $packageCheck -Recurse -Filter 'personal-vpn-client.exe')) { throw 'Client executable missing from package' }
-          if (-not (Get-ChildItem $packageCheck -Recurse -Filter 'wintun.dll')) { throw 'Wintun DLL missing from package' }
-          if (-not (Get-ChildItem $packageCheck -Recurse -File | Where-Object FullName -Match 'licenses[\\/]wintun[\\/]LICENSE\.txt$')) { throw 'Wintun license missing from package' }
+          cmake "-DPACKAGE_ARCHIVE=$($package.FullName)" -P cmake/verify-windows-package.cmake
           $sbom = Get-ChildItem vcpkg_installed -Recurse -Filter '*.spdx.json' | Select-Object -First 1
           if (-not $sbom) { throw 'vcpkg dependency SBOM was not created' }
           $package | Format-List FullName, Length
