@@ -37,6 +37,8 @@
   active sessions retain their original context until close.
 - Added schema-v1 JSON Lines and Prometheus text exposition for all server counters and
   active sessions, without client-specific labels or an unauthenticated listener.
+- Hardened Windows private-key ACL checks against 11 broad built-in principals and
+  added Windows CI coverage for least-privilege and broad-read ACL cases.
 - Added Windows dependency SPDX packaging and release gates for Linux/Windows packages.
   Keyless GitHub attestations cover Linux archive/checksum and Windows ZIP assets.
   The public Actions run and downloaded-asset verification remain unconfirmed.
