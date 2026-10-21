@@ -44,10 +44,8 @@ an unrelated `origin` remote.
 
 ## 3. Verify the local phase commits
 
-The command below lists every commit that is local and not yet pushed. It currently
-includes the five verification/authentication documentation commits and
-`420b659 feat: reconnect client after transient failures`. This SOP update is also
-local if committed; treat the command output, not a fixed count, as authoritative.
+The command below lists every commit that is local and not yet pushed. Treat the
+command output, not a fixed count, as authoritative.
 
 ```powershell
 git log --oneline personal-vpn/codex/enterprise-upgrade..HEAD
@@ -119,7 +117,9 @@ gh run watch $runId --repo Dahyunnist/Personal-VPN --exit-status
 ```
 
 The tag must exactly match `project(PersonalVPN VERSION 0.1.0 ...)` in `CMakeLists.txt`.
-The release workflow creates `.tar.gz` and `.zip` archives plus SHA-256 files.
+The release workflow creates `.tar.gz` and `.zip` archives plus SHA-256 files. It also
+creates GitHub artifact attestations for release archives and checksum files. Attestation
+creation is a release gate; no signing secret or user certificate is required.
 
 ## 6. Verify downloaded assets
 
@@ -133,6 +133,19 @@ Compare the computed hash with the corresponding `.sha256` file, extract into a 
 directory, and confirm the Windows archive contains `personal-vpn-client.exe`,
 `wintun.dll`, the example profile, Wintun license, and documentation. Perform the
 equivalent `sha256sum -c` validation for the Linux archive.
+
+Verify provenance before installing or distributing an asset. Install or update the
+official GitHub CLI, then run from a trusted computer with network access:
+
+```powershell
+gh attestation verify .\release-check\personal-vpn-0.1.0-Windows-AMD64.zip `
+  --repo Dahyunnist/Personal-VPN
+```
+
+Run the equivalent command for the Linux `.tar.gz` and Windows SBOM `.zip`. Verification
+must report a valid attestation from `Dahyunnist/Personal-VPN`; stop distribution if
+missing or invalid. GitHub stores attestations with the repository, not as ordinary
+release assets.
 
 ## 7. Repository settings (web UI)
 
