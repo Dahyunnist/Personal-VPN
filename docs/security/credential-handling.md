@@ -19,9 +19,10 @@ The Linux server opens the private key without following a symlink, then validat
 opened regular file's owner and permissions before parsing from that same descriptor.
 This prevents a path swap between the permission check and OpenSSL's key read. Keep the
 key owned by the service account with mode `0600`. The Windows client rejects key
-reparse points, null DACLs, and read grants to broad built-in principals before OpenSSL
-loads the key. Use a private-key ACL limited to the client identity; Windows CI
-exercises that allowed case and rejects broad-principal grants.
+reparse points, null DACLs, and read grants to broad built-in principals on the opened
+handle, then parses from that same handle while denying write/delete sharing. Use a
+private-key ACL limited to the client identity; Windows CI exercises that allowed case
+and rejects broad-principal grants.
 
 Production client revocation uses a PEM CRL configured with `--client-crl`. Replace
 the server certificate, key, client CA, and CRL atomically, then send `SIGHUP`. The

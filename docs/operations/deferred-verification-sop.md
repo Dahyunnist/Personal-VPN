@@ -38,6 +38,11 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- After binding Windows private-key ACL/reparse checks to the exact handle parsed by
+  OpenSSL, rebuilt the client and ran 9/9 CTest tests. Credential tests verify approved
+  ACLs, reject each of 11 broad principals, read through the validated handle, and
+  confirm a concurrent writer cannot open the key while validation is active. The
+  Windows package verifier also passed.
 - After changing the Windows UI to pass the validated `ClientConfig` snapshot into
   runtime startup, rebuilt the desktop target and reran CTest and package verification.
   The UI no longer reopens the profile path after validation; credential files remain

@@ -1,11 +1,14 @@
 #include "personal_vpn/client_tls_security.hpp"
+#include "personal_vpn/credential_security.hpp"
 
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ssl.hpp>
 
 #include <openssl/err.h>
+#include <openssl/pem.h>
 
 #include <array>
+#include <memory>
 #include <stdexcept>
 
 namespace personal_vpn::client
@@ -43,7 +46,17 @@ boost::asio::ssl::context make_client_tls_context(const ClientTlsConfig& config)
                         boost::asio::ssl::context::no_tlsv1_1);
     context.load_verify_file(config.ca_file);
     context.use_certificate_chain_file(config.certificate_chain_file);
-    context.use_private_key_file(config.private_key_file, boost::asio::ssl::context::pem);
+    auto private_key_file = open_validated_private_key_file(config.private_key_file);
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> private_key(
+        PEM_read_PrivateKey(private_key_file.get(), nullptr, nullptr, nullptr), &EVP_PKEY_free);
+    if (!private_key)
+    {
+        throw std::runtime_error(openssl_error("failed to parse client private key"));
+    }
+    if (SSL_CTX_use_PrivateKey(context.native_handle(), private_key.get()) != 1)
+    {
+        throw std::runtime_error(openssl_error("failed to load client private key"));
+    }
     context.set_verify_mode(boost::asio::ssl::verify_peer);
     context.set_verify_callback(
         boost::asio::ssl::host_name_verification(config.expected_server_name));

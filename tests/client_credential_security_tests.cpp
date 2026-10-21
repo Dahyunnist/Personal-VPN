@@ -7,6 +7,7 @@
 #include "personal_vpn/credential_security.hpp"
 
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -143,8 +144,68 @@ int main()
 
         const std::wstring path(file_path.data());
 
+        constexpr char test_key_bytes[] = "validated private-key descriptor";
+        HANDLE key_writer = CreateFileW(path.c_str(),
+                                        GENERIC_WRITE,
+                                        0U,
+                                        nullptr,
+                                        OPEN_EXISTING,
+                                        FILE_ATTRIBUTE_NORMAL,
+                                        nullptr);
+        if (key_writer == INVALID_HANDLE_VALUE)
+        {
+            throw std::system_error(static_cast<int>(GetLastError()),
+                                    std::system_category(),
+                                    "open test private key for writing");
+        }
+        DWORD bytes_written = 0U;
+        const auto wrote_key = WriteFile(key_writer,
+                                         test_key_bytes,
+                                         static_cast<DWORD>(sizeof(test_key_bytes) - 1U),
+                                         &bytes_written,
+                                         nullptr);
+        static_cast<void>(CloseHandle(key_writer));
+        if (wrote_key == FALSE ||
+            bytes_written != static_cast<DWORD>(sizeof(test_key_bytes) - 1U))
+        {
+            throw std::runtime_error("failed to write test private-key bytes");
+        }
+
         set_test_acl(path, user_sid, nullptr, false);
         personal_vpn::client::validate_private_key_permissions(path);
+        {
+            auto validated_file =
+                personal_vpn::client::open_validated_private_key_file(path);
+            std::array<char, sizeof(test_key_bytes)> read_bytes{};
+            const auto bytes_read = std::fread(
+                read_bytes.data(), 1U, sizeof(test_key_bytes) - 1U, validated_file.get());
+            if (bytes_read != sizeof(test_key_bytes) - 1U ||
+                std::string(read_bytes.data(), bytes_read) !=
+                    std::string(test_key_bytes, sizeof(test_key_bytes) - 1U))
+            {
+                throw std::runtime_error("validated private-key handle returned wrong bytes");
+            }
+            const auto writer_while_open = CreateFileW(path.c_str(),
+                                                        GENERIC_WRITE,
+                                                        FILE_SHARE_READ,
+                                                        nullptr,
+                                                        OPEN_EXISTING,
+                                                        FILE_ATTRIBUTE_NORMAL,
+                                                        nullptr);
+            if (writer_while_open != INVALID_HANDLE_VALUE)
+            {
+                static_cast<void>(CloseHandle(writer_while_open));
+                throw std::runtime_error(
+                    "validated private-key handle allowed concurrent replacement");
+            }
+            const auto writer_error = GetLastError();
+            if (writer_error != ERROR_SHARING_VIOLATION && writer_error != ERROR_ACCESS_DENIED)
+            {
+                throw std::system_error(static_cast<int>(writer_error),
+                                        std::system_category(),
+                                        "verify private-key replacement is denied");
+            }
+        }
 
         constexpr std::array<WELL_KNOWN_SID_TYPE, 11U> broad_principals{
             WinWorldSid,
@@ -168,7 +229,7 @@ int main()
             bool rejected = false;
             try
             {
-                personal_vpn::client::validate_private_key_permissions(path);
+                static_cast<void>(personal_vpn::client::open_validated_private_key_file(path));
             }
             catch (const std::invalid_argument&)
             {
