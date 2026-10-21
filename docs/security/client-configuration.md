@@ -55,4 +55,5 @@ beside the executable, in the repository, or in a shared Downloads/Desktop direc
 Import into Windows protected key storage remains a future enhancement. Reparse and
 ACL checks run on the opened file handle; the client holds that handle without
 write/delete sharing and parses the key from the same handle, closing the path-swap
-window between validation and OpenSSL use.
+window between validation and OpenSSL use. PEM input is limited to 1 MiB and its
+temporary memory buffer is cleared after parsing.

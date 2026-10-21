@@ -42,7 +42,8 @@ implementation; `vpn_base/` is historical prototype material.
 - Windows VPN startup now uses the validated in-memory profile snapshot instead of
   reopening the selected configuration path.
 - Windows client private-key ACL/reparse validation and OpenSSL parsing now use one
-  handle that denies concurrent write/delete sharing.
+  handle that denies concurrent write/delete sharing; PEM data is size-bounded and
+  cleared after memory-BIO parsing.
 
 ### Security
 

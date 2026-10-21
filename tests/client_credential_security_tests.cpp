@@ -5,10 +5,12 @@
 #include <securitybaseapi.h>
 
 #include "personal_vpn/credential_security.hpp"
+#include "personal_vpn/client_tls_security.hpp"
 
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -16,6 +18,11 @@
 #include <system_error>
 #include <type_traits>
 #include <vector>
+
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/x509.h>
 
 namespace
 {
@@ -106,6 +113,64 @@ void set_test_acl(const std::wstring& path, PSID user_sid, PSID broad_sid,
     }
 }
 
+void write_test_identity(const std::wstring& key_path, const std::wstring& certificate_path)
+{
+    using KeyContext = std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>;
+    using Key = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
+    using Certificate = std::unique_ptr<X509, decltype(&X509_free)>;
+
+    KeyContext key_context(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr), &EVP_PKEY_CTX_free);
+    if (!key_context || EVP_PKEY_keygen_init(key_context.get()) <= 0 ||
+        EVP_PKEY_CTX_set_rsa_keygen_bits(key_context.get(), 2048) <= 0)
+    {
+        throw std::runtime_error("failed to initialize test private-key generation");
+    }
+    EVP_PKEY* raw_key = nullptr;
+    if (EVP_PKEY_keygen(key_context.get(), &raw_key) <= 0)
+    {
+        throw std::runtime_error("failed to generate test private key");
+    }
+    Key key(raw_key, &EVP_PKEY_free);
+
+    Certificate certificate(X509_new(), &X509_free);
+    if (!certificate || X509_set_version(certificate.get(), 2L) != 1 ||
+        ASN1_INTEGER_set(X509_get_serialNumber(certificate.get()), 1L) != 1 ||
+        X509_gmtime_adj(X509_get_notBefore(certificate.get()), -60L) == nullptr ||
+        X509_gmtime_adj(X509_get_notAfter(certificate.get()), 3'600L) == nullptr ||
+        X509_set_pubkey(certificate.get(), key.get()) != 1)
+    {
+        throw std::runtime_error("failed to initialize test certificate");
+    }
+    auto* subject = X509_get_subject_name(certificate.get());
+    constexpr char common_name[] = "vpn.example.test";
+    if (subject == nullptr ||
+        X509_NAME_add_entry_by_txt(subject,
+                                   "CN",
+                                   MBSTRING_ASC,
+                                   reinterpret_cast<const unsigned char*>(common_name),
+                                   -1,
+                                   -1,
+                                   0) != 1 ||
+        X509_set_issuer_name(certificate.get(), subject) != 1 ||
+        X509_sign(certificate.get(), key.get(), EVP_sha256()) <= 0)
+    {
+        throw std::runtime_error("failed to sign test certificate");
+    }
+
+    const auto key_path_string = std::filesystem::path(key_path).string();
+    const auto certificate_path_string = std::filesystem::path(certificate_path).string();
+    using Bio = std::unique_ptr<BIO, decltype(&BIO_free)>;
+    Bio key_file(BIO_new_file(key_path_string.c_str(), "wb"), &BIO_free);
+    Bio certificate_file(BIO_new_file(certificate_path_string.c_str(), "wb"), &BIO_free);
+    if (!key_file || !certificate_file ||
+        PEM_write_bio_PrivateKey(key_file.get(), key.get(), nullptr, nullptr, 0, nullptr, nullptr) !=
+            1 ||
+        PEM_write_bio_X509(certificate_file.get(), certificate.get()) != 1)
+    {
+        throw std::runtime_error("failed to write test PEM identity");
+    }
+}
+
 } // namespace
 
 int main()
@@ -135,6 +200,15 @@ int main()
         return EXIT_FAILURE;
     }
     const auto remove_file = [&file_path]() { static_cast<void>(DeleteFileW(file_path.data())); };
+    std::array<wchar_t, MAX_PATH> certificate_path{};
+    if (GetTempFileNameW(temporary_path.c_str(), L"vpn", 0U, certificate_path.data()) == 0U)
+    {
+        remove_file();
+        std::cerr << "failed to create temporary test certificate file\n";
+        return EXIT_FAILURE;
+    }
+    const auto remove_certificate = [&certificate_path]()
+    { static_cast<void>(DeleteFileW(certificate_path.data())); };
 
     try
     {
@@ -143,47 +217,29 @@ int main()
         token_owner.reset(token);
 
         const std::wstring path(file_path.data());
-
-        constexpr char test_key_bytes[] = "validated private-key descriptor";
-        HANDLE key_writer = CreateFileW(path.c_str(),
-                                        GENERIC_WRITE,
-                                        0U,
-                                        nullptr,
-                                        OPEN_EXISTING,
-                                        FILE_ATTRIBUTE_NORMAL,
-                                        nullptr);
-        if (key_writer == INVALID_HANDLE_VALUE)
-        {
-            throw std::system_error(static_cast<int>(GetLastError()),
-                                    std::system_category(),
-                                    "open test private key for writing");
-        }
-        DWORD bytes_written = 0U;
-        const auto wrote_key = WriteFile(key_writer,
-                                         test_key_bytes,
-                                         static_cast<DWORD>(sizeof(test_key_bytes) - 1U),
-                                         &bytes_written,
-                                         nullptr);
-        static_cast<void>(CloseHandle(key_writer));
-        if (wrote_key == FALSE ||
-            bytes_written != static_cast<DWORD>(sizeof(test_key_bytes) - 1U))
-        {
-            throw std::runtime_error("failed to write test private-key bytes");
-        }
+        const std::wstring certificate(certificate_path.data());
+        const auto key_path_string = std::filesystem::path(path).string();
+        const auto certificate_path_string = std::filesystem::path(certificate).string();
+        write_test_identity(path, certificate);
 
         set_test_acl(path, user_sid, nullptr, false);
         personal_vpn::client::validate_private_key_permissions(path);
+        auto tls_context = personal_vpn::client::make_client_tls_context(
+            personal_vpn::client::ClientTlsConfig{certificate_path_string,
+                                                  certificate_path_string,
+                                                  key_path_string,
+                                                  "vpn.example.test"});
+        if (tls_context.native_handle() == nullptr)
+        {
+            throw std::runtime_error("TLS context did not load the validated key handle");
+        }
         {
             auto validated_file =
                 personal_vpn::client::open_validated_private_key_file(path);
-            std::array<char, sizeof(test_key_bytes)> read_bytes{};
-            const auto bytes_read = std::fread(
-                read_bytes.data(), 1U, sizeof(test_key_bytes) - 1U, validated_file.get());
-            if (bytes_read != sizeof(test_key_bytes) - 1U ||
-                std::string(read_bytes.data(), bytes_read) !=
-                    std::string(test_key_bytes, sizeof(test_key_bytes) - 1U))
+            std::array<char, 32U> read_bytes{};
+            if (std::fread(read_bytes.data(), 1U, read_bytes.size(), validated_file.get()) == 0U)
             {
-                throw std::runtime_error("validated private-key handle returned wrong bytes");
+                throw std::runtime_error("validated private-key handle returned no PEM bytes");
             }
             const auto writer_while_open = CreateFileW(path.c_str(),
                                                         GENERIC_WRITE,
@@ -229,7 +285,11 @@ int main()
             bool rejected = false;
             try
             {
-                static_cast<void>(personal_vpn::client::open_validated_private_key_file(path));
+                static_cast<void>(personal_vpn::client::make_client_tls_context(
+                    personal_vpn::client::ClientTlsConfig{certificate_path_string,
+                                                          certificate_path_string,
+                                                          key_path_string,
+                                                          "vpn.example.test"}));
             }
             catch (const std::invalid_argument&)
             {
@@ -241,12 +301,14 @@ int main()
             }
         }
         remove_file();
+        remove_certificate();
         std::cout << "Windows private-key ACL checks passed\n";
         return EXIT_SUCCESS;
     }
     catch (const std::exception& error)
     {
         remove_file();
+        remove_certificate();
         std::cerr << "Windows private-key ACL test failed: " << error.what() << '\n';
         return EXIT_FAILURE;
     }

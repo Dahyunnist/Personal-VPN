@@ -4,17 +4,39 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ssl.hpp>
 
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 
 #include <array>
+#include <cstdio>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 namespace personal_vpn::client
 {
 namespace
 {
+
+constexpr std::size_t kMaximumPrivateKeyBytes = 1024U * 1024U;
+
+struct SensitiveBuffer
+{
+    explicit SensitiveBuffer(const std::size_t size) : bytes(size) {}
+    SensitiveBuffer(const SensitiveBuffer&) = delete;
+    SensitiveBuffer& operator=(const SensitiveBuffer&) = delete;
+
+    std::vector<unsigned char> bytes;
+
+    ~SensitiveBuffer()
+    {
+        if (!bytes.empty())
+        {
+            OPENSSL_cleanse(bytes.data(), bytes.size());
+        }
+    }
+};
 
 std::string openssl_error(const std::string& prefix)
 {
@@ -47,8 +69,39 @@ boost::asio::ssl::context make_client_tls_context(const ClientTlsConfig& config)
     context.load_verify_file(config.ca_file);
     context.use_certificate_chain_file(config.certificate_chain_file);
     auto private_key_file = open_validated_private_key_file(config.private_key_file);
+    SensitiveBuffer private_key_bytes(kMaximumPrivateKeyBytes + 1U);
+    std::size_t private_key_size = 0U;
+    while (private_key_size < private_key_bytes.bytes.size())
+    {
+        const auto bytes_read = std::fread(private_key_bytes.bytes.data() + private_key_size,
+                                           1U,
+                                           private_key_bytes.bytes.size() - private_key_size,
+                                           private_key_file.get());
+        private_key_size += bytes_read;
+        if (bytes_read == 0U)
+        {
+            if (std::ferror(private_key_file.get()) != 0)
+            {
+                throw std::runtime_error("failed to read client private key");
+            }
+            break;
+        }
+    }
+    if (private_key_size == 0U || private_key_size > kMaximumPrivateKeyBytes)
+    {
+        throw std::invalid_argument("client private key must be between 1 byte and 1 MiB");
+    }
+    private_key_bytes.bytes.resize(private_key_size);
+    std::unique_ptr<BIO, decltype(&BIO_free)> private_key_bio(
+        BIO_new_mem_buf(private_key_bytes.bytes.data(), static_cast<int>(private_key_size)),
+        &BIO_free);
+    if (!private_key_bio)
+    {
+        throw std::runtime_error(openssl_error("failed to create private-key memory BIO"));
+    }
     std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> private_key(
-        PEM_read_PrivateKey(private_key_file.get(), nullptr, nullptr, nullptr), &EVP_PKEY_free);
+        PEM_read_bio_PrivateKey(private_key_bio.get(), nullptr, nullptr, nullptr),
+        &EVP_PKEY_free);
     if (!private_key)
     {
         throw std::runtime_error(openssl_error("failed to parse client private key"));
