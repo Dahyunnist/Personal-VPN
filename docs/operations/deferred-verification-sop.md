@@ -38,6 +38,10 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- After the server private-key descriptor hardening commit (`a169098`), rebuilt the
+  Windows Release tree and reran all 9/9 CTest tests. The key-descriptor implementation
+  is Linux-only and still needs the Linux Release and ASan/UBSan gates below; Windows
+  tests do not cover it.
 - Rebuilt the current MinGW client-core Release tree with GCC 14.2.0; 8/8 CTest tests
   passed when `C:\msys64\mingw64\bin` was on `PATH`. Without that runtime path, the
   tests fail to load MinGW runtime DLLs; this is a host invocation issue, not a code
