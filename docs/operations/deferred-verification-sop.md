@@ -38,6 +38,13 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- After CI benchmark hardening (`bf0da34`), the Release protocol benchmark built with
+  MinGW GCC 14.2.0 and completed 200,000 iterations. Its JSON passed the same required
+  field, type, range, and finite-rate checks added to CI. This Windows smoke result is
+  not tunnel-throughput evidence.
+- Re-ran the current Windows Release and Debug desktop CTest suites: 9/9 passed in each
+  configuration. MinGW tests require `C:\msys64\mingw64\bin` on `PATH`; without it,
+  runtime DLL loading fails and results are invalid.
 - Windows MinGW Debug full desktop configuration rebuilt with warnings-as-errors and
   cached pinned ImGui/Wintun dependencies; the UI executable compiled and all 9/9 CTest
   tests passed, including Windows profile parsing, unknown-field rejection, actual TLS
