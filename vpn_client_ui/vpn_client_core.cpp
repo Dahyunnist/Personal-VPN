@@ -11,12 +11,12 @@ VPNClientCore::~VPNClientCore()
     Stop();
 }
 
-bool VPNClientCore::Start(const std::string& config_path, LogCallback log_callback)
+bool VPNClientCore::Start(personal_vpn::client::ClientConfig config,
+                          LogCallback log_callback)
 {
     Stop();
     try
     {
-        auto config = personal_vpn::client::load_client_config(config_path);
         auto runtime = std::make_unique<personal_vpn::client::ClientRuntime>(
             std::move(config),
             std::make_unique<personal_vpn::client::WindowsNetworkBackend>(),

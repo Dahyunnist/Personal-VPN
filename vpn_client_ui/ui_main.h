@@ -8,6 +8,7 @@
 #include <mutex>
 #include <memory>
 #include <functional>
+#include <optional>
 
 // 必须在windows.h之前包含winsock2.h
 #ifndef WIN32_LEAN_AND_MEAN
@@ -48,6 +49,7 @@ private:
 
     // UI状态
     char m_configPath[512] = "";
+    std::optional<personal_vpn::client::ClientConfig> m_clientConfig;
     char m_serverHost[256] = "";
     char m_serverPort[16] = "";
     char m_routes[512] = "";

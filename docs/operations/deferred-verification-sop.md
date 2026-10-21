@@ -38,6 +38,10 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- After changing the Windows UI to pass the validated `ClientConfig` snapshot into
+  runtime startup, rebuilt the desktop target and reran CTest and package verification.
+  The UI no longer reopens the profile path after validation; credential files remain
+  external paths and still require the documented ACL/reparse checks.
 - After the Direct3D resize-failure handling change, explicitly rebuilt the MinGW
   desktop executable, reran 9/9 CTest tests, rebuilt the Windows ZIP, and passed the
   package verifier. Interactive elevated-driver and real-tunnel behavior remain

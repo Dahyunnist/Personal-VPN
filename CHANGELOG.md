@@ -39,6 +39,8 @@ implementation; `vpn_base/` is historical prototype material.
 
 - Windows UI now checks Direct3D back-buffer and render-target creation results and
   skips drawing while no valid render target exists.
+- Windows VPN startup now uses the validated in-memory profile snapshot instead of
+  reopening the selected configuration path.
 
 ### Security
 
