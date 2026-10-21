@@ -38,6 +38,11 @@ Keep build directories under the repository so outputs remain ignored.
 
 ## Additional host verification (2026-10-21)
 
+- Windows privilege-broker request codec added with a 128-byte frame ceiling, nonzero
+  request IDs, three allowlisted request types, and path-safe profile IDs. Release and
+  Debug desktop suites each passed 10/10 tests, including malformed-frame rejection.
+  This validates only the portable codec; named-pipe ACLs, caller-token binding, service
+  lifecycle, and elevated Wintun integration remain unimplemented.
 - After CI benchmark hardening (`bf0da34`), the Release protocol benchmark built with
   MinGW GCC 14.2.0 and completed 200,000 iterations. Its JSON passed the same required
   field, type, range, and finite-rate checks added to CI. This Windows smoke result is

@@ -50,9 +50,9 @@ administrator-approved installer.
 
 1. Extract a broker-facing tunnel lifecycle interface from `ClientRuntime`; preserve
    its TLS, reconnect, transaction, and joined-shutdown invariants.
-2. Implement and fuzz the bounded IPC codec. Add Windows tests for pipe ACLs, caller
-   token binding, remote-client rejection, protocol versioning, message limits, and
-   malformed requests.
+2. The bounded request codec now has Windows/portable round-trip and negative tests and
+   is included in the libFuzzer target. Still add Windows tests for pipe ACLs, caller
+   token binding, remote-client rejection, and connection-level replay handling.
 3. Host the existing client runtime and `WindowsNetworkBackend` in the service. Ensure
    profile and private-key reads occur under the caller's identity and TLS verification
    remains in the service process.

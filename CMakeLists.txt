@@ -129,6 +129,20 @@ else()
     target_compile_options(personal_vpn_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
 
+add_library(personal_vpn_broker_protocol src/broker/broker_protocol.cpp)
+add_library(PersonalVPN::BrokerProtocol ALIAS personal_vpn_broker_protocol)
+target_include_directories(personal_vpn_broker_protocol
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/broker/include>
+)
+target_compile_features(personal_vpn_broker_protocol PUBLIC cxx_std_17)
+if(MSVC)
+    target_compile_options(personal_vpn_broker_protocol PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(personal_vpn_broker_protocol
+        PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
 if(WIN32)
     add_library(personal_vpn_windows_network src/client/windows_network_backend.cpp)
     add_library(PersonalVPN::WindowsNetwork ALIAS personal_vpn_windows_network)
@@ -201,7 +215,10 @@ if(PERSONAL_VPN_BUILD_FUZZING)
     target_compile_options(personal_vpn_core PRIVATE
         -fsanitize=address,undefined -fno-omit-frame-pointer)
     add_executable(frame-decoder-fuzz fuzz/frame_decoder_fuzz.cpp)
-    target_link_libraries(frame-decoder-fuzz PRIVATE PersonalVPN::Core)
+    target_link_libraries(frame-decoder-fuzz PRIVATE
+        PersonalVPN::Core
+        PersonalVPN::BrokerProtocol
+    )
     target_compile_features(frame-decoder-fuzz PRIVATE cxx_std_17)
     target_compile_options(frame-decoder-fuzz PRIVATE
         -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)

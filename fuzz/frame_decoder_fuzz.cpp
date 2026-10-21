@@ -1,4 +1,5 @@
 #include "personal_vpn/control_messages.hpp"
+#include "personal_vpn/broker_protocol.hpp"
 #include "personal_vpn/protocol.hpp"
 
 #include <cstddef>
@@ -60,6 +61,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
     if (data == nullptr || size == 0U)
     {
         return 0;
+    }
+    if (size <= personal_vpn::broker::maximum_frame_size)
+    {
+        try
+        {
+            const std::vector<std::uint8_t> broker_frame(data, data + size);
+            static_cast<void>(personal_vpn::broker::decode_request(broker_frame));
+        }
+        catch (...)
+        {
+        }
     }
     try
     {
