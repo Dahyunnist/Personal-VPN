@@ -42,7 +42,7 @@ flowchart LR
 | Linux 构建与测试 | 20/20 通过 | Ubuntu WSL；含 IPv4/IPv6 双向 TLS 隧道集成测试及服务器、客户端 CRL 握手测试，测试证书存放在 Linux 文件系统 |
 | Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试；含 schema v2 profile 导入、CRL 复制与删除 |
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
-| Windows broker 安装器集成 | `1d9e53c` 复验失败 | 具体写入权限检查在 `-WhatIf` 预检处拒绝 `C:\`；CI 日志确认拒绝发生于受信任源码 ACL 检查。安装器生命周期和 ZIP 校验未运行。放宽祖先目录权限检查有安全风险，需先确定安全路径边界 |
+| Windows broker 安装器集成 | 安全边界修复待 CI 验证 | 祖先目录仅允许“创建子目录”权限；目标路径仍严格拒绝文件写入、删除、ACL 或所有权变更。新的安装器生命周期和 ZIP 校验结果待远程 Windows runner 验证 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
 | 远程 CI（`1f17f95`） | 8/9 个任务通过；Windows 桌面打包取消 | Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 通过；Windows 桌面打包因后续文档提交而取消，不能视为全绿 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
@@ -131,7 +131,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
-- `1f17f95` 远程 CI 的 Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 已通过；Windows 桌面打包因后续 README 提交而取消。`1d9e53c` 的 Windows 桌面作业在 `-WhatIf` 预检处拒绝 `C:\`，因此安装器生命周期和 ZIP 校验未执行。尚未在不降低安全边界的前提下解决该预检问题。
+- `1f17f95` 远程 CI 的 Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 已通过；Windows 桌面打包因后续文档提交而取消。`1d9e53c` 的 Windows 桌面作业在 `-WhatIf` 预检处拒绝 `C:\`，因此安装器生命周期和 ZIP 校验未执行。当前已加入仅适用于祖先目录的“创建子目录”窄例外；其余写入、删除、ACL、所有权及重解析点检查保留，修复仍待 CI 验证。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 

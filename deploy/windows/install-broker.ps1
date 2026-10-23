@@ -100,7 +100,8 @@ function Assert-AdministratorProtectedPath {
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership -bor
         [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles)
-    $current = (Resolve-Path -LiteralPath $Path).Path
+    $resolvedTarget = (Resolve-Path -LiteralPath $Path).Path
+    $current = $resolvedTarget
     while ($true) {
         $item = Get-Item -LiteralPath $current -Force
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -110,6 +111,14 @@ function Assert-AdministratorProtectedPath {
         $ownerSid = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
         if ($ownerSid -notin $trustedSids) {
             throw "Trusted installation source has an untrusted owner: $current"
+        }
+        $pathWriteRights = $writeRights
+        if (-not [string]::Equals($current, $resolvedTarget,
+                [System.StringComparison]::OrdinalIgnoreCase) -and $item.PSIsContainer) {
+            # Creating a new sibling directory cannot replace this existing component.
+            # Keep rejecting rights that can alter the component or replace source files.
+            $pathWriteRights = $pathWriteRights -band
+                (-bnot [int][Security.AccessControl.FileSystemRights]::AppendData)
         }
         foreach ($rule in $acl.GetAccessRules($true, $true,
                 [Security.Principal.SecurityIdentifier])) {
@@ -121,7 +130,7 @@ function Assert-AdministratorProtectedPath {
             }
             if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
                 $rule.IdentityReference.Value -notin $trustedSids -and
-                (([int]$rule.FileSystemRights -band $writeRights) -ne 0)) {
+                (([int]$rule.FileSystemRights -band $pathWriteRights) -ne 0)) {
                 throw "Trusted installation source grants write access outside SYSTEM/Administrators: $current"
             }
         }
