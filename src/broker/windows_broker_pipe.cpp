@@ -9,11 +9,86 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <chrono>
 
 namespace personal_vpn::broker
 {
 namespace
 {
+
+constexpr DWORD pipe_operation_timeout_ms = 15'000U;
+
+struct EventCloser
+{
+    void operator()(void* event) const noexcept
+    {
+        if (event != nullptr)
+        {
+            static_cast<void>(CloseHandle(event));
+        }
+    }
+};
+
+bool wait_overlapped(HANDLE pipe, OVERLAPPED& operation, const DWORD timeout_ms) noexcept
+{
+    const auto wait_result = WaitForSingleObject(operation.hEvent, timeout_ms);
+    if (wait_result != WAIT_OBJECT_0)
+    {
+        static_cast<void>(CancelIoEx(pipe, &operation));
+        DWORD ignored = 0U;
+        static_cast<void>(GetOverlappedResult(pipe, &operation, &ignored, TRUE));
+        return false;
+    }
+    DWORD ignored = 0U;
+    return GetOverlappedResult(pipe, &operation, &ignored, FALSE) != FALSE;
+}
+
+bool read_exact_pipe(HANDLE pipe,
+                     std::uint8_t* output,
+                     const std::size_t size,
+                     const ULONGLONG deadline) noexcept
+{
+    std::size_t offset = 0U;
+    while (offset < size)
+    {
+        const auto event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (event == nullptr)
+        {
+            return false;
+        }
+        std::unique_ptr<void, EventCloser> event_owner(event);
+        OVERLAPPED operation{};
+        operation.hEvent = event;
+        DWORD transferred = 0U;
+        const auto remaining = static_cast<DWORD>(size - offset);
+        const auto started = ReadFile(pipe, output + offset, remaining, &transferred, &operation);
+        if (!started && GetLastError() != ERROR_IO_PENDING)
+        {
+            return false;
+        }
+        if (!started)
+        {
+            const auto now = GetTickCount64();
+            if (now >= deadline || !wait_overlapped(
+                                       pipe,
+                                       operation,
+                                       static_cast<DWORD>(deadline - now)))
+            {
+                return false;
+            }
+            if (!GetOverlappedResult(pipe, &operation, &transferred, FALSE))
+            {
+                return false;
+            }
+        }
+        if (transferred == 0U)
+        {
+            return false;
+        }
+        offset += transferred;
+    }
+    return true;
+}
 
 struct LocalFreeDeleter
 {
@@ -100,7 +175,8 @@ HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid)
     attributes.bInheritHandle = FALSE;
     constexpr wchar_t pipe_name[] = L"\\\\.\\pipe\\PersonalVPN-Broker-v1";
     const auto pipe = CreateNamedPipeW(pipe_name,
-                                       PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                                       PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE |
+                                           FILE_FLAG_OVERLAPPED,
                                        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT |
                                            PIPE_REJECT_REMOTE_CLIENTS,
                                        1U,
@@ -121,11 +197,25 @@ bool accept_broker_pipe_client(const HANDLE pipe) noexcept
     {
         return false;
     }
-    if (ConnectNamedPipe(pipe, nullptr) != FALSE)
+    const auto event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (event == nullptr)
+    {
+        return false;
+    }
+    std::unique_ptr<void, EventCloser> event_owner(event);
+    OVERLAPPED operation{};
+    operation.hEvent = event;
+    if (ConnectNamedPipe(pipe, &operation) != FALSE)
     {
         return true;
     }
-    return GetLastError() == ERROR_PIPE_CONNECTED;
+    const auto error = GetLastError();
+    if (error == ERROR_PIPE_CONNECTED)
+    {
+        return true;
+    }
+    return error == ERROR_IO_PENDING &&
+           wait_overlapped(pipe, operation, pipe_operation_timeout_ms);
 }
 
 bool authenticate_broker_pipe_client(const HANDLE pipe,
@@ -214,9 +304,9 @@ Request read_authenticated_broker_request(const HANDLE pipe,
         disconnect_and_throw("broker pipe peer authentication failed");
     }
 
+    const auto deadline = GetTickCount64() + pipe_operation_timeout_ms;
     std::vector<std::uint8_t> frame(4U);
-    DWORD transferred = 0U;
-    if (!ReadFile(pipe, frame.data(), 4U, &transferred, nullptr) || transferred != 4U)
+    if (!read_exact_pipe(pipe, frame.data(), frame.size(), deadline))
     {
         disconnect_and_throw("broker frame length read failed");
     }
@@ -229,16 +319,12 @@ Request read_authenticated_broker_request(const HANDLE pipe,
         disconnect_and_throw("broker frame length is outside the allowed range");
     }
     frame.resize(static_cast<std::size_t>(body_size) + 4U);
-    std::size_t offset = 4U;
-    while (offset < frame.size())
+    if (!read_exact_pipe(pipe,
+                         frame.data() + 4U,
+                         frame.size() - 4U,
+                         deadline))
     {
-        const auto remaining = static_cast<DWORD>(frame.size() - offset);
-        if (!ReadFile(pipe, frame.data() + offset, remaining, &transferred, nullptr) ||
-            transferred == 0U)
-        {
-            disconnect_and_throw("broker frame body read failed");
-        }
-        offset += transferred;
+        disconnect_and_throw("broker frame body read failed or timed out");
     }
     try
     {
