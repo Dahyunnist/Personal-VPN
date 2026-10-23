@@ -5,8 +5,10 @@
 #include <sddl.h>
 
 #include <memory>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace personal_vpn::broker
 {
@@ -20,6 +22,40 @@ struct LocalFreeDeleter
         if (value != nullptr)
         {
             static_cast<void>(LocalFree(value));
+        }
+    }
+};
+
+struct ImpersonationGuard
+{
+    ~ImpersonationGuard()
+    {
+        if (active)
+        {
+            static_cast<void>(RevertToSelf());
+        }
+    }
+
+    bool revert() noexcept
+    {
+        if (!active)
+        {
+            return false;
+        }
+        active = false;
+        return RevertToSelf() != FALSE;
+    }
+
+    bool active{true};
+};
+
+struct HandleCloser
+{
+    void operator()(void* handle) const noexcept
+    {
+        if (handle != nullptr)
+        {
+            static_cast<void>(CloseHandle(handle));
         }
     }
 };
@@ -77,6 +113,77 @@ HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid)
         fail("create secure broker pipe");
     }
     return pipe;
+}
+
+bool authenticate_broker_pipe_client(const HANDLE pipe,
+                                     const std::wstring& authorized_logon_sid,
+                                     const DWORD expected_session_id)
+{
+    DWORD pipe_session_id = 0U;
+    if (pipe == INVALID_HANDLE_VALUE ||
+        !GetNamedPipeClientSessionId(pipe, &pipe_session_id) ||
+        pipe_session_id != expected_session_id || !ImpersonateNamedPipeClient(pipe))
+    {
+        return false;
+    }
+    ImpersonationGuard impersonation_guard;
+
+    bool authenticated = false;
+    HANDLE token = nullptr;
+    std::unique_ptr<void, HandleCloser> token_owner;
+    PSID expected_sid = nullptr;
+    do
+    {
+        if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token))
+        {
+            break;
+        }
+        token_owner.reset(token);
+        if (!ConvertStringSidToSidW(authorized_logon_sid.c_str(), &expected_sid))
+        {
+            break;
+        }
+        DWORD session_id = 0U;
+        DWORD returned = 0U;
+        if (!GetTokenInformation(token, TokenSessionId, &session_id, sizeof(session_id), &returned) ||
+            session_id != expected_session_id)
+        {
+            break;
+        }
+        DWORD groups_size = 0U;
+        static_cast<void>(GetTokenInformation(token, TokenGroups, nullptr, 0U, &groups_size));
+        if (groups_size == 0U)
+        {
+            break;
+        }
+        std::vector<std::uint8_t> groups_buffer(groups_size);
+        if (!GetTokenInformation(token,
+                                 TokenGroups,
+                                 groups_buffer.data(),
+                                 groups_size,
+                                 &returned))
+        {
+            break;
+        }
+        const auto* groups = reinterpret_cast<const TOKEN_GROUPS*>(groups_buffer.data());
+        for (DWORD index = 0U; index < groups->GroupCount; ++index)
+        {
+            const auto& group = groups->Groups[index];
+            if ((group.Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID &&
+                EqualSid(group.Sid, expected_sid))
+            {
+                authenticated = true;
+                break;
+            }
+        }
+    } while (false);
+
+    if (expected_sid != nullptr)
+    {
+        static_cast<void>(LocalFree(expected_sid));
+    }
+    const auto reverted = impersonation_guard.revert();
+    return authenticated && reverted;
 }
 
 } // namespace personal_vpn::broker
