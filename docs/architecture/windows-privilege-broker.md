@@ -24,17 +24,17 @@ Windows broker pipe helper 创建固定名称的首个实例，DACL 只授予 SY
 
 协议不得接受调用方提供的 IP 地址、网关、路由前缀、接口名、适配器名、原始数据包、可执行文件路径或任意命令。broker 只能在请求用户获准的配置文件根目录中解析配置。读取配置和凭据文件时，应模拟该用户身份；针对已打开句柄检查现有私钥 ACL 和大小限制，再恢复 broker 身份后执行网络操作。密钥字节绝不通过 IPC 传输。
 
-`load_client_config(path, ClientNetworkPolicy)` 已提供路由约束入口：profile 中的每条路由必须精确匹配受信任策略，默认路由也需策略单独授权。该策略必须来自管理员保护的服务配置，不能由 profile 或 IPC 构造。目前服务尚未接入此入口；无策略重载仍用于现有提权式客户端，不构成 broker 授权。
+`load_client_config(path, ClientNetworkPolicy)` 已提供路由约束入口：profile 中的每条路由必须精确匹配受信任策略，默认路由也需策略单独授权。SCM 服务使用管理员保护的机器策略；无策略重载仍用于现有提权式客户端，不构成 broker 授权。
 
-`parse_broker_network_policy` 解析版本化机器策略，严格限制字段、CIDR、重复项和路由数量。Windows `load_broker_network_policy` 要求策略文件及直接父目录由 SYSTEM/Administrators 拥有，拒绝非可信主体写权限、空 DACL、reparse 点和超过 64 KiB 的文件，并从已校验句柄读取。SCM 宿主从 `%ProgramData%\PersonalVPN\broker-policy.json` 加载此策略；范例为 [`configs/broker-policy.example.json`](../../configs/broker-policy.example.json)。尚无服务安装器负责创建目录、配置 ACL 和部署策略。
+`parse_broker_network_policy` 解析版本化机器策略，严格限制字段、CIDR、重复项和路由数量。Windows `load_broker_network_policy` 要求策略文件及直接父目录由 SYSTEM/Administrators 拥有，拒绝非可信主体写权限、空 DACL、reparse 点和超过 64 KiB 的文件，并从已校验句柄读取。SCM 宿主从 `%ProgramData%\PersonalVPN\broker-policy.json` 加载此策略；管理员安装脚本创建目录、设置 DACL/所有者并部署策略。脚本范例为 [`deploy/windows/install-broker.ps1`](../../deploy/windows/install-broker.ps1)。
 
 Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受协议限定的 ASCII ID，并从当前线程模拟令牌读取用户 profile 目录，固定解析到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles\<id>.json`。缺少模拟令牌即失败；调用方不能传入路径。SCM 宿主已通过 `load_impersonated_profile` 在用户模拟身份下加载 profile，并应用服务启动时读取的受信网络策略。helper 不创建目录；安装路径 ACL 和真实用户 profile 生命周期仍待验证。
 
-`BrokerRuntimeRegistry` 已将 `Connect`、`Disconnect`、`GetStatus` 映射到 `ClientRuntimeControl`，按已认证的 TokenUser SID 限制每用户单一运行时，状态响应只返回固定短消息。SCM 宿主与 `serve_broker_pipe_session` 已串起会话发现、认证、请求解码、调用者模拟、registry 派发、关联响应和断线清理；客户端断开、控制台会话注销或服务停止后会停止并 join 运行时。仍未实现 RDP/多会话支持、服务安装配置和 UI 长连接客户端。
+`BrokerRuntimeRegistry` 已将 `Connect`、`Disconnect`、`GetStatus` 映射到 `ClientRuntimeControl`，按已认证的 TokenUser SID 限制每用户单一运行时，状态响应只返回固定短消息。SCM 宿主与 `serve_broker_pipe_session` 已串起会话发现、认证、请求解码、调用者模拟、registry 派发、关联响应和断线清理；客户端断开、控制台会话注销或服务停止后会停止并 join 运行时。管理员安装脚本设置 LocalSystem 服务和失败重启策略，支持卸载但不覆盖现有安装。仍未实现 RDP/多会话支持、升级回滚和 UI 长连接客户端。
 
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 
-服务应以执行所需 Wintun 和网络操作的最低权限身份运行。通过提升权限集成测试确定并记录准确令牌权限；LocalSystem 只有在会话发现确实需要 `WTSQueryUserToken` 且替代方案不适用时才可考虑。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入。安装及更改服务 ACL 必须通过管理员明确批准的安装程序执行。
+当前安装脚本配置服务为 LocalSystem，因为会话发现使用 `WTSQueryUserToken`。准确令牌权限和最小权限替代方案尚未通过提升权限集成测试验证。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入；安装脚本仅允许管理员执行。
 
 ## 集成顺序
 
@@ -42,7 +42,7 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 2. 有界请求/响应编解码器已有可移植往返与负向测试，并已加入 libFuzzer 目标。Windows 集成测试覆盖当前用户登录 SID/会话认证、请求解码和响应关联；仍需以真实服务身份验证 ACL、远程拒绝及跨进程重放处理。
 3. 已在 SCM 宿主承载现有客户端运行时和 `WindowsNetworkBackend`。配置和私钥在调用方身份下读取；服务从受保护配置加载 `ClientNetworkPolicy` 并使用受限重载；TLS 验证仍在服务进程内完成。仅完成编译和自动化测试，未做真实服务安装或网络验证。
 4. 将 `VPNClientCore` 对运行时的直接所有权改为 IPC 客户端。UI 消息只公开状态和有界诊断，不携带凭据或路由。
-5. 待增加安装程序、服务恢复策略、升级/回滚/卸载流程和提权集成测试。之后才能移除 UI 自行提权，并验证 UI 令牌未提权时，真实隧道配置和清理仍然成功。
+5. 已增加仅支持新安装的管理员脚本、LocalSystem 服务配置、失败重启和保留策略的卸载。待实现升级/回滚流程及提权集成测试。之后才能移除 UI 自行提权，并验证 UI 令牌未提权时，真实隧道配置和清理仍然成功。
 
 ## 验收门槛
 
@@ -53,4 +53,4 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 - broker 停止、UI 崩溃、管道中断、重连和服务重启后，不留下过期路由、地址、适配器会话或工作线程。
 - 在一次性 Windows 虚拟机中，以预期服务身份通过真实 Wintun 和路由集成测试，且 UI 不提权。
 
-所有门槛通过前，不得声称特权拆分已经完成。SCM broker 宿主已进入代码和 Windows 构建，但尚无安装器，UI 仍是单进程直接调用 Windows 网络后端；本文记录实现现状与未通过的验收项，不代表生产就绪证明。
+所有门槛通过前，不得声称特权拆分已经完成。SCM broker 宿主和初版管理员安装/卸载脚本已进入代码及 Windows 构建，但未验证真实服务 ACL、升级回滚或 Wintun 网络行为；UI 仍直接调用 Windows 网络后端。本文记录实现现状与未通过的验收项，不代表生产就绪证明。

@@ -29,7 +29,7 @@ flowchart LR
 - **Windows 双栈网络事务：** 配置 Wintun、IPv4/IPv6 地址、双栈 MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
 - **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
 - **运行与发布基础：** Linux 服务端配置和 systemd 示例、JSON 指标、CI、ASan/UBSan、协议模糊测试、基准测试、CPack 打包及发布校验流程。
-- **Windows 权限边界探索：** 已新增 SCM broker 服务宿主，加载 SYSTEM/Administrators 保护的机器路由策略，通过认证命名管道连接运行时，并在断线、注销或服务停止时清理运行时。当前仅轮询活动物理控制台会话；RDP、多用户并发、服务安装/恢复、低权限 UI 长连接及真实 Wintun 部署验证仍未完成，GUI 仍需提升权限运行。
+- **Windows 权限边界探索：** 已新增 SCM broker 服务宿主及管理员安装脚本，加载 SYSTEM/Administrators 保护的机器路由策略，通过认证命名管道连接运行时，并在断线、注销或服务停止时清理运行时。当前仅支持活动物理控制台会话；RDP、多用户并发、安装升级回滚、低权限 UI 长连接及真实 Wintun 部署验证仍未完成，GUI 仍需提升权限运行。部署步骤见 [Windows broker 服务指南](docs/deployment/windows-broker.md)。
 
 ## 验证状态
 

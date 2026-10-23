@@ -19,8 +19,11 @@ set(required_suffixes
     "/config/client.example.json"
     "/licenses/imgui/LICENSE.txt"
     "/licenses/wintun/LICENSE.txt"
+    "/share/doc/personal-vpn/configs/broker-policy.example.json"
     "/share/doc/personal-vpn/README.md"
+    "/share/doc/personal-vpn/docs/deployment/windows-broker.md"
     "/share/doc/personal-vpn/docs/security/credential-handling.md"
+    "/deploy/windows/install-broker.ps1"
 )
 foreach(required_suffix IN LISTS required_suffixes)
     string(FIND "${archive_entries}" "${required_suffix}" entry_position)

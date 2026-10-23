@@ -317,8 +317,10 @@ install(FILES Readme.md
 install(DIRECTORY docs/
         DESTINATION share/doc/personal-vpn/docs
         FILES_MATCHING PATTERN "*.md")
-install(FILES configs/client.example.json
+install(FILES configs/client.example.json configs/broker-policy.example.json
         DESTINATION share/doc/personal-vpn/configs)
+install(FILES deploy/windows/install-broker.ps1
+        DESTINATION deploy/windows)
 install(FILES deploy/systemd/personal-vpn-server.service
         DESTINATION share/doc/personal-vpn/deploy/systemd)
 include(CPack)
