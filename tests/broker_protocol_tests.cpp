@@ -1,6 +1,7 @@
 #include "personal_vpn/broker_protocol.hpp"
 #ifdef _WIN32
 #include "personal_vpn/windows_broker_pipe.hpp"
+#include "personal_vpn/windows_broker_profile.hpp"
 #include <sddl.h>
 #endif
 
@@ -305,6 +306,73 @@ void named_pipe_authentication_and_framing()
         std::rethrow_exception(server_error);
     }
 }
+
+void profile_paths_are_bound_to_the_impersonated_user()
+{
+    using namespace personal_vpn::broker;
+    bool missing_identity_rejected = false;
+    try
+    {
+        static_cast<void>(resolve_impersonated_profile_path("profile_1"));
+    }
+    catch (const std::system_error&)
+    {
+        missing_identity_rejected = true;
+    }
+    check(missing_identity_rejected,
+          "profile path resolution requires an authenticated impersonation token");
+
+    bool traversal_id_rejected = false;
+    try
+    {
+        static_cast<void>(resolve_impersonated_profile_path("../outside"));
+    }
+    catch (const std::invalid_argument&)
+    {
+        traversal_id_rejected = true;
+    }
+    check(traversal_id_rejected, "profile path resolver rejects traversal IDs");
+
+    HANDLE source = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &source))
+    {
+        throw std::runtime_error("OpenProcessToken for profile test failed");
+    }
+    std::unique_ptr<void, decltype(&CloseHandle)> source_owner(source, CloseHandle);
+    HANDLE impersonation = nullptr;
+    if (!DuplicateTokenEx(source,
+                          TOKEN_QUERY | TOKEN_IMPERSONATE,
+                          nullptr,
+                          SecurityImpersonation,
+                          TokenImpersonation,
+                          &impersonation))
+    {
+        throw std::runtime_error("DuplicateTokenEx for profile test failed");
+    }
+    std::unique_ptr<void, decltype(&CloseHandle)> impersonation_owner(impersonation, CloseHandle);
+    if (!SetThreadToken(nullptr, impersonation))
+    {
+        throw std::runtime_error("SetThreadToken for profile test failed");
+    }
+    std::filesystem::path resolved;
+    try
+    {
+        resolved = resolve_impersonated_profile_path("profile_1");
+    }
+    catch (...)
+    {
+        static_cast<void>(RevertToSelf());
+        throw;
+    }
+    if (!RevertToSelf())
+    {
+        throw std::runtime_error("RevertToSelf for profile test failed");
+    }
+    check(resolved.filename() == L"profile_1.json" &&
+              resolved.parent_path().filename() == L"profiles" &&
+              resolved.parent_path().parent_path().filename() == L"PersonalVPN",
+          "profile path is derived under the caller's fixed PersonalVPN profile root");
+}
 #endif
 
 } // namespace
@@ -319,6 +387,7 @@ int main()
     try
     {
         named_pipe_authentication_and_framing();
+        profile_paths_are_bound_to_the_impersonated_user();
     }
     catch (const std::exception& error)
     {

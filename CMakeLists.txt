@@ -134,8 +134,11 @@ endif()
 
 add_library(personal_vpn_broker_protocol src/broker/broker_protocol.cpp)
 if(WIN32)
-    target_sources(personal_vpn_broker_protocol PRIVATE src/broker/windows_broker_pipe.cpp)
-    target_link_libraries(personal_vpn_broker_protocol PRIVATE advapi32)
+    target_sources(personal_vpn_broker_protocol PRIVATE
+        src/broker/windows_broker_pipe.cpp
+        src/broker/windows_broker_profile.cpp
+    )
+    target_link_libraries(personal_vpn_broker_protocol PRIVATE advapi32 userenv)
     target_compile_definitions(personal_vpn_broker_protocol PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 endif()
 add_library(PersonalVPN::BrokerProtocol ALIAS personal_vpn_broker_protocol)

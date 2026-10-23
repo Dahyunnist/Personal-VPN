@@ -24,6 +24,8 @@
 
 `load_client_config(path, ClientNetworkPolicy)` 已提供路由约束入口：profile 中的每条路由必须精确匹配受信任策略，默认路由也需策略单独授权。该策略必须来自管理员保护的服务配置，不能由 profile 或 IPC 构造。目前服务尚未接入此入口；无策略重载仍用于现有提权式客户端，不构成 broker 授权。
 
+Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受协议限定的 ASCII ID，并从当前线程模拟令牌读取用户 profile 目录，固定解析到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles\<id>.json`。缺少模拟令牌即失败；调用方不能传入路径。此 helper 只解析路径，不创建目录或验证文件 ACL；服务集成时仍须在模拟身份期间读取文件，并验证配置及凭据句柄。
+
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 
 服务应以执行所需 Wintun 和网络操作的最低权限身份运行。通过提升权限集成测试确定并记录准确令牌权限；没有证据时不得默认使用 LocalSystem。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入。安装及更改服务 ACL 必须通过管理员明确批准的安装程序执行。

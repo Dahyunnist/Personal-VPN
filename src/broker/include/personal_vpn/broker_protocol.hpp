@@ -46,6 +46,7 @@ inline constexpr std::size_t maximum_response_message_size = 480U;
 
 [[nodiscard]] std::vector<std::uint8_t> encode_request(const Request& request);
 [[nodiscard]] Request decode_request(const std::vector<std::uint8_t>& frame);
+[[nodiscard]] bool is_valid_profile_id(const std::string& profile_id) noexcept;
 [[nodiscard]] std::vector<std::uint8_t> encode_response(const Response& response);
 [[nodiscard]] Response decode_response(const std::vector<std::uint8_t>& frame);
 

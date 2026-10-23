@@ -51,7 +51,7 @@ std::uint64_t read_u64(const std::vector<std::uint8_t>& input, const std::size_t
     return value;
 }
 
-bool valid_profile_id(const std::string& profile_id) noexcept
+bool valid_profile_id_impl(const std::string& profile_id) noexcept
 {
     if (profile_id.empty() || profile_id.size() > maximum_profile_id_size)
     {
@@ -71,6 +71,11 @@ bool valid_profile_id(const std::string& profile_id) noexcept
 }
 
 } // namespace
+
+bool is_valid_profile_id(const std::string& profile_id) noexcept
+{
+    return valid_profile_id_impl(profile_id);
+}
 
 std::vector<std::uint8_t> encode_request(const Request& request)
 {
@@ -93,7 +98,7 @@ std::vector<std::uint8_t> encode_request(const Request& request)
     switch (request.type)
     {
         case RequestType::Connect:
-            if (!valid_profile_id(request.profile_id))
+            if (!is_valid_profile_id(request.profile_id))
             {
                 throw std::invalid_argument("broker profile ID is invalid");
             }
@@ -171,7 +176,7 @@ Request decode_request(const std::vector<std::uint8_t>& frame)
             request.profile_id.assign(frame.begin() +
                                           static_cast<std::ptrdiff_t>(frame_header_size + 2U),
                                       frame.end());
-            if (!valid_profile_id(request.profile_id))
+            if (!is_valid_profile_id(request.profile_id))
             {
                 throw std::invalid_argument("broker profile ID is invalid");
             }
