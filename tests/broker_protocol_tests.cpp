@@ -1,10 +1,20 @@
 #include "personal_vpn/broker_protocol.hpp"
+#ifdef _WIN32
+#include "personal_vpn/windows_broker_pipe.hpp"
+#include <sddl.h>
+#endif
 
 #include <cstdlib>
+#include <exception>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#include <thread>
+#include <chrono>
+#endif
 
 namespace
 {
@@ -160,6 +170,120 @@ void reject_connection_replays()
                    "connection decoder rejects duplicate request before dispatch");
 }
 
+#ifdef _WIN32
+std::wstring current_logon_sid()
+{
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        throw std::runtime_error("OpenProcessToken failed");
+    }
+    std::unique_ptr<void, decltype(&CloseHandle)> token_owner(token, CloseHandle);
+    DWORD size = 0U;
+    static_cast<void>(GetTokenInformation(token, TokenGroups, nullptr, 0U, &size));
+    std::vector<std::uint8_t> buffer(size);
+    if (size == 0U || !GetTokenInformation(token, TokenGroups, buffer.data(), size, &size))
+    {
+        throw std::runtime_error("GetTokenInformation(TokenGroups) failed");
+    }
+    const auto* groups = reinterpret_cast<const TOKEN_GROUPS*>(buffer.data());
+    for (DWORD index = 0U; index < groups->GroupCount; ++index)
+    {
+        const auto& group = groups->Groups[index];
+        if ((group.Attributes & SE_GROUP_LOGON_ID) != SE_GROUP_LOGON_ID)
+        {
+            continue;
+        }
+        LPWSTR sid = nullptr;
+        if (!ConvertSidToStringSidW(group.Sid, &sid))
+        {
+            throw std::runtime_error("ConvertSidToStringSidW failed");
+        }
+        const std::wstring result(sid);
+        static_cast<void>(LocalFree(sid));
+        return result;
+    }
+    throw std::runtime_error("current token has no logon SID");
+}
+
+void named_pipe_authentication_and_framing()
+{
+    using namespace personal_vpn::broker;
+    DWORD session_id = 0U;
+    if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
+    {
+        throw std::runtime_error("ProcessIdToSessionId failed");
+    }
+    const auto sid = current_logon_sid();
+    const auto server = create_broker_pipe_server(sid);
+    std::unique_ptr<void, decltype(&CloseHandle)> server_owner(server, CloseHandle);
+    HANDLE completed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (completed == nullptr)
+    {
+        throw std::runtime_error("CreateEventW failed");
+    }
+    std::unique_ptr<void, decltype(&CloseHandle)> completed_owner(completed, CloseHandle);
+    const auto frame = encode_request({RequestType::GetStatus, 101U, {}});
+    std::thread client([&frame, completed]
+    {
+        HANDLE pipe = INVALID_HANDLE_VALUE;
+        for (int attempt = 0; attempt < 100; ++attempt)
+        {
+            pipe = CreateFileW(L"\\\\.\\pipe\\PersonalVPN-Broker-v1",
+                               GENERIC_READ | GENERIC_WRITE,
+                               0U,
+                               nullptr,
+                               OPEN_EXISTING,
+                               SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION,
+                               nullptr);
+            if (pipe != INVALID_HANDLE_VALUE)
+            {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+        std::unique_ptr<void, decltype(&CloseHandle)> pipe_owner(pipe, CloseHandle);
+        DWORD written = 0U;
+        static_cast<void>(WriteFile(pipe,
+                                    frame.data(),
+                                    static_cast<DWORD>(frame.size()),
+                                    &written,
+                                    nullptr));
+        static_cast<void>(WaitForSingleObject(completed, 5'000U));
+    });
+    RequestDecoder decoder;
+    std::exception_ptr server_error;
+    try
+    {
+        const bool accepted = accept_broker_pipe_client(server);
+        if (accepted)
+        {
+            const auto request = read_authenticated_broker_request(server, sid, session_id, decoder);
+            check(request.type == RequestType::GetStatus && request.request_id == 101U,
+                  "named pipe authenticates current logon and decodes one request");
+        }
+        else
+        {
+            check(false, "named pipe accepts a local client");
+        }
+    }
+    catch (...)
+    {
+        server_error = std::current_exception();
+    }
+    static_cast<void>(SetEvent(completed));
+    client.join();
+    if (server_error)
+    {
+        std::rethrow_exception(server_error);
+    }
+}
+#endif
+
 } // namespace
 
 int main()
@@ -167,6 +291,16 @@ int main()
     round_trip();
     reject_invalid_inputs();
     reject_connection_replays();
+#ifdef _WIN32
+    try
+    {
+        named_pipe_authentication_and_framing();
+    }
+    catch (const std::exception& error)
+    {
+        check(false, std::string("named pipe integration failed: ") + error.what());
+    }
+#endif
     if (failures != 0)
     {
         std::cerr << failures << " broker protocol test(s) failed\n";

@@ -223,9 +223,21 @@ bool authenticate_broker_pipe_client(const HANDLE pipe,
                                      const DWORD expected_session_id)
 {
     DWORD pipe_session_id = 0U;
-    if (pipe == INVALID_HANDLE_VALUE ||
-        !GetNamedPipeClientSessionId(pipe, &pipe_session_id) ||
-        pipe_session_id != expected_session_id || !ImpersonateNamedPipeClient(pipe))
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        SetLastError(ERROR_INVALID_HANDLE);
+        return false;
+    }
+    if (!GetNamedPipeClientSessionId(pipe, &pipe_session_id))
+    {
+        return false;
+    }
+    if (pipe_session_id != expected_session_id)
+    {
+        SetLastError(ERROR_INVALID_DATA);
+        return false;
+    }
+    if (!ImpersonateNamedPipeClient(pipe))
     {
         return false;
     }
@@ -248,6 +260,16 @@ bool authenticate_broker_pipe_client(const HANDLE pipe,
         }
         DWORD session_id = 0U;
         DWORD returned = 0U;
+        SECURITY_IMPERSONATION_LEVEL impersonation_level = SecurityAnonymous;
+        if (!GetTokenInformation(token,
+                                 TokenImpersonationLevel,
+                                 &impersonation_level,
+                                 sizeof(impersonation_level),
+                                 &returned) ||
+            impersonation_level < SecurityImpersonation)
+        {
+            break;
+        }
         if (!GetTokenInformation(token, TokenSessionId, &session_id, sizeof(session_id), &returned) ||
             session_id != expected_session_id)
         {
@@ -286,7 +308,12 @@ bool authenticate_broker_pipe_client(const HANDLE pipe,
         static_cast<void>(LocalFree(expected_sid));
     }
     const auto reverted = impersonation_guard.revert();
-    return authenticated && reverted;
+    if (!authenticated || !reverted)
+    {
+        SetLastError(ERROR_ACCESS_DENIED);
+        return false;
+    }
+    return true;
 }
 
 Request read_authenticated_broker_request(const HANDLE pipe,
@@ -301,7 +328,9 @@ Request read_authenticated_broker_request(const HANDLE pipe,
     };
     if (!authenticate_broker_pipe_client(pipe, authorized_logon_sid, expected_session_id))
     {
-        disconnect_and_throw("broker pipe peer authentication failed");
+        static_cast<void>(DisconnectNamedPipe(pipe));
+        throw std::runtime_error("broker pipe peer authentication failed with Win32 error " +
+                                 std::to_string(GetLastError()));
     }
 
     const auto deadline = GetTickCount64() + pipe_operation_timeout_ms;
