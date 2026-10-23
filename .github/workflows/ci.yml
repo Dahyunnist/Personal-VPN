@@ -258,3 +258,13 @@ jobs:
           $sbom = Get-ChildItem $sbomRoot -Recurse -Filter '*.spdx.json' | Select-Object -First 1
           if (-not $sbom) { throw "vcpkg SPDX SBOM was not created under $sbomRoot" }
           $package | Format-List FullName, Length
+      - name: Exercise dual-stack WFP runtime policy
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:GITHUB_WORKSPACE 'out/ci-windows-client'
+          $test = Get-ChildItem -Path $build -Recurse -Filter 'windows_kill_switch_runtime_tests.exe' |
+            Select-Object -First 1
+          if (-not $test) { throw 'Windows WFP runtime integration test was not built' }
+          $env:PERSONAL_VPN_RUN_WFP_INTEGRATION = '1'
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

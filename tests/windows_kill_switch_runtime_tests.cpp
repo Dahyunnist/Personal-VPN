@@ -9,7 +9,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
-#include <system_error>
+#include <string>
+#include <vector>
 
 namespace
 {
@@ -29,13 +30,67 @@ class DynamicSession final
     void* handle_{nullptr};
 };
 
+class PersistentPolicy final
+{
+   public:
+    ~PersistentPolicy()
+    {
+        if (installed_)
+        {
+            try
+            {
+                personal_vpn::client::disable_windows_kill_switch();
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    void install()
+    {
+        personal_vpn::client::WindowsVpnEndpoint ipv4{};
+        ipv4.address[0U] = 127U;
+        ipv4.address[3U] = 1U;
+        ipv4.port = 443U;
+
+        personal_vpn::client::WindowsVpnEndpoint ipv6{};
+        ipv6.address[15U] = 1U;
+        ipv6.port = 443U;
+        ipv6.ipv6 = true;
+
+        personal_vpn::client::enable_windows_kill_switch({ipv4, ipv6});
+        installed_ = true;
+    }
+
+    void remove()
+    {
+        personal_vpn::client::disable_windows_kill_switch();
+        installed_ = false;
+    }
+
+   private:
+    bool installed_{false};
+};
+
 } // namespace
 
 int main()
 {
+    const char* github_actions = std::getenv("GITHUB_ACTIONS");
+    const char* enable_integration = std::getenv("PERSONAL_VPN_RUN_WFP_INTEGRATION");
+    if (github_actions == nullptr || std::string(github_actions) != "true" ||
+        enable_integration == nullptr || std::string(enable_integration) != "1")
+    {
+        std::cout << "Skipped: WFP integration is restricted to opted-in GitHub runners\n";
+        return 77;
+    }
+
+    PersistentPolicy policy;
+    DynamicSession session;
     try
     {
-        DynamicSession session;
+        policy.install();
         personal_vpn::client::replace_windows_tunnel_permit(session.handle(), 1U);
         if (session.handle() == nullptr)
         {
@@ -66,18 +121,9 @@ int main()
             return EXIT_FAILURE;
         }
         personal_vpn::client::close_windows_tunnel_permit(session.handle());
+        policy.remove();
         std::cout << "Windows WFP dynamic session lifecycle passed\n";
         return EXIT_SUCCESS;
-    }
-    catch (const std::system_error& error)
-    {
-        if (error.code().value() == static_cast<int>(ERROR_ACCESS_DENIED))
-        {
-            std::cout << "Skipped: WFP dynamic-session test requires elevation\n";
-            return 77;
-        }
-        std::cerr << "Windows WFP dynamic session lifecycle failed: " << error.what() << '\n';
-        return EXIT_FAILURE;
     }
     catch (const std::exception& error)
     {
