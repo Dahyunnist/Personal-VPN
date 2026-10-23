@@ -177,6 +177,25 @@ Response BrokerRuntimeRegistry::dispatch(const std::string& peer_user_sid,
     return rejected(request.request_id, "request type is unsupported");
 }
 
+void BrokerRuntimeRegistry::disconnect_user(const std::string& peer_user_sid) noexcept
+{
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto found = sessions_.find(peer_user_sid);
+        if (found == sessions_.end())
+        {
+            return;
+        }
+        session = std::move(found->second);
+        sessions_.erase(found);
+    }
+    if (session && session->runtime && stop_and_wait(*session->runtime))
+    {
+        session->state.store(client::ClientRuntimeState::Stopped);
+    }
+}
+
 void BrokerRuntimeRegistry::shutdown() noexcept
 {
     std::vector<std::shared_ptr<Session>> sessions;

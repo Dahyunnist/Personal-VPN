@@ -28,6 +28,7 @@ class BrokerRuntimeRegistry final
     // peer_user_sid must come from authenticated named-pipe TokenUser inspection.
     [[nodiscard]] Response dispatch(const std::string& peer_user_sid,
                                     const Request& request);
+    void disconnect_user(const std::string& peer_user_sid) noexcept;
     void shutdown() noexcept;
 
    private:

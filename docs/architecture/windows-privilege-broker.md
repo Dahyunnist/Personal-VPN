@@ -28,7 +28,7 @@
 
 Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受协议限定的 ASCII ID，并从当前线程模拟令牌读取用户 profile 目录，固定解析到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles\<id>.json`。缺少模拟令牌即失败；调用方不能传入路径。`PersonalVPN::BrokerRuntime` 的 `load_impersonated_profile` 会在同一模拟身份下从该固定路径载入 profile，并强制应用调用方传入的受信网络策略。helper 不创建目录；服务尚未集成此库，安装路径 ACL 和真实用户 profile 生命周期仍待验证。
 
-`BrokerRuntimeRegistry` 已将 `Connect`、`Disconnect`、`GetStatus` 映射到 `ClientRuntimeControl`，按已认证的 TokenUser SID 限制每用户单一运行时，状态响应只返回固定短消息。断开和 registry shutdown 会停止并 join 运行时；构造异常映射为固定拒绝消息。服务仍需先验证管道令牌、在模拟身份下创建 profile/runtime，再调用 registry；该 dispatcher 尚未连接 SCM 或命名管道循环。
+`BrokerRuntimeRegistry` 已将 `Connect`、`Disconnect`、`GetStatus` 映射到 `ClientRuntimeControl`，按已认证的 TokenUser SID 限制每用户单一运行时，状态响应只返回固定短消息。Windows `serve_broker_pipe_session` 已把认证、请求解码、调用者模拟、registry 派发、关联响应和断线清理串成一个真实管道会话；客户端断开后会停止并 join 其运行时。仍未实现 SCM 服务主循环、登录会话发现、服务安装配置和 UI 长连接客户端。
 
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 

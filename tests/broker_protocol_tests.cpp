@@ -3,6 +3,8 @@
 #include "personal_vpn/windows_broker_pipe.hpp"
 #include "personal_vpn/windows_broker_profile.hpp"
 #include "personal_vpn/windows_broker_profile_loader.hpp"
+#include "personal_vpn/windows_broker_pipe_session.hpp"
+#include "personal_vpn/broker_runtime_registry.hpp"
 #include <sddl.h>
 #endif
 
@@ -308,6 +310,102 @@ void named_pipe_authentication_and_framing()
     }
 }
 
+class PipeTestRuntime final : public personal_vpn::client::ClientRuntimeControl
+{
+   public:
+    PipeTestRuntime(EventHandler handler, std::atomic<int>& stopped, std::atomic<int>& waited)
+        : handler_(std::move(handler)), stopped_(stopped), waited_(waited)
+    {
+    }
+
+    void start() override
+    {
+        state_ = personal_vpn::client::ClientRuntimeState::Resolving;
+        handler_({state_, {}});
+    }
+
+    void stop() override
+    {
+        ++stopped_;
+        state_ = personal_vpn::client::ClientRuntimeState::Stopped;
+        handler_({state_, {}});
+    }
+
+    void wait() override { ++waited_; }
+
+    [[nodiscard]] personal_vpn::client::ClientRuntimeState state() const noexcept override
+    {
+        return state_.load();
+    }
+
+    [[nodiscard]] std::string failure_message() const override { return {}; }
+
+   private:
+    EventHandler handler_;
+    std::atomic<int>& stopped_;
+    std::atomic<int>& waited_;
+    std::atomic<personal_vpn::client::ClientRuntimeState> state_{
+        personal_vpn::client::ClientRuntimeState::Stopped};
+};
+
+void broker_pipe_session_dispatches_and_cleans_up()
+{
+    using namespace personal_vpn::broker;
+    DWORD session_id = 0U;
+    if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
+    {
+        throw std::runtime_error("ProcessIdToSessionId failed for dispatcher test");
+    }
+    const auto sid = current_logon_sid();
+    const auto server = create_broker_pipe_server(sid);
+    std::unique_ptr<void, decltype(&CloseHandle)> server_owner(server, CloseHandle);
+
+    std::atomic<int> stopped{0};
+    std::atomic<int> waited{0};
+    BrokerRuntimeRegistry registry(
+        [&stopped, &waited](const std::string& profile_id,
+                            personal_vpn::client::ClientRuntimeControl::EventHandler handler)
+        {
+            static_cast<void>(resolve_impersonated_profile_path(profile_id));
+            return std::make_unique<PipeTestRuntime>(std::move(handler), stopped, waited);
+        });
+    std::atomic<bool> client_ok{false};
+    std::thread client([&client_ok]
+    {
+        const auto pipe = connect_broker_pipe_client(1'000U);
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+        std::unique_ptr<void, decltype(&CloseHandle)> pipe_owner(pipe, CloseHandle);
+        if (!write_broker_request(pipe,
+                                  {RequestType::Connect, 202U, "profile_dispatch_test"}))
+        {
+            return;
+        }
+        try
+        {
+            const auto response = read_broker_response(pipe, 202U);
+            client_ok.store(response.type == ResponseType::Accepted && !response.connected &&
+                            response.message == "connecting");
+        }
+        catch (...)
+        {
+        }
+    });
+
+    if (!accept_broker_pipe_client(server))
+    {
+        client.join();
+        throw std::runtime_error("broker dispatcher pipe accept failed");
+    }
+    serve_broker_pipe_session(server, sid, session_id, registry);
+    client.join();
+    check(client_ok.load(), "pipe session dispatches Connect and returns correlated response");
+    check(stopped == 1 && waited == 1,
+          "pipe disconnect stops and joins the runtime created under caller impersonation");
+}
+
 void profile_paths_are_bound_to_the_impersonated_user()
 {
     using namespace personal_vpn::broker;
@@ -401,6 +499,7 @@ int main()
     try
     {
         named_pipe_authentication_and_framing();
+        broker_pipe_session_dispatches_and_cleans_up();
         profile_paths_are_bound_to_the_impersonated_user();
     }
     catch (const std::exception& error)
