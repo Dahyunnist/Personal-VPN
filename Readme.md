@@ -29,7 +29,7 @@ flowchart LR
 - **Windows 双栈网络事务：** 配置 Wintun、IPv4/IPv6 地址、双栈 MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
 - **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
 - **运行与发布基础：** Linux 服务端配置和 systemd 示例、JSON 指标、CI、ASan/UBSan、协议模糊测试、基准测试、CPack 打包及发布校验流程。
-- **Windows 权限边界探索：** broker 已将认证命名管道会话接到运行时注册表，支持 Connect/Disconnect/Status，并在客户端断线时停止运行时；profile 解析与受信路由策略也已具备。SCM 主循环、服务安装、低权限 UI 和 UI 长连接仍未完成，当前 GUI 仍需提升权限运行。
+- **Windows 权限边界探索：** broker 已将认证命名管道会话接到运行时注册表，支持 Connect/Disconnect/Status，并在客户端断线时停止运行时；profile 解析、受信路由策略与机器策略 ACL 校验也已具备。SCM 主循环、策略加载接线、服务安装、低权限 UI 和 UI 长连接仍未完成，当前 GUI 仍需提升权限运行。
 
 ## 验证状态
 

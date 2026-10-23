@@ -214,6 +214,8 @@ endif()
 
 if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
     add_library(personal_vpn_broker_runtime
+        src/broker/broker_service_policy.cpp
+        src/broker/windows_broker_service_policy.cpp
         src/broker/broker_runtime_registry.cpp
         src/broker/windows_broker_profile_loader.cpp
         src/broker/windows_broker_pipe_session.cpp

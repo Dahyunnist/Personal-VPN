@@ -26,6 +26,8 @@
 
 `load_client_config(path, ClientNetworkPolicy)` 已提供路由约束入口：profile 中的每条路由必须精确匹配受信任策略，默认路由也需策略单独授权。该策略必须来自管理员保护的服务配置，不能由 profile 或 IPC 构造。目前服务尚未接入此入口；无策略重载仍用于现有提权式客户端，不构成 broker 授权。
 
+`parse_broker_network_policy` 解析版本化机器策略，严格限制字段、CIDR、重复项和路由数量。Windows `load_broker_network_policy` 要求策略文件及直接父目录由 SYSTEM/Administrators 拥有，拒绝非可信主体写权限、空 DACL、reparse 点和超过 64 KiB 的文件，并从已校验句柄读取。服务配置范例为 [`configs/broker-policy.example.json`](../../configs/broker-policy.example.json)。安装时应复制为 `%ProgramData%\PersonalVPN\broker-policy.json`，并将目录与文件 ACL 限制为 SYSTEM/Administrators。SCM 宿主尚未加载该文件，因此当前尚无实际特权请求路径。
+
 Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受协议限定的 ASCII ID，并从当前线程模拟令牌读取用户 profile 目录，固定解析到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles\<id>.json`。缺少模拟令牌即失败；调用方不能传入路径。`PersonalVPN::BrokerRuntime` 的 `load_impersonated_profile` 会在同一模拟身份下从该固定路径载入 profile，并强制应用调用方传入的受信网络策略。helper 不创建目录；服务尚未集成此库，安装路径 ACL 和真实用户 profile 生命周期仍待验证。
 
 `BrokerRuntimeRegistry` 已将 `Connect`、`Disconnect`、`GetStatus` 映射到 `ClientRuntimeControl`，按已认证的 TokenUser SID 限制每用户单一运行时，状态响应只返回固定短消息。Windows `serve_broker_pipe_session` 已把认证、请求解码、调用者模拟、registry 派发、关联响应和断线清理串成一个真实管道会话；客户端断开后会停止并 join 其运行时。仍未实现 SCM 服务主循环、登录会话发现、服务安装配置和 UI 长连接客户端。

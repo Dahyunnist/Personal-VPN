@@ -214,20 +214,9 @@ std::string validate_route(const std::string& route, const bool allow_default_ro
 static ClientConfig load_client_config_impl(const std::filesystem::path& config_file,
                                             const ClientNetworkPolicy* policy)
 {
-    std::set<std::string> allowed_routes;
     if (policy != nullptr)
     {
-        if (policy->allowed_routes.empty() || policy->allowed_routes.size() > 64U)
-        {
-            throw std::invalid_argument("trusted network policy must contain 1 to 64 routes");
-        }
-        for (const auto& route : policy->allowed_routes)
-        {
-            if (!allowed_routes.insert(validate_route(route, policy->allow_default_route)).second)
-            {
-                throw std::invalid_argument("trusted network policy contains duplicate routes");
-            }
-        }
+        validate_client_network_policy(*policy);
     }
     const auto absolute_config = std::filesystem::absolute(config_file).lexically_normal();
     std::error_code file_error;
@@ -288,6 +277,11 @@ static ClientConfig load_client_config_impl(const std::filesystem::path& config_
         throw std::invalid_argument("tunnel.routes must contain between 1 and 64 routes");
     }
     std::set<std::string> unique_routes;
+    const std::set<std::string> allowed_routes = policy == nullptr
+                                                     ? std::set<std::string>{}
+                                                     : std::set<std::string>(
+                                                           policy->allowed_routes.begin(),
+                                                           policy->allowed_routes.end());
     for (const auto& entry : *routes)
     {
         if (!entry.first.empty() || !entry.second.empty())
@@ -331,6 +325,27 @@ ClientConfig load_client_config(const std::filesystem::path& config_file,
                                 const ClientNetworkPolicy& policy)
 {
     return load_client_config_impl(config_file, &policy);
+}
+
+void validate_client_network_policy(const ClientNetworkPolicy& policy)
+{
+    if (policy.allowed_routes.empty() || policy.allowed_routes.size() > 64U)
+    {
+        throw std::invalid_argument("trusted network policy must contain 1 to 64 routes");
+    }
+    std::set<std::string> unique_routes;
+    for (const auto& route : policy.allowed_routes)
+    {
+        if (!unique_routes.insert(validate_route(route, policy.allow_default_route)).second)
+        {
+            throw std::invalid_argument("trusted network policy contains duplicate routes");
+        }
+    }
+    if (!policy.allow_default_route &&
+        (unique_routes.count("0.0.0.0/0") != 0U || unique_routes.count("::/0") != 0U))
+    {
+        throw std::invalid_argument("trusted network policy default route is not authorized");
+    }
 }
 
 } // namespace personal_vpn::client

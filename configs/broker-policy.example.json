@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "network": {
+    "allowed_routes": ["10.8.0.0/24", "fd00:8::/64"],
+    "allow_default_route": false
+  }
+}

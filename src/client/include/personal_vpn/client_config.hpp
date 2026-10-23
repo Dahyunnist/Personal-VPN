@@ -32,6 +32,7 @@ struct ClientNetworkPolicy
 [[nodiscard]] ClientConfig load_client_config(const std::filesystem::path& config_file);
 [[nodiscard]] ClientConfig load_client_config(const std::filesystem::path& config_file,
                                               const ClientNetworkPolicy& policy);
+void validate_client_network_policy(const ClientNetworkPolicy& policy);
 
 } // namespace personal_vpn::client
 
