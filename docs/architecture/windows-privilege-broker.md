@@ -12,6 +12,8 @@
 
 使用带版本和长度前缀的本地命名管道协议。服务端拒绝远程管道客户端、格式错误或超大消息、未知版本、未知消息类型及重复请求 ID。每条连接最多接受 256 个唯一请求 ID；达到上限后必须关闭连接，避免重放跟踪内存无界增长。初始消息只允许：
 
+当前 Windows broker pipe helper 已创建固定名称的首个实例，DACL 只授予 SYSTEM、Administrators 和服务提供的授权登录 SID，并启用 `PIPE_REJECT_REMOTE_CLIENTS`。服务尚未集成该 helper；授权 SID 的会话发现、连接后令牌模拟/校验和请求处理仍未实现，因此此代码本身不构成可运行的 broker 服务。
+
 - `Connect(profile_id)`；
 - `Disconnect(request_id)`；
 - `GetStatus(request_id)`。
