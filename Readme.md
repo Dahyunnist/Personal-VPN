@@ -40,7 +40,8 @@ flowchart LR
 | --- | --- | --- |
 | Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
 | Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
-| Windows ZIP 内容 | 校验通过 | 本地打包内容检查通过；本机已有的 Wintun DLL 缺少随包许可证文件，因此该 ZIP 不可直接作为可分发产品包 |
+| Windows broker 安装器集成 | 已加入 CI，待首次远程运行 | 覆盖 `-WhatIf`、拒绝用户可写来源、失败回滚、SCM 安装/启动/卸载和策略保留；不覆盖真实隧道流量 |
+| Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
 以上测试验证代码构建和自动化测试，不代表真实公网 IPv6 连通性、双主机部署或生产环境验证。Linux 服务端不会自动开启 IPv6 转发、配置云防火墙、上游路由或 NAT66；部署前请阅读 [IPv6 部署说明](docs/operations/ipv6-deployment.md)。

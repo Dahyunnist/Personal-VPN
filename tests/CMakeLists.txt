@@ -9,6 +9,9 @@ else()
 endif()
 
 if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+    add_executable(broker_service_failure_fixture windows_broker_service_failure_fixture.cpp)
+    target_compile_features(broker_service_failure_fixture PRIVATE cxx_std_17)
+
     add_executable(client_credential_security_tests client_credential_security_tests.cpp)
     target_link_libraries(client_credential_security_tests PRIVATE
         PersonalVPN::ClientTransport PersonalVPN::BrokerRuntime)

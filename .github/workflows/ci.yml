@@ -220,6 +220,28 @@ jobs:
         run: |
           cmake --build out/ci-windows-client --config Release --parallel 2
           ctest --test-dir out/ci-windows-client -C Release --output-on-failure --timeout 30
+      - name: Exercise broker installer lifecycle
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:GITHUB_WORKSPACE 'out/ci-windows-client'
+          $broker = Get-ChildItem -Path $build -Recurse -Filter 'personal-vpn-broker-service.exe' |
+            Where-Object FullName -NotLike '*\_deps\*' | Select-Object -First 1
+          $client = Get-ChildItem -Path $build -Recurse -Filter 'personal-vpn-client.exe' |
+            Select-Object -First 1
+          $failureFixture = Get-ChildItem -Path $build -Recurse -Filter 'broker_service_failure_fixture.exe' |
+            Select-Object -First 1
+          if (-not $broker -or -not $client -or -not $failureFixture) {
+            throw 'Windows broker integration test executables were not built'
+          }
+          $wintun = Join-Path $client.DirectoryName 'wintun.dll'
+          if (-not (Test-Path -LiteralPath $wintun -PathType Leaf)) {
+            throw "Built client is missing adjacent Wintun DLL: $wintun"
+          }
+          & tests/windows_broker_installer_integration.ps1 `
+            -BrokerExecutable $broker.FullName `
+            -ClientExecutable $client.FullName `
+            -WintunDll $wintun `
+            -FailureServiceExecutable $failureFixture.FullName
       - name: Verify package
         shell: pwsh
         run: |

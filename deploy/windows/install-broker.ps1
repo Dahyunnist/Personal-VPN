@@ -279,6 +279,14 @@ try {
                 Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
             }
             & sc.exe delete $serviceName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "sc.exe delete failed during rollback: $LASTEXITCODE" }
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                if (-not (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) { break }
+                Start-Sleep -Seconds 1
+            }
+            if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+                throw 'Service removal is pending during rollback; binaries were preserved.'
+            }
         }
         if (Test-Path -LiteralPath $programDirectory) {
             Remove-Item -LiteralPath $programDirectory -Recurse -Force
