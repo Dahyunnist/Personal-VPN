@@ -4,6 +4,8 @@
 
 桌面 UI 应以普通用户权限运行。当前路由后端调用 `CreateIpForwardEntry2`，而 [Microsoft 文档说明该 API 要求管理员令牌](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-createipforwardentry2)。小型 Windows 服务负责 TLS 客户端、凭据加载、Wintun 会话、接口配置和路由事务。
 
+服务身份是尚未关闭的安全设计门槛：[Microsoft 文档规定 `WTSQueryUserToken` 只允许 LocalSystem 且需要 `SeTcbPrivilege`](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsqueryusertoken)，而上述路由 API 也要求管理员身份。因此不能未经实测就声称普通虚拟服务账号足够，也不能默认采用 LocalSystem。实现前须比较服务会话枚举与基于命名管道客户端令牌的身份绑定方案；若最终需要 LocalSystem，必须限制服务 SID、对象 ACL、可执行文件和配置写权限，并以一次性 VM 验证最小必需权限及恢复行为。
+
 服务端必须先认证 VPN 服务端，并验证 `IP_ASSIGN`，之后才能修改网络状态。这样可以防止被攻破或篡改的 UI 要求特权进程安装任意路由。
 
 在服务路径通过下述验收门槛前，保留现有 UI 自行提权路径。broker 集成完成前，不要删除旧路径，也不要发布会静默连接失败的 UI。
@@ -28,7 +30,7 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 
-服务应以执行所需 Wintun 和网络操作的最低权限身份运行。通过提升权限集成测试确定并记录准确令牌权限；没有证据时不得默认使用 LocalSystem。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入。安装及更改服务 ACL 必须通过管理员明确批准的安装程序执行。
+服务应以执行所需 Wintun 和网络操作的最低权限身份运行。通过提升权限集成测试确定并记录准确令牌权限；LocalSystem 只有在会话发现确实需要 `WTSQueryUserToken` 且替代方案不适用时才可考虑。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入。安装及更改服务 ACL 必须通过管理员明确批准的安装程序执行。
 
 ## 集成顺序
 
