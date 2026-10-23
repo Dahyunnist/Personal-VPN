@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-v3-${{ github.workflow }}-${{ github.ref }}
+  group: ci-v4-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -274,6 +274,21 @@ jobs:
           $test = Get-ChildItem -Path $build -Recurse -Filter 'windows_kill_switch_runtime_tests.exe' |
             Select-Object -First 1
           if (-not $test) { throw 'Windows WFP runtime integration test was not built' }
+          $runnerProcessIds = @($PID) + @(
+            Get-Process -Name 'Runner.Listener', 'Runner.Worker' -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty Id
+          )
+          $runnerConnections = @(
+            Get-NetTCPConnection -State Established -ErrorAction Stop |
+              Where-Object { $runnerProcessIds -contains $_.OwningProcess -and $_.RemotePort -gt 0 } |
+              Select-Object -Unique RemoteAddress, RemotePort
+          )
+          if ($runnerConnections.Count -eq 0) { throw 'No active GitHub runner control-plane TCP connections found' }
+          if ($runnerConnections.Count -gt 30) { throw 'Too many active GitHub runner control-plane TCP connections to allow safely' }
+          $env:PERSONAL_VPN_TEST_PERMIT_ENDPOINTS = ($runnerConnections | ForEach-Object {
+            "$($_.RemoteAddress -replace '%\d+$', '')|$($_.RemotePort)"
+          }) -join ';'
+          Write-Host "Temporarily preserving $($runnerConnections.Count) active runner TCP endpoints"
           $env:PERSONAL_VPN_RUN_WFP_INTEGRATION = '1'
           $stdout = Join-Path $env:RUNNER_TEMP 'windows-wfp-runtime.stdout.log'
           $stderr = Join-Path $env:RUNNER_TEMP 'windows-wfp-runtime.stderr.log'
