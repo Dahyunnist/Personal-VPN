@@ -206,9 +206,13 @@ void BrokerClientRuntimeControl::run() noexcept
                                              ? "broker returned an invalid Status response"
                                              : response.message);
             }
-            publish(response.connected ? client::ClientRuntimeState::Connected
-                                       : client::ClientRuntimeState::Connecting,
-                    response.connected ? "VPN 已连接" : "等待服务器分配并配置隧道");
+            const auto next_state = response.connected ? client::ClientRuntimeState::Connected
+                                                       : client::ClientRuntimeState::Connecting;
+            if (state() != next_state)
+            {
+                publish(next_state,
+                        response.connected ? "VPN 已连接" : "等待服务器分配并配置隧道");
+            }
         }
 
         if (!stopping())

@@ -2,7 +2,6 @@
 #define VPN_CLIENT_CORE_H
 
 #include "personal_vpn/client_runtime_control.hpp"
-#include "personal_vpn/client_config.hpp"
 
 #include <atomic>
 #include <functional>
@@ -21,7 +20,7 @@ class VPNClientCore final
     VPNClientCore(const VPNClientCore&) = delete;
     VPNClientCore& operator=(const VPNClientCore&) = delete;
 
-    bool Start(personal_vpn::client::ClientConfig config, LogCallback log_callback = {});
+    bool Start(std::string profile_id, LogCallback log_callback = {});
     void Stop();
     static void DisableKillSwitch();
 

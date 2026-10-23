@@ -198,22 +198,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // 检查管理员权限
-    if (!IsRunAsAdmin()) {
-        MessageBoxW(nullptr, 
-            L"此程序需要管理员权限才能创建网络适配器。\n\n"
-            L"请右键点击程序，选择\"以管理员身份运行\"。",
-            L"需要管理员权限", 
-            MB_OK | MB_ICONWARNING);
-        // 尝试以管理员身份重新启动
-        if (argc == 1) {  // 避免无限循环
-            wchar_t exePath[MAX_PATH];
-            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-            ShellExecuteW(nullptr, L"runas", exePath, nullptr, nullptr, SW_SHOWNORMAL);
-        }
-        return 1;
-    }
-
     WNDCLASSEX wc = { 
         sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, 
         GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, 

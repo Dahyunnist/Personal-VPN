@@ -1,7 +1,9 @@
 #include "ui_main.h"
 #include "personal_vpn/client_config.hpp"
+#include "personal_vpn/windows_broker_profile_store.hpp"
 
 #include <cstring>
+#include <array>
 #include <algorithm>
 #include <exception>
 #include <utility>
@@ -111,28 +113,28 @@ LRESULT UIMain::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     return ImGui_ImplWin32_WndProcHandler(m_hwnd, msg, wParam, lParam);
 }
 
-std::string UIMain::OpenFileDialog(const char* filter) {
-    OPENFILENAMEA ofn;
-    char szFile[512] = {0};
+std::filesystem::path UIMain::OpenFileDialog() {
+    OPENFILENAMEW ofn{};
+    std::array<wchar_t, 32'768U> selected_file{};
 
-    ZeroMemory(&ofn, sizeof(ofn));
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = m_hwnd;
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = selected_file.data();
+    ofn.nMaxFile = static_cast<DWORD>(selected_file.size());
+    ofn.lpstrFilter = L"配置文件 (*.json)\0*.json\0所有文件 (*.*)\0*.*\0\0";
     ofn.nFilterIndex = 1;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
-    if (GetOpenFileNameA(&ofn)) {
-        return std::string(szFile);
+    if (GetOpenFileNameW(&ofn)) {
+        return std::filesystem::path(selected_file.data());
     }
-    return "";
+    return {};
 }
 
-bool UIMain::ImportConfig(const std::string& configPath) {
+bool UIMain::ImportConfig(const std::filesystem::path& configPath) {
     try {
-        auto config = personal_vpn::client::load_client_config(configPath);
+        const auto stored = personal_vpn::broker::store_broker_profile(configPath);
+        auto config = personal_vpn::client::load_client_config(stored.config_path);
         strncpy_s(m_serverHost, config.server_host.c_str(), _TRUNCATE);
         snprintf(m_serverPort, sizeof(m_serverPort), "%u",
                  static_cast<unsigned int>(config.server_port));
@@ -144,9 +146,11 @@ bool UIMain::ImportConfig(const std::string& configPath) {
             routes += route;
         }
         strncpy_s(m_routes, routes.c_str(), _TRUNCATE);
-        strncpy_s(m_configPath, configPath.c_str(), _TRUNCATE);
+        m_brokerProfileId = stored.profile_id;
+        const auto display_text = "已导入安全 profile（" + stored.profile_id + ")";
+        strncpy_s(m_configPath, display_text.c_str(), _TRUNCATE);
         m_clientConfig = std::move(config);
-        AddLog("配置文件校验成功；虚拟地址将由服务器分配");
+        AddLog("配置与凭据已复制到当前用户保护目录；虚拟地址将由服务器分配");
         return true;
     } catch (const std::exception& error) {
         AddLog(std::string("配置文件无效：") + error.what(), true);
@@ -192,7 +196,7 @@ void UIMain::StartVPN() {
         AddLog(line, isError);
     };
 
-    if (m_vpnClient->Start(*m_clientConfig, logCallback)) {
+    if (m_vpnClient->Start(m_brokerProfileId, logCallback)) {
         m_isStarting = true;
     } else {
         AddLog("启动请求失败", true);
@@ -241,7 +245,7 @@ void UIMain::Render() {
                     ImGuiInputTextFlags_ReadOnly);
                 ImGui::SameLine();
                 if (ImGui::Button("浏览") && !m_isConnected && !m_isStarting) {
-                    std::string path = OpenFileDialog("配置文件(*.json)\0*.json\0所有文件(*.*)\0*.*\0");
+                    const auto path = OpenFileDialog();
                     if (!path.empty()) {
                         ImportConfig(path);
                     }
@@ -288,7 +292,7 @@ void UIMain::Render() {
                         try {
                             m_vpnClient->Stop();
                             VPNClientCore::DisableKillSwitch();
-                            AddLog("全局断线保护已关闭；IPv4/IPv6 普通网络已恢复");
+                            AddLog("已请求通过 UAC 关闭全局断线保护；请确认提权操作完成");
                         } catch (const std::exception& error) {
                             AddLog(std::string("关闭断线保护失败：") + error.what(), true);
                         }

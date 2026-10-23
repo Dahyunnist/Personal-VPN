@@ -1,26 +1,27 @@
 #include "vpn_client_core.h"
 
-#include "personal_vpn/client_config.hpp"
-#include "personal_vpn/client_runtime.hpp"
-#include "personal_vpn/windows_network_backend.hpp"
+#include "personal_vpn/windows_broker_client_runtime.hpp"
 
+#include <array>
 #include <exception>
+#include <system_error>
 #include <utility>
+
+#include <Windows.h>
+#include <shellapi.h>
 
 VPNClientCore::~VPNClientCore()
 {
     Stop();
 }
 
-bool VPNClientCore::Start(personal_vpn::client::ClientConfig config,
-                          LogCallback log_callback)
+bool VPNClientCore::Start(std::string profile_id, LogCallback log_callback)
 {
     Stop();
     try
     {
-        auto runtime = std::make_unique<personal_vpn::client::ClientRuntime>(
-            std::move(config),
-            std::make_unique<personal_vpn::client::WindowsNetworkBackend>(),
+        auto runtime = std::make_unique<personal_vpn::broker::BrokerClientRuntimeControl>(
+            std::move(profile_id),
             [this](const personal_vpn::client::ClientRuntimeEvent& event)
             { OnRuntimeEvent(event); });
         {
@@ -35,6 +36,7 @@ bool VPNClientCore::Start(personal_vpn::client::ClientConfig config,
     }
     catch (const std::exception& error)
     {
+        Stop();
         {
             std::lock_guard<std::mutex> lock(mutex_);
             log_callback_ = std::move(log_callback);
@@ -67,7 +69,25 @@ void VPNClientCore::Stop()
 
 void VPNClientCore::DisableKillSwitch()
 {
-    personal_vpn::client::WindowsNetworkBackend::disable_kill_switch();
+    std::array<wchar_t, 32'768U> executable_path{};
+    const auto length = GetModuleFileNameW(nullptr,
+                                           executable_path.data(),
+                                           static_cast<DWORD>(executable_path.size()));
+    if (length == 0U || length >= executable_path.size())
+    {
+        throw std::system_error(static_cast<int>(GetLastError()),
+                                std::system_category(),
+                                "resolve PersonalVPN executable path");
+    }
+    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(
+        nullptr, L"runas", executable_path.data(), L"--disable-kill-switch", nullptr,
+        SW_SHOWNORMAL));
+    if (result <= 32)
+    {
+        throw std::system_error(static_cast<int>(result),
+                                std::system_category(),
+                                "start elevated kill-switch recovery helper");
+    }
 }
 
 std::string VPNClientCore::LastError() const

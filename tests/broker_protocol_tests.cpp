@@ -314,14 +314,21 @@ void named_pipe_authentication_and_framing()
 class PipeTestRuntime final : public personal_vpn::client::ClientRuntimeControl
 {
    public:
-    PipeTestRuntime(EventHandler handler, std::atomic<int>& stopped, std::atomic<int>& waited)
-        : handler_(std::move(handler)), stopped_(stopped), waited_(waited)
+    PipeTestRuntime(EventHandler handler,
+                    std::atomic<int>& stopped,
+                    std::atomic<int>& waited,
+                    const bool connected_on_start = false)
+        : handler_(std::move(handler)),
+          stopped_(stopped),
+          waited_(waited),
+          connected_on_start_(connected_on_start)
     {
     }
 
     void start() override
     {
-        state_ = personal_vpn::client::ClientRuntimeState::Resolving;
+        state_ = connected_on_start_ ? personal_vpn::client::ClientRuntimeState::Connected
+                                     : personal_vpn::client::ClientRuntimeState::Resolving;
         handler_({state_, {}});
     }
 
@@ -345,6 +352,7 @@ class PipeTestRuntime final : public personal_vpn::client::ClientRuntimeControl
     EventHandler handler_;
     std::atomic<int>& stopped_;
     std::atomic<int>& waited_;
+    bool connected_on_start_{false};
     std::atomic<personal_vpn::client::ClientRuntimeState> state_{
         personal_vpn::client::ClientRuntimeState::Stopped};
 };
@@ -425,7 +433,8 @@ void broker_client_runtime_controls_a_persistent_pipe_session()
         [&stopped, &waited](const std::string&,
                             personal_vpn::client::ClientRuntimeControl::EventHandler handler)
         {
-            return std::make_unique<PipeTestRuntime>(std::move(handler), stopped, waited);
+            return std::make_unique<PipeTestRuntime>(
+                std::move(handler), stopped, waited, true);
         });
     std::thread server_thread([&]
     {
@@ -440,8 +449,8 @@ void broker_client_runtime_controls_a_persistent_pipe_session()
         "broker_client_test",
         [&saw_status](const personal_vpn::client::ClientRuntimeEvent& event)
         {
-            if (event.state == personal_vpn::client::ClientRuntimeState::Connecting &&
-                event.message == "等待服务器分配并配置隧道")
+            if (event.state == personal_vpn::client::ClientRuntimeState::Connected &&
+                event.message == "VPN 已连接")
             {
                 saw_status = true;
             }

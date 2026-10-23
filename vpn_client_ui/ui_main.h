@@ -9,6 +9,7 @@
 #include <memory>
 #include <functional>
 #include <optional>
+#include <filesystem>
 
 // 必须在windows.h之前包含winsock2.h
 #ifndef WIN32_LEAN_AND_MEAN
@@ -25,6 +26,7 @@
 #include "imgui_impl_dx11.h"
 
 #include "vpn_client_core.h"
+#include "personal_vpn/client_config.hpp"
 
 // 前向声明
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -50,6 +52,7 @@ private:
     // UI状态
     char m_configPath[512] = "";
     std::optional<personal_vpn::client::ClientConfig> m_clientConfig;
+    std::string m_brokerProfileId;
     char m_serverHost[256] = "";
     char m_serverPort[16] = "";
     char m_routes[512] = "";
@@ -68,8 +71,8 @@ private:
     static constexpr size_t MAX_LOG_LINES = 1000;
 
     // 辅助函数
-    std::string OpenFileDialog(const char* filter);
-    bool ImportConfig(const std::string& configPath);
+    std::filesystem::path OpenFileDialog();
+    bool ImportConfig(const std::filesystem::path& configPath);
     void StartVPN();
     void StopVPN();
     void AddLog(const std::string& line, bool isError = false);

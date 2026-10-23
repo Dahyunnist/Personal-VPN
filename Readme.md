@@ -29,7 +29,7 @@ flowchart LR
 - **Windows 双栈网络事务：** 配置 Wintun、IPv4/IPv6 地址、双栈 MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
 - **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
 - **运行与发布基础：** Linux 服务端配置和 systemd 示例、JSON 指标、CI、ASan/UBSan、协议模糊测试、基准测试、CPack 打包及发布校验流程。
-- **Windows 权限边界探索：** 已新增 SCM broker 服务宿主、管理员安装脚本、受保护 profile 导入器和经真实管道生命周期测试的客户端运行时适配器。服务加载 SYSTEM/Administrators 保护的机器路由策略，并在断线、注销或服务停止时清理运行时。当前仅支持活动物理控制台会话；RDP、多用户并发、安装升级回滚、GUI 接入低权限 broker 及真实 Wintun 部署验证仍未完成，GUI 仍需提升权限运行。部署步骤见 [Windows broker 服务指南](docs/deployment/windows-broker.md)。
+- **Windows 权限边界探索：** SCM broker、管理员安装脚本、受保护 profile 导入器和客户端运行时适配器已接入桌面 UI。普通 UI 通过受 ACL 保护的命名管道请求服务连接，不直接创建 Wintun 或配置路由；断线、注销或服务停止时由服务清理运行时。profile 与凭据副本保存在当前用户受保护目录，尚无 GUI 清理/管理流程。当前仅支持活动物理控制台会话；RDP、多用户并发、安装升级回滚、服务 ACL 与真实 Wintun 部署验证仍未完成。部署步骤见 [Windows broker 服务指南](docs/deployment/windows-broker.md)。
 
 ## 验证状态
 
@@ -38,7 +38,7 @@ flowchart LR
 | 验证项 | 最近结果 | 说明 |
 | --- | --- | --- |
 | Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
-| Windows 构建与测试 | 10/10 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
+| Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
 | Windows ZIP 内容 | 校验通过 | 本地打包内容检查通过；本机已有的 Wintun DLL 缺少随包许可证文件，因此该 ZIP 不可直接作为可分发产品包 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
@@ -81,7 +81,7 @@ cmake --build out/windows-client --config Release --parallel
 ctest --test-dir out/windows-client -C Release --output-on-failure
 ```
 
-客户端需要提升权限运行，并导入 [`configs/client.example.json`](configs/client.example.json) 的副本。配置文件引用外部证书文件，不在配置中内嵌私钥。
+客户端 UI 正常启动不需要提升权限。连接前，管理员需按[Windows broker 服务指南](docs/deployment/windows-broker.md)安装服务并配置机器网络策略；用户再导入 [`configs/client.example.json`](configs/client.example.json) 的副本。导入会把配置和凭据复制到当前用户受保护的 profile 目录。配置文件引用外部证书文件，不在配置中内嵌私钥。关闭持续性断线保护时会单独触发 UAC 提权确认。
 
 ## 文档索引
 
@@ -124,7 +124,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 客户端支持带抖动的指数退避重连；不支持会话恢复、漫游或无缝网络切换。
 - 服务端可通过 `SIGHUP` 验证并切换 TLS 凭据；客户端凭据变更仍需重启客户端，已有会话继续使用原 TLS 上下文。
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
-- Linux 转发/路由配置和 Windows 提权仍需要管理员参与；Windows 特权 broker 尚未完整落地。
+- Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 

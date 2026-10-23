@@ -57,7 +57,7 @@ else()
 endif()
 target_link_libraries(personal-vpn-client PRIVATE
     PersonalVPN::ClientTransport
-    PersonalVPN::WindowsNetwork
+    PersonalVPN::BrokerRuntime
     personal_vpn_imgui
     user32
     gdi32

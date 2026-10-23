@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -368,7 +369,12 @@ StoredBrokerProfile store_broker_profile(const std::filesystem::path& source_con
     const auto source_config_data = client::load_client_config(source_config);
     const auto source = std::filesystem::absolute(source_config).lexically_normal();
     boost::property_tree::ptree document;
-    boost::property_tree::read_json(source.string(), document);
+    std::ifstream source_stream(source, std::ios::binary);
+    if (!source_stream)
+    {
+        throw std::runtime_error("open source broker profile failed");
+    }
+    boost::property_tree::read_json(source_stream, document);
 
     CurrentUser user;
     const auto profile_id = new_profile_id();
