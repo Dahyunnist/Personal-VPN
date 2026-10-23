@@ -85,6 +85,32 @@ void round_trip()
           "maximum-size valid profile fits the bounded frame");
 }
 
+void response_round_trip_and_limits()
+{
+    using namespace personal_vpn::broker;
+    for (const auto type : {ResponseType::Accepted, ResponseType::Status, ResponseType::Rejected})
+    {
+        const Response expected{type, 77U, type == ResponseType::Status, "状态已更新"};
+        const auto actual = decode_response(encode_response(expected));
+        check(actual.type == expected.type && actual.request_id == expected.request_id &&
+                  actual.connected == expected.connected && actual.message == expected.message,
+              "broker responses round-trip with correlation ID and bounded status");
+    }
+    check_rejected([]
+                   {
+                       static_cast<void>(encode_response(
+                           {ResponseType::Status, 0U, false, {}}));
+                   },
+                   "response encoder rejects zero correlation IDs");
+    check_rejected([]
+                   {
+                       static_cast<void>(encode_response(
+                           {ResponseType::Rejected, 1U, false,
+                            std::string(maximum_response_message_size + 1U, 'x')}));
+                   },
+                   "response encoder rejects oversized diagnostics");
+}
+
 void reject_invalid_inputs()
 {
     using personal_vpn::broker::Request;
@@ -269,6 +295,7 @@ void named_pipe_authentication_and_framing()
 int main()
 {
     round_trip();
+    response_round_trip_and_limits();
     reject_invalid_inputs();
     reject_connection_replays();
 #ifdef _WIN32

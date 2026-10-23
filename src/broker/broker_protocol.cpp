@@ -190,6 +190,76 @@ Request decode_request(const std::vector<std::uint8_t>& frame)
     return request;
 }
 
+std::vector<std::uint8_t> encode_response(const Response& response)
+{
+    if (response.request_id == 0U || response.message.size() > maximum_response_message_size ||
+        response.message.find('\0') != std::string::npos ||
+        response.type < ResponseType::Accepted || response.type > ResponseType::Rejected)
+    {
+        throw std::invalid_argument("broker response fields are invalid");
+    }
+    std::vector<std::uint8_t> frame{0U, 0U, 0U, 0U};
+    frame.insert(frame.end(), std::begin(magic), std::end(magic));
+    append_u16(frame, protocol_version);
+    append_u16(frame, static_cast<std::uint16_t>(0x8000U |
+                                                 static_cast<std::uint16_t>(response.type)));
+    append_u64(frame, response.request_id);
+    frame.push_back(response.connected ? 1U : 0U);
+    append_u16(frame, static_cast<std::uint16_t>(response.message.size()));
+    frame.insert(frame.end(), response.message.begin(), response.message.end());
+    if (frame.size() > maximum_response_size)
+    {
+        throw std::invalid_argument("broker response exceeds the maximum frame size");
+    }
+    const auto body_size = static_cast<std::uint32_t>(frame.size() - 4U);
+    for (unsigned int index = 0U; index < 4U; ++index)
+    {
+        frame[index] = static_cast<std::uint8_t>((body_size >> (index * 8U)) & 0xFFU);
+    }
+    return frame;
+}
+
+Response decode_response(const std::vector<std::uint8_t>& frame)
+{
+    if (frame.size() < frame_header_size + 3U || frame.size() > maximum_response_size ||
+        read_u32(frame, 0U) != frame.size() - 4U)
+    {
+        throw std::invalid_argument("broker response frame size is invalid");
+    }
+    for (std::size_t index = 0U; index < sizeof(magic); ++index)
+    {
+        if (frame[4U + index] != magic[index])
+        {
+            throw std::invalid_argument("broker response magic is invalid");
+        }
+    }
+    if (read_u16(frame, 8U) != protocol_version)
+    {
+        throw std::invalid_argument("broker response version is unsupported");
+    }
+    const auto wire_type = read_u16(frame, 10U);
+    if ((wire_type & 0x8000U) == 0U || (wire_type & 0x7FFFU) < 1U ||
+        (wire_type & 0x7FFFU) > 3U || frame[20U] > 1U)
+    {
+        throw std::invalid_argument("broker response type or state is invalid");
+    }
+    const auto message_size = static_cast<std::size_t>(read_u16(frame, 21U));
+    if (message_size > maximum_response_message_size || frame.size() != 23U + message_size)
+    {
+        throw std::invalid_argument("broker response message length is invalid");
+    }
+    Response response;
+    response.type = static_cast<ResponseType>(wire_type & 0x7FFFU);
+    response.request_id = read_u64(frame, 12U);
+    response.connected = frame[20U] != 0U;
+    response.message.assign(frame.begin() + 23, frame.end());
+    if (response.request_id == 0U || response.message.find('\0') != std::string::npos)
+    {
+        throw std::invalid_argument("broker response request ID or message is invalid");
+    }
+    return response;
+}
+
 bool RequestReplayGuard::accept(const std::uint64_t request_id)
 {
     if (request_id == 0U || seen_.size() >= maximum_requests_per_connection)
