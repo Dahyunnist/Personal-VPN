@@ -41,7 +41,7 @@ flowchart LR
 | Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
 | Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
-| Windows broker 安装器集成 | 首次远程执行失败，修复待复验 | `ee2fdf7` runner 把 Program Files 的 inherit-only ACL 模板误判为当前写权限；当前工作区修正了 ACE 适用性判断。覆盖 `-WhatIf`、拒绝用户可写来源、失败回滚、SCM 安装/启动/卸载和策略保留；不覆盖真实隧道流量 |
+| Windows broker 安装器集成 | 最新远程 CI 仍在运行 | `256aba0` 修正了 inherit-only ACL 模板的适用性判断。最新 CI 的 Windows 桌面包任务仍在配置阶段；安装器生命周期及 ZIP 校验尚未执行。测试范围包括 `-WhatIf`、拒绝用户可写来源、失败回滚、SCM 安装/启动/卸载和策略保留；不覆盖真实隧道流量 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
@@ -129,7 +129,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
-- `ee2fdf7` 远程 CI 的核心、Linux、sanitizer、fuzz、benchmark、Windows 桌面构建和单元测试通过；broker 安装器集成测试因 Program Files 的 inherit-only ACL 模板被误判而失败。修正 ACL 适用范围的改动已在当前工作区，尚待推送复验。
+- `256aba0` 最新远程 CI 中，核心 Debug/Release、Linux Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 已通过；Windows 桌面包任务仍在运行。该任务完成前，不宣称安装器生命周期或 ZIP 校验通过。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 
