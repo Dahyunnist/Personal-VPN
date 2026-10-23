@@ -451,6 +451,10 @@ void replace_windows_tunnel_permit(void*& dynamic_session,
             add_interface_allow(new_session,
                                 ipv6 ? kOutboundIpPacketV6 : kOutboundIpPacketV4,
                                 policy.interface_index);
+        }
+        for (const auto family : policy.families)
+        {
+            const bool ipv6 = family == detail::IpFamily::IPv6;
             add_interface_allow(new_session,
                                 ipv6 ? kOutboundTransportV6 : kOutboundTransportV4,
                                 policy.interface_index);
