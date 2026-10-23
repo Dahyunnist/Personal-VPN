@@ -32,6 +32,8 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 
 `BrokerRuntimeRegistry` 已将 `Connect`、`Disconnect`、`GetStatus` 映射到 `ClientRuntimeControl`，按已认证的 TokenUser SID 限制每用户单一运行时，状态响应只返回固定短消息。SCM 宿主与 `serve_broker_pipe_session` 已串起会话发现、认证、请求解码、调用者模拟、registry 派发、关联响应和断线清理；客户端断开、控制台会话注销或服务停止后会停止并 join 运行时。管理员安装脚本设置 LocalSystem 服务和失败重启策略，支持卸载但不覆盖现有安装。仍未实现 RDP/多会话支持、升级回滚和 UI 长连接客户端。
 
+Windows `BrokerClientRuntimeControl` 已提供桌面端运行时适配器：保持单条认证管道、发送 Connect、轮询 Status、发送 Disconnect；传输失败或客户端关闭会关闭管道，让服务端执行运行时清理。Windows 管道集成测试覆盖 Connect/Status/Disconnect 生命周期。当前 `VPNClientCore` 仍直接创建本地 `ClientRuntime`，该适配器尚未接入 GUI。
+
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 
 当前安装脚本配置服务为 LocalSystem，因为会话发现使用 `WTSQueryUserToken`。准确令牌权限和最小权限替代方案尚未通过提升权限集成测试验证。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入；安装脚本仅允许管理员执行。
@@ -41,7 +43,7 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 1. 已从 `ClientRuntime` 抽取生命周期控制接口，UI 当前仍实例化本地运行时；TLS、重连、事务和 join 完整关闭逻辑未变。
 2. 有界请求/响应编解码器已有可移植往返与负向测试，并已加入 libFuzzer 目标。Windows 集成测试覆盖当前用户登录 SID/会话认证、请求解码和响应关联；仍需以真实服务身份验证 ACL、远程拒绝及跨进程重放处理。
 3. 已在 SCM 宿主承载现有客户端运行时和 `WindowsNetworkBackend`。配置和私钥在调用方身份下读取；服务从受保护配置加载 `ClientNetworkPolicy` 并使用受限重载；TLS 验证仍在服务进程内完成。仅完成编译和自动化测试，未做真实服务安装或网络验证。
-4. 将 `VPNClientCore` 对运行时的直接所有权改为 IPC 客户端。UI 消息只公开状态和有界诊断，不携带凭据或路由。
+4. 已增加 broker IPC 运行时适配器；待将 `VPNClientCore` 对运行时的直接所有权改为该客户端。UI 消息只公开状态和有界诊断，不携带凭据或路由。
 5. 已增加仅支持新安装的管理员脚本、LocalSystem 服务配置、失败重启和保留策略的卸载。待实现升级/回滚流程及提权集成测试。之后才能移除 UI 自行提权，并验证 UI 令牌未提权时，真实隧道配置和清理仍然成功。
 
 ## 验收门槛

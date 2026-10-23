@@ -218,6 +218,7 @@ if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
         src/broker/windows_broker_service_policy.cpp
         src/broker/broker_runtime_registry.cpp
         src/broker/windows_broker_profile_loader.cpp
+        src/broker/windows_broker_client_runtime.cpp
         src/broker/windows_broker_pipe_session.cpp
     )
     add_library(PersonalVPN::BrokerRuntime ALIAS personal_vpn_broker_runtime)

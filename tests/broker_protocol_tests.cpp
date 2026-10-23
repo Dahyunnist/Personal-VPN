@@ -4,6 +4,7 @@
 #include "personal_vpn/windows_broker_profile.hpp"
 #include "personal_vpn/windows_broker_profile_loader.hpp"
 #include "personal_vpn/windows_broker_pipe_session.hpp"
+#include "personal_vpn/windows_broker_client_runtime.hpp"
 #include "personal_vpn/broker_runtime_registry.hpp"
 #include <sddl.h>
 #endif
@@ -406,6 +407,62 @@ void broker_pipe_session_dispatches_and_cleans_up()
           "pipe disconnect stops and joins the runtime created under caller impersonation");
 }
 
+void broker_client_runtime_controls_a_persistent_pipe_session()
+{
+    using namespace personal_vpn::broker;
+    DWORD session_id = 0U;
+    if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id))
+    {
+        throw std::runtime_error("ProcessIdToSessionId failed for broker client test");
+    }
+    const auto sid = current_logon_sid();
+    const auto server = create_broker_pipe_server(sid);
+    std::unique_ptr<void, decltype(&CloseHandle)> server_owner(server, CloseHandle);
+
+    std::atomic<int> stopped{0};
+    std::atomic<int> waited{0};
+    BrokerRuntimeRegistry registry(
+        [&stopped, &waited](const std::string&,
+                            personal_vpn::client::ClientRuntimeControl::EventHandler handler)
+        {
+            return std::make_unique<PipeTestRuntime>(std::move(handler), stopped, waited);
+        });
+    std::thread server_thread([&]
+    {
+        if (accept_broker_pipe_client(server))
+        {
+            serve_broker_pipe_session(server, sid, session_id, registry);
+        }
+    });
+
+    std::atomic<bool> saw_status{false};
+    BrokerClientRuntimeControl runtime(
+        "broker_client_test",
+        [&saw_status](const personal_vpn::client::ClientRuntimeEvent& event)
+        {
+            if (event.state == personal_vpn::client::ClientRuntimeState::Connecting &&
+                event.message == "等待服务器分配并配置隧道")
+            {
+                saw_status = true;
+            }
+        });
+    runtime.start();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!saw_status.load() && runtime.state() != personal_vpn::client::ClientRuntimeState::Failed &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    check(saw_status.load(), "broker client receives correlated Status on persistent pipe");
+    runtime.stop();
+    runtime.wait();
+    server_thread.join();
+    check(runtime.state() == personal_vpn::client::ClientRuntimeState::Stopped,
+          "broker client reaches Stopped after Disconnect");
+    check(stopped == 1 && waited == 1,
+          "broker client Disconnect stops and joins the service runtime");
+}
+
 void profile_paths_are_bound_to_the_impersonated_user()
 {
     using namespace personal_vpn::broker;
@@ -500,6 +557,7 @@ int main()
     {
         named_pipe_authentication_and_framing();
         broker_pipe_session_dispatches_and_cleans_up();
+        broker_client_runtime_controls_a_persistent_pipe_session();
         profile_paths_are_bound_to_the_impersonated_user();
     }
     catch (const std::exception& error)
