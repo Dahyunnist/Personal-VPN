@@ -84,8 +84,28 @@ bool environment_variable_equals(const char* name, const char* expected)
 
 } // namespace
 
-int main()
+int main(const int argc, char** argv)
 {
+    if (argc == 2 && std::strcmp(argv[1], "--cleanup") == 0)
+    {
+        try
+        {
+            personal_vpn::client::disable_windows_kill_switch();
+            std::cout << "Windows WFP test policy cleanup passed\n";
+            return EXIT_SUCCESS;
+        }
+        catch (const std::exception& error)
+        {
+            std::cerr << "Windows WFP test policy cleanup failed: " << error.what() << '\n';
+            return EXIT_FAILURE;
+        }
+    }
+    if (argc != 1)
+    {
+        std::cerr << "unknown argument\n";
+        return EXIT_FAILURE;
+    }
+
     if (!environment_variable_equals("GITHUB_ACTIONS", "true") ||
         !environment_variable_equals("PERSONAL_VPN_RUN_WFP_INTEGRATION", "1"))
     {
@@ -97,7 +117,9 @@ int main()
     DynamicSession session;
     try
     {
+        std::cout << "Installing persistent dual-stack WFP test policy\n" << std::flush;
         policy.install();
+        std::cout << "Installing dynamic dual-stack tunnel permits\n" << std::flush;
         personal_vpn::client::replace_windows_tunnel_permit(session.handle(), 1U);
         if (session.handle() == nullptr)
         {
@@ -121,6 +143,7 @@ int main()
             return EXIT_FAILURE;
         }
 
+        std::cout << "Closing dynamic WFP session\n" << std::flush;
         personal_vpn::client::close_windows_tunnel_permit(session.handle());
         if (session.handle() != nullptr)
         {
@@ -128,6 +151,7 @@ int main()
             return EXIT_FAILURE;
         }
         personal_vpn::client::close_windows_tunnel_permit(session.handle());
+        std::cout << "Removing persistent WFP test policy\n" << std::flush;
         policy.remove();
         std::cout << "Windows WFP dynamic session lifecycle passed\n";
         return EXIT_SUCCESS;

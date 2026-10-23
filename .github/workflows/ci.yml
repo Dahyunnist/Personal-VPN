@@ -259,6 +259,7 @@ jobs:
           if (-not $sbom) { throw "vcpkg SPDX SBOM was not created under $sbomRoot" }
           $package | Format-List FullName, Length
       - name: Exercise dual-stack WFP runtime policy
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $build = Join-Path $env:GITHUB_WORKSPACE 'out/ci-windows-client'
@@ -266,5 +267,24 @@ jobs:
             Select-Object -First 1
           if (-not $test) { throw 'Windows WFP runtime integration test was not built' }
           $env:PERSONAL_VPN_RUN_WFP_INTEGRATION = '1'
-          & $test.FullName
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $stdout = Join-Path $env:RUNNER_TEMP 'windows-wfp-runtime.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'windows-wfp-runtime.stderr.log'
+          $process = Start-Process -FilePath $test.FullName -PassThru -NoNewWindow `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (-not $process.WaitForExit(90000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout }
+            if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr }
+            Write-Warning 'WFP integration timed out; removing persistent test policy'
+            $cleanup = Start-Process -FilePath $test.FullName -ArgumentList '--cleanup' `
+              -PassThru -NoNewWindow
+            if (-not $cleanup.WaitForExit(30000)) {
+              Stop-Process -Id $cleanup.Id -Force -ErrorAction SilentlyContinue
+              throw 'WFP integration timed out and policy cleanup also timed out'
+            }
+            if ($cleanup.ExitCode -ne 0) { throw 'WFP integration timed out and policy cleanup failed' }
+            throw 'WFP integration exceeded 90 seconds; persistent test policy was removed'
+          }
+          if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout }
+          if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr }
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
