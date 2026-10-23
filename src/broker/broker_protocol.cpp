@@ -190,4 +190,13 @@ Request decode_request(const std::vector<std::uint8_t>& frame)
     return request;
 }
 
+bool RequestReplayGuard::accept(const std::uint64_t request_id)
+{
+    if (request_id == 0U || seen_.size() >= maximum_requests_per_connection)
+    {
+        return false;
+    }
+    return seen_.insert(request_id).second;
+}
+
 } // namespace personal_vpn::broker

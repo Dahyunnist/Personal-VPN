@@ -144,12 +144,22 @@ void reject_invalid_inputs()
                    "decoder rejects path characters in profile IDs");
 }
 
+void reject_connection_replays()
+{
+    personal_vpn::broker::RequestReplayGuard guard;
+    check(!guard.accept(0U), "replay guard rejects zero request IDs");
+    check(guard.accept(12U), "replay guard accepts first request ID");
+    check(!guard.accept(12U), "replay guard rejects duplicate request IDs");
+    check(guard.accept(11U), "replay guard allows distinct out-of-order request IDs");
+}
+
 } // namespace
 
 int main()
 {
     round_trip();
     reject_invalid_inputs();
+    reject_connection_replays();
     if (failures != 0)
     {
         std::cerr << failures << " broker protocol test(s) failed\n";

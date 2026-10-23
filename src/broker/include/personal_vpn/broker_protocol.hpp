@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace personal_vpn::broker
@@ -28,6 +29,16 @@ inline constexpr std::size_t maximum_profile_id_size = 64U;
 
 [[nodiscard]] std::vector<std::uint8_t> encode_request(const Request& request);
 [[nodiscard]] Request decode_request(const std::vector<std::uint8_t>& frame);
+
+class RequestReplayGuard final
+{
+   public:
+    [[nodiscard]] bool accept(std::uint64_t request_id);
+
+   private:
+    static constexpr std::size_t maximum_requests_per_connection = 256U;
+    std::unordered_set<std::uint64_t> seen_;
+};
 
 } // namespace personal_vpn::broker
 
