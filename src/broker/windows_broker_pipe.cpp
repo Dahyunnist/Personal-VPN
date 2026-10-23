@@ -16,6 +16,8 @@ namespace personal_vpn::broker
 namespace
 {
 
+constexpr wchar_t broker_pipe_name[] = L"\\\\.\\pipe\\PersonalVPN-Broker-v1";
+
 constexpr DWORD pipe_operation_timeout_ms = 15'000U;
 
 struct EventCloser
@@ -143,6 +145,42 @@ struct HandleCloser
 
 } // namespace
 
+HANDLE connect_broker_pipe_client(const DWORD timeout_ms) noexcept
+{
+    if (timeout_ms == 0U || !WaitNamedPipeW(broker_pipe_name, timeout_ms))
+    {
+        return INVALID_HANDLE_VALUE;
+    }
+    return CreateFileW(broker_pipe_name,
+                       GENERIC_READ | GENERIC_WRITE,
+                       0U,
+                       nullptr,
+                       OPEN_EXISTING,
+                       SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION,
+                       nullptr);
+}
+
+bool write_broker_request(const HANDLE pipe, const Request& request)
+{
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    const auto frame = encode_request(request);
+    std::size_t offset = 0U;
+    while (offset < frame.size())
+    {
+        DWORD written = 0U;
+        const auto remaining = static_cast<DWORD>(frame.size() - offset);
+        if (!WriteFile(pipe, frame.data() + offset, remaining, &written, nullptr) || written == 0U)
+        {
+            return false;
+        }
+        offset += written;
+    }
+    return true;
+}
+
 HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid)
 {
     PSID parsed_sid = nullptr;
@@ -173,8 +211,7 @@ HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid)
     attributes.nLength = sizeof(attributes);
     attributes.lpSecurityDescriptor = descriptor;
     attributes.bInheritHandle = FALSE;
-    constexpr wchar_t pipe_name[] = L"\\\\.\\pipe\\PersonalVPN-Broker-v1";
-    const auto pipe = CreateNamedPipeW(pipe_name,
+    const auto pipe = CreateNamedPipeW(broker_pipe_name,
                                        PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE |
                                            FILE_FLAG_OVERLAPPED,
                                        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT |

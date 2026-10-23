@@ -223,36 +223,16 @@ void named_pipe_authentication_and_framing()
         throw std::runtime_error("CreateEventW failed");
     }
     std::unique_ptr<void, decltype(&CloseHandle)> completed_owner(completed, CloseHandle);
-    const auto frame = encode_request({RequestType::GetStatus, 101U, {}});
-    std::thread client([&frame, completed]
+    std::thread client([completed]
     {
-        HANDLE pipe = INVALID_HANDLE_VALUE;
-        for (int attempt = 0; attempt < 100; ++attempt)
-        {
-            pipe = CreateFileW(L"\\\\.\\pipe\\PersonalVPN-Broker-v1",
-                               GENERIC_READ | GENERIC_WRITE,
-                               0U,
-                               nullptr,
-                               OPEN_EXISTING,
-                               SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION,
-                               nullptr);
-            if (pipe != INVALID_HANDLE_VALUE)
-            {
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+        const auto pipe = connect_broker_pipe_client(1'000U);
         if (pipe == INVALID_HANDLE_VALUE)
         {
             return;
         }
         std::unique_ptr<void, decltype(&CloseHandle)> pipe_owner(pipe, CloseHandle);
-        DWORD written = 0U;
-        static_cast<void>(WriteFile(pipe,
-                                    frame.data(),
-                                    static_cast<DWORD>(frame.size()),
-                                    &written,
-                                    nullptr));
+        static_cast<void>(write_broker_request(
+            pipe, {RequestType::GetStatus, 101U, {}}));
         static_cast<void>(WaitForSingleObject(completed, 5'000U));
     });
     RequestDecoder decoder;
