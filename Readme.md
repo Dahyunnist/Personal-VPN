@@ -42,9 +42,9 @@ flowchart LR
 | Linux 构建与测试 | 20/20 通过 | Ubuntu WSL；含 IPv4/IPv6 双向 TLS 隧道集成测试及服务器、客户端 CRL 握手测试，测试证书存放在 Linux 文件系统 |
 | Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试；含 schema v2 profile 导入、CRL 复制与删除 |
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
-| Windows broker 安装器集成 | 安全边界修复待 CI 验证 | 仅对祖先目录豁免“创建子目录”；目标路径仍严格校验。集成测试增加带 `DeleteSubdirectoriesAndFiles` 祖先的拒绝用例；安装器生命周期与 ZIP 校验待远程 Windows runner 验证 |
+| Windows broker 安装器集成 | 通过 | 最新远程 Windows CI 验证安装器生命周期；受保护祖先目录允许标准卷上的“创建子目录”权限，带 `DeleteSubdirectoriesAndFiles` 权限的祖先仍被拒绝 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
-| 远程 CI（`1f17f95`） | 8/9 个任务通过；Windows 桌面打包取消 | Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 通过；Windows 桌面打包因后续文档提交而取消，不能视为全绿 |
+| 远程 CI（`f11fbcb`） | CI 全部任务通过；CodeQL 通过 | Linux Debug/Release、Windows 核心 Debug/Release、Windows 桌面构建与测试、broker 安装器生命周期、ZIP 校验、仓库策略、ASan/UBSan、协议 fuzz、benchmark 和 CodeQL 均通过 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
 以上测试验证代码构建和自动化测试，不代表真实公网 IPv6 连通性、双主机部署或生产环境验证。Linux 服务端不会自动开启 IPv6 转发、配置云防火墙、上游路由或 NAT66；部署前请阅读 [IPv6 部署说明](docs/operations/ipv6-deployment.md)。
@@ -131,7 +131,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
-- `1f17f95` 远程 CI 的 Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 已通过；Windows 桌面打包因后续文档提交而取消。`1d9e53c` 的 Windows 桌面作业在 `-WhatIf` 预检处拒绝 `C:\`，因此安装器生命周期和 ZIP 校验未执行。当前只对已有路径的祖先目录豁免“创建子目录”权限；删除子项、写入文件、ACL、所有权及重解析点检查仍保留，并增加了祖先可删除子项的拒绝回归用例。该修复待 CI 验证。
+- 最新远程 CI（提交 `f11fbcb`）全部通过，CodeQL 也通过。Windows 安装器对祖先目录仅豁免“创建子目录”权限；删除子项、写入文件、ACL、所有权及重解析点检查仍保留。CI 的安装器生命周期用例验证了受保护路径接受和危险祖先 ACL 拒绝。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 
