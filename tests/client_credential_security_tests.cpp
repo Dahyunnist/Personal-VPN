@@ -273,6 +273,35 @@ int main()
 
         set_test_acl(path, user_sid, nullptr, false);
         personal_vpn::client::validate_private_key_permissions(path);
+        HANDLE impersonation_source = nullptr;
+        check_windows(OpenProcessToken(GetCurrentProcess(),
+                                       TOKEN_QUERY | TOKEN_DUPLICATE,
+                                       &impersonation_source),
+                      "open token for impersonation test");
+        std::unique_ptr<void, decltype(close_token)> impersonation_source_owner(
+            impersonation_source, close_token);
+        HANDLE impersonation_token = nullptr;
+        check_windows(DuplicateTokenEx(impersonation_source,
+                                       TOKEN_QUERY | TOKEN_IMPERSONATE,
+                                       nullptr,
+                                       SecurityImpersonation,
+                                       TokenImpersonation,
+                                       &impersonation_token),
+                      "duplicate token for impersonation test");
+        std::unique_ptr<void, decltype(close_token)> impersonation_token_owner(
+            impersonation_token, close_token);
+        check_windows(SetThreadToken(nullptr, impersonation_token),
+                      "set thread token for private-key validation");
+        try
+        {
+            personal_vpn::client::validate_private_key_permissions(path);
+        }
+        catch (...)
+        {
+            static_cast<void>(RevertToSelf());
+            throw;
+        }
+        check_windows(RevertToSelf(), "revert private-key validation impersonation");
         const std::filesystem::path profile(profile_path.data());
         const auto certificate_name = std::filesystem::path(certificate).filename().generic_string();
         const auto key_name = std::filesystem::path(path).filename().generic_string();

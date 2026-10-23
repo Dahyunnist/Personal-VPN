@@ -69,11 +69,18 @@ void validate_private_key_acl(HANDLE handle)
     }
 
     HANDLE token = nullptr;
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE)
+    if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token) == FALSE)
     {
-        throw std::system_error(static_cast<int>(GetLastError()),
-                                std::system_category(),
-                                "open client process token");
+        const auto thread_token_error = GetLastError();
+        if (thread_token_error != ERROR_NO_TOKEN ||
+            OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE)
+        {
+            const auto error = thread_token_error == ERROR_NO_TOKEN ? GetLastError()
+                                                                    : thread_token_error;
+            throw std::system_error(static_cast<int>(error),
+                                    std::system_category(),
+                                    "open effective client token");
+        }
     }
     HandlePtr token_owner(token);
     DWORD token_user_size = 0U;
