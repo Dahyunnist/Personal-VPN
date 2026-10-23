@@ -212,6 +212,22 @@ if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
     endif()
 endif()
 
+if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+    add_library(personal_vpn_broker_runtime src/broker/windows_broker_profile_loader.cpp)
+    add_library(PersonalVPN::BrokerRuntime ALIAS personal_vpn_broker_runtime)
+    target_include_directories(personal_vpn_broker_runtime
+        PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/broker/include>)
+    target_link_libraries(personal_vpn_broker_runtime
+        PUBLIC PersonalVPN::BrokerProtocol PersonalVPN::ClientTransport)
+    target_compile_features(personal_vpn_broker_runtime PUBLIC cxx_std_17)
+    if(MSVC)
+        target_compile_options(personal_vpn_broker_runtime PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(personal_vpn_broker_runtime
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+endif()
+
 if(PERSONAL_VPN_BUILD_WINDOWS_UI)
     if(NOT WIN32)
         message(FATAL_ERROR "PERSONAL_VPN_BUILD_WINDOWS_UI requires Windows")

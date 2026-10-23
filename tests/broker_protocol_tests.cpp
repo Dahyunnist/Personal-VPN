@@ -2,6 +2,7 @@
 #ifdef _WIN32
 #include "personal_vpn/windows_broker_pipe.hpp"
 #include "personal_vpn/windows_broker_profile.hpp"
+#include "personal_vpn/windows_broker_profile_loader.hpp"
 #include <sddl.h>
 #endif
 
@@ -358,6 +359,19 @@ void profile_paths_are_bound_to_the_impersonated_user()
     try
     {
         resolved = resolve_impersonated_profile_path("profile_1");
+        bool missing_profile_rejected = false;
+        try
+        {
+            static_cast<void>(load_impersonated_profile(
+                "profile_missing_for_broker_test",
+                personal_vpn::client::ClientNetworkPolicy{{"10.20.0.0/16"}, false}));
+        }
+        catch (const std::invalid_argument&)
+        {
+            missing_profile_rejected = true;
+        }
+        check(missing_profile_rejected,
+              "broker profile loading uses only the derived caller path and trusted policy");
     }
     catch (...)
     {
