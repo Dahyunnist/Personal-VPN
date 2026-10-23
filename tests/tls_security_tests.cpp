@@ -1,4 +1,7 @@
 #include "personal_vpn/tls_security.hpp"
+#if defined(PERSONAL_VPN_TEST_CLIENT_TLS_CRL)
+#include "personal_vpn/client_tls_security.hpp"
+#endif
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -22,6 +25,10 @@ using personal_vpn::server::certificate_file_sha256;
 using personal_vpn::server::make_server_tls_context;
 using personal_vpn::server::peer_certificate_sha256;
 using personal_vpn::server::validate_server_private_key_permissions;
+#if defined(PERSONAL_VPN_TEST_CLIENT_TLS_CRL)
+using personal_vpn::client::ClientTlsConfig;
+using personal_vpn::client::make_client_tls_context;
+#endif
 
 constexpr std::time_t certificate_clock_skew_tolerance_seconds = 300;
 
@@ -122,9 +129,18 @@ HandshakeResult handshake_pair(ssl::context& server_context,
 
 int main(int argc, char* argv[])
 {
+#if defined(PERSONAL_VPN_TEST_CLIENT_TLS_CRL)
+    if (argc != 10)
+#else
     if (argc != 9)
+#endif
     {
+#if defined(PERSONAL_VPN_TEST_CLIENT_TLS_CRL)
+        std::cerr << "expected CA, server pair, valid client pair, client CRL, revoked client pair, "
+                     "server CRL\n";
+#else
         std::cerr << "expected CA, server pair, valid client pair, CRL, revoked client pair\n";
+#endif
         return EXIT_FAILURE;
     }
     const std::string ca_file = argv[1];
@@ -135,6 +151,9 @@ int main(int argc, char* argv[])
     const std::string client_crl = argv[6];
     const std::string revoked_certificate = argv[7];
     const std::string revoked_key = argv[8];
+#if defined(PERSONAL_VPN_TEST_CLIENT_TLS_CRL)
+    const std::string server_crl = argv[9];
+#endif
 
     auto server_context = make_server_tls_context(
         ServerTlsConfig{server_certificate, server_key, ca_file});
@@ -176,6 +195,25 @@ int main(int argc, char* argv[])
     const auto revoked = handshake_pair(crl_server_context, revoked_client, true);
     check(static_cast<bool>(revoked.server_error),
           "server rejects a client certificate listed in the configured CRL");
+
+#if defined(PERSONAL_VPN_TEST_CLIENT_TLS_CRL)
+    auto client_with_server_crl = make_client_tls_context(
+        ClientTlsConfig{ca_file, client_certificate, client_key, "localhost", client_crl});
+    X509_VERIFY_PARAM_set_time(SSL_CTX_get0_param(client_with_server_crl.native_handle()),
+                               std::time(nullptr) + certificate_clock_skew_tolerance_seconds);
+    const auto valid_server = handshake_pair(server_context, client_with_server_crl, true);
+    check(!valid_server.server_error && !valid_server.client_error,
+          "client accepts an unrevoked server when CRL checking is enabled");
+
+    auto client_with_revoked_server_crl = make_client_tls_context(
+        ClientTlsConfig{ca_file, client_certificate, client_key, "localhost", server_crl});
+    X509_VERIFY_PARAM_set_time(
+        SSL_CTX_get0_param(client_with_revoked_server_crl.native_handle()),
+        std::time(nullptr) + certificate_clock_skew_tolerance_seconds);
+    const auto revoked_server = handshake_pair(server_context, client_with_revoked_server_crl, true);
+    check(static_cast<bool>(revoked_server.client_error),
+          "client rejects a server certificate listed in its configured CRL");
+#endif
 
     const auto permission_test_key =
         std::filesystem::temp_directory_path() /

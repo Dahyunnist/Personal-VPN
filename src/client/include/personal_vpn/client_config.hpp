@@ -17,6 +17,7 @@ struct ClientConfig
     std::filesystem::path ca_file;
     std::filesystem::path certificate_chain_file;
     std::filesystem::path private_key_file;
+    std::filesystem::path server_crl_file;
     std::uint16_t requested_mtu{1'400U};
     std::vector<std::string> routes;
     bool allow_default_route{false};

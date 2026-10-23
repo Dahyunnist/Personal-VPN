@@ -18,6 +18,7 @@ struct ClientTlsConfig
     std::string certificate_chain_file;
     std::string private_key_file;
     std::string expected_server_name;
+    std::string server_crl_file{};
 };
 
 [[nodiscard]] boost::asio::ssl::context make_client_tls_context(

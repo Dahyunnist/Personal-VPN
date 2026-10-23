@@ -9,6 +9,7 @@
 - JSON 指标写入标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 网络配置、Windows broker 安装和机器网络策略仍需管理员操作。
 - Windows GUI 已通过命名管道接入 broker，普通启动不要求管理员权限；真实服务 ACL、Wintun 数据面、升级回滚及 RDP/多会话仍未验证或实现。
+- 客户端 schema v1 兼容旧 profile 且不检查服务器 CRL；schema v2 强制 PEM CRL 并检查服务器叶证书。生产 profile 必须配置由服务器证书签发 CA 发布的 CRL。
 - 没有正式签名的 Windows 可执行文件/安装程序，也没有可复现构建声明。
 - 发布归档与校验和已配置 GitHub 无密钥制品证明步骤；远程发布执行及消费者侧验证仍待完成。
 - 端到端吞吐量、延迟、CPU、并发和 24 小时长稳测试仍需在受控的双主机实验环境中完成。
@@ -30,5 +31,6 @@
 - 增加 schema v1 JSON Lines 和 Prometheus 文本格式，导出服务端计数器及活动会话；不使用客户端特定标签，也不开放未经认证的监听端口。
 - 加固 Windows 私钥 ACL 检查，覆盖 11 个宽泛内置主体；Windows CI 增加最小权限及宽泛读取授权测试。
 - 增加 Windows 依赖 SPDX 打包，以及 Linux/Windows 发布包门禁。Linux 归档/校验和与 Windows ZIP 制品均已配置 GitHub 无密钥证明。公开 Actions 运行及下载制品验证仍待确认。
+- 增加客户端 schema v2 及服务器叶证书 CRL 验证；保留 schema v1 读取以便安全回滚。Windows profile 导入/删除也处理 CRL 副本；Linux 20/20、Windows 12/12 本地测试通过。
 
 所有性能优化都必须从保留性能剖析结果开始，并以同一套受控实验结束。每项新增协议能力都必须定义兼容规则、解析边界、负向测试，并完成威胁模型审查。

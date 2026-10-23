@@ -165,6 +165,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
 
     add_executable(tls_security_tests tls_security_tests.cpp)
     target_link_libraries(tls_security_tests PRIVATE PersonalVPN::ServerTransport)
+    if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+        target_link_libraries(tls_security_tests PRIVATE PersonalVPN::ClientTransport)
+        target_compile_definitions(tls_security_tests PRIVATE
+            PERSONAL_VPN_TEST_CLIENT_TLS_CRL=1)
+    endif()
     target_compile_features(tls_security_tests PRIVATE cxx_std_17)
     target_compile_options(tls_security_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
@@ -230,18 +235,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     )
     set_tests_properties(generate_test_pki PROPERTIES FIXTURES_SETUP test_pki)
 
-    add_test(
-        NAME tls_security_tests
-        COMMAND tls_security_tests
-                "${TEST_PKI_DIRECTORY}/ca.crt"
-                "${TEST_PKI_DIRECTORY}/server.crt"
-                "${TEST_PKI_DIRECTORY}/server.key"
-                "${TEST_PKI_DIRECTORY}/client.crt"
-                "${TEST_PKI_DIRECTORY}/client.key"
-                "${TEST_PKI_DIRECTORY}/client.crl"
-                "${TEST_PKI_DIRECTORY}/client-2.crt"
-                "${TEST_PKI_DIRECTORY}/client-2.key"
-    )
+    set(TLS_SECURITY_TEST_ARGS
+        "${TEST_PKI_DIRECTORY}/ca.crt"
+        "${TEST_PKI_DIRECTORY}/server.crt"
+        "${TEST_PKI_DIRECTORY}/server.key"
+        "${TEST_PKI_DIRECTORY}/client.crt"
+        "${TEST_PKI_DIRECTORY}/client.key"
+        "${TEST_PKI_DIRECTORY}/client.crl"
+        "${TEST_PKI_DIRECTORY}/client-2.crt"
+        "${TEST_PKI_DIRECTORY}/client-2.key")
+    if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
+        list(APPEND TLS_SECURITY_TEST_ARGS "${TEST_PKI_DIRECTORY}/server.crl")
+    endif()
+    add_test(NAME tls_security_tests COMMAND tls_security_tests ${TLS_SECURITY_TEST_ARGS})
     set_tests_properties(tls_security_tests PROPERTIES FIXTURES_REQUIRED test_pki)
 
     add_test(

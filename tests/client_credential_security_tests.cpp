@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -117,11 +118,15 @@ void set_test_acl(const std::wstring& path, PSID user_sid, PSID broad_sid,
     }
 }
 
-void write_test_identity(const std::wstring& key_path, const std::wstring& certificate_path)
+void write_test_identity(const std::wstring& key_path,
+                         const std::wstring& certificate_path,
+                         const std::wstring& crl_path)
 {
     using KeyContext = std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>;
     using Key = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
     using Certificate = std::unique_ptr<X509, decltype(&X509_free)>;
+    using Crl = std::unique_ptr<X509_CRL, decltype(&X509_CRL_free)>;
+    using Asn1Time = std::unique_ptr<ASN1_TIME, decltype(&ASN1_TIME_free)>;
 
     KeyContext key_context(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr), &EVP_PKEY_CTX_free);
     if (!key_context || EVP_PKEY_keygen_init(key_context.get()) <= 0 ||
@@ -173,6 +178,27 @@ void write_test_identity(const std::wstring& key_path, const std::wstring& certi
     {
         throw std::runtime_error("failed to write test PEM identity");
     }
+
+    Crl crl(X509_CRL_new(), &X509_CRL_free);
+    Asn1Time last_update(ASN1_TIME_new(), &ASN1_TIME_free);
+    Asn1Time next_update(ASN1_TIME_new(), &ASN1_TIME_free);
+    if (!crl || !last_update || !next_update ||
+        X509_CRL_set_version(crl.get(), 1L) != 1 ||
+        X509_CRL_set_issuer_name(crl.get(), subject) != 1 ||
+        X509_gmtime_adj(last_update.get(), -60L) == nullptr ||
+        X509_gmtime_adj(next_update.get(), 3'600L) == nullptr ||
+        X509_CRL_set1_lastUpdate(crl.get(), last_update.get()) != 1 ||
+        X509_CRL_set1_nextUpdate(crl.get(), next_update.get()) != 1 ||
+        X509_CRL_sign(crl.get(), key.get(), EVP_sha256()) <= 0)
+    {
+        throw std::runtime_error("failed to create test server CRL");
+    }
+    const auto crl_path_string = std::filesystem::path(crl_path).string();
+    Bio crl_file(BIO_new_file(crl_path_string.c_str(), "wb"), &BIO_free);
+    if (!crl_file || PEM_write_bio_X509_CRL(crl_file.get(), crl.get()) != 1)
+    {
+        throw std::runtime_error("failed to write test server CRL");
+    }
 }
 
 void write_client_profile(const std::filesystem::path& path,
@@ -180,7 +206,8 @@ void write_client_profile(const std::filesystem::path& path,
                           const std::string& key_name,
                           const bool add_unknown_field,
                           const std::string& routes = "[\"10.20.0.0/16\"]",
-                          const bool allow_default_route = false)
+                          const bool allow_default_route = false,
+                          const std::string& server_crl_name = "")
 {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
@@ -188,12 +215,17 @@ void write_client_profile(const std::filesystem::path& path,
         throw std::runtime_error("failed to create test client profile");
     }
     output << "{\n"
-              "  \"schema_version\": 1,\n"
-              "  \"server\": {\"host\": \"127.0.0.1\", \"port\": 8443, "
+           << "  \"schema_version\": " << (server_crl_name.empty() ? 1 : 2) << ",\n"
+           << "  \"server\": {\"host\": \"127.0.0.1\", \"port\": 8443, "
               "\"expected_name\": \"vpn.example.test\"},\n"
               "  \"tls\": {\"ca_file\": \""
            << certificate_name << "\", \"certificate_chain_file\": \"" << certificate_name
-           << "\", \"private_key_file\": \"" << key_name << "\"},\n"
+           << "\", \"private_key_file\": \"" << key_name << "\"";
+    if (!server_crl_name.empty())
+    {
+        output << ", \"server_crl_file\": \"" << server_crl_name << "\"";
+    }
+    output << "},\n"
               "  \"tunnel\": {\"requested_mtu\": 1400, \"routes\": "
            << routes << ", \"allow_default_route\": "
            << (allow_default_route ? "true" : "false")
@@ -264,6 +296,11 @@ int main()
     }
     const auto remove_profile = [&profile_path]()
     { static_cast<void>(DeleteFileW(profile_path.data())); };
+    const std::wstring crl_path = std::wstring(profile_path.data()) + L".crl";
+    const auto remove_crl = [&crl_path]() { static_cast<void>(DeleteFileW(crl_path.c_str())); };
+    const auto profile_crl_path = std::filesystem::path(profile_path.data()).concat(L".profile.crl");
+    const auto remove_profile_crl = [&profile_crl_path]()
+    { static_cast<void>(DeleteFileW(profile_crl_path.c_str())); };
 
     try
     {
@@ -275,7 +312,7 @@ int main()
         const std::wstring certificate(certificate_path.data());
         const auto key_path_string = std::filesystem::path(path).string();
         const auto certificate_path_string = std::filesystem::path(certificate).string();
-        write_test_identity(path, certificate);
+        write_test_identity(path, certificate, crl_path);
 
         set_test_acl(path, user_sid, nullptr, false);
         personal_vpn::client::validate_private_key_permissions(path);
@@ -311,12 +348,23 @@ int main()
         const std::filesystem::path profile(profile_path.data());
         const auto certificate_name = std::filesystem::path(certificate).filename().generic_string();
         const auto key_name = std::filesystem::path(path).filename().generic_string();
-        write_client_profile(profile, certificate_name, key_name, false);
+        std::filesystem::copy_file(crl_path,
+                                   profile_crl_path,
+                                   std::filesystem::copy_options::overwrite_existing);
+        const auto profile_crl_name = profile_crl_path.filename().generic_string();
+        write_client_profile(profile,
+                             certificate_name,
+                             key_name,
+                             false,
+                             "[\"10.20.0.0/16\"]",
+                             false,
+                             profile_crl_name);
         auto client_config = personal_vpn::client::load_client_config(profile);
         if (client_config.server_host != "127.0.0.1" || client_config.server_port != 8'443U ||
             client_config.expected_server_name != "vpn.example.test" ||
             client_config.routes != std::vector<std::string>{"10.20.0.0/16"} ||
-            client_config.allow_default_route)
+            client_config.allow_default_route ||
+            client_config.server_crl_file != profile_crl_path)
         {
             throw std::runtime_error("Windows profile parser returned incorrect settings");
         }
@@ -337,6 +385,8 @@ int main()
         if (stored_config.server_host != client_config.server_host ||
             stored_config.server_port != client_config.server_port ||
             stored_config.routes != client_config.routes ||
+            stored_config.server_crl_file.filename() !=
+                std::filesystem::path(stored_profile.profile_id + "-server.crl") ||
             stored_config.private_key_file.filename() !=
                 std::filesystem::path(stored_profile.profile_id + "-client.key"))
         {
@@ -350,7 +400,8 @@ int main()
         }
         const auto stored_directory = stored_profile.config_path.parent_path();
         personal_vpn::broker::delete_broker_profile(stored_profile.profile_id);
-        for (const auto* suffix : {"-ca.crt", "-client.crt", "-client.key", ".json"})
+        for (const auto* suffix : {
+                 "-ca.crt", "-client.crt", "-client.key", "-server.crl", ".json"})
         {
             const auto deleted_attributes = GetFileAttributesW(
                 (stored_directory / (stored_profile.profile_id + suffix)).c_str());
@@ -570,6 +621,8 @@ int main()
         remove_certificate();
         remove_oversized_key();
         remove_profile();
+        remove_crl();
+        remove_profile_crl();
         std::cout << "Windows private-key ACL checks passed\n";
         return EXIT_SUCCESS;
     }
@@ -579,6 +632,8 @@ int main()
         remove_certificate();
         remove_oversized_key();
         remove_profile();
+        remove_crl();
+        remove_profile_crl();
         std::cerr << "Windows private-key ACL test failed: " << error.what() << '\n';
         return EXIT_FAILURE;
     }

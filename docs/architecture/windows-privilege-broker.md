@@ -34,7 +34,7 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 
 Windows `BrokerClientRuntimeControl` 已提供桌面端运行时适配器：保持单条认证管道、发送 Connect、轮询 Status、发送 Disconnect；传输失败或客户端关闭会关闭管道，让服务端执行运行时清理。`VPNClientCore` 已通过此适配器连接 GUI；Windows 管道集成测试覆盖 Connect/Status/Disconnect 生命周期。UI 不直接创建本地 `ClientRuntime` 或调用 Windows 网络后端。
 
-`store_broker_profile` 已将经现有解析器验证的 profile 与三份凭据复制到当前用户固定的 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles` 根目录。它生成不透明 ID、重写凭据相对路径，拒绝 reparse 目录和非普通/超大凭据，并为目录、私钥和配置设定仅当前用户、SYSTEM、Administrators 可访问的 DACL。GUI 导入时调用此导入器，连接请求只传不透明 profile ID。GUI 允许在隧道断开后删除当前选中的 profile，仅删除固定目录中四个已知文件名；不提供历史列表。删除不是原子事务，失败后可重试，原始导入文件不会被删除。Windows 凭据测试会重新加载复制后的配置、建立 TLS 上下文并验证删除。
+`store_broker_profile` 已将经现有解析器验证的 profile 与 CA、客户端证书、私钥及（schema v2 中的）服务器 CRL 复制到当前用户固定的 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles` 根目录。它生成不透明 ID、重写凭据相对路径，拒绝 reparse 目录和非普通/超大凭据，并为目录、私钥和配置设定仅当前用户、SYSTEM、Administrators 可访问的 DACL。GUI 导入时调用此导入器，连接请求只传不透明 profile ID。GUI 允许在隧道断开后删除当前选中的 profile，仅删除固定目录中已知文件名；不提供历史列表。删除不是原子事务，失败后可重试，原始导入文件不会被删除。Windows 凭据测试会重新加载复制后的配置、建立 TLS 上下文并验证删除。
 
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 

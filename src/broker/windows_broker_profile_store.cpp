@@ -417,14 +417,24 @@ StoredBrokerProfile store_broker_profile(const std::filesystem::path& source_con
     document.put("tls.ca_file", ca_name);
     document.put("tls.certificate_chain_file", certificate_name);
     document.put("tls.private_key_file", key_name);
+    std::string crl_name;
+    if (!source_config_data.server_crl_file.empty())
+    {
+        crl_name = profile_id + "-server.crl";
+        document.put("tls.server_crl_file", crl_name);
+    }
     std::ostringstream serialized;
     boost::property_tree::write_json(serialized, document, false);
 
-    const std::array<std::pair<std::filesystem::path, std::filesystem::path>, 3U> files{{
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> files{
         {source_config_data.ca_file, profile_directory / ca_name},
         {source_config_data.certificate_chain_file, profile_directory / certificate_name},
         {source_config_data.private_key_file, profile_directory / key_name},
-    }};
+    };
+    if (!source_config_data.server_crl_file.empty())
+    {
+        files.emplace_back(source_config_data.server_crl_file, profile_directory / crl_name);
+    }
     std::vector<std::filesystem::path> created_files;
     try
     {
@@ -461,8 +471,8 @@ void delete_broker_profile(const std::string& profile_id)
     {
         return;
     }
-    const std::array<std::string, 4U> suffixes{
-        "-ca.crt", "-client.crt", "-client.key", ".json"};
+    const std::array<std::string, 5U> suffixes{
+        "-ca.crt", "-client.crt", "-client.key", "-server.crl", ".json"};
     for (const auto& suffix : suffixes)
     {
         const auto path = directory / (profile_id + suffix);

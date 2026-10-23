@@ -26,6 +26,7 @@ flowchart LR
 
 - **双栈协议 v2：** 采用带版本的 20 字节帧头，承载 IPv4/IPv6 数据包；限制长度、标志位、消息顺序和序列号，并处理 TLS 读操作中的拆包与粘包。
 - **身份认证与地址授权：** 双向 TLS、主机名验证、可选客户端 CRL、证书指纹身份，以及服务端管理的 IPv4/IPv6 地址租约和按租约路由。
+- **证书吊销：** 服务端可拒绝 CRL 中的客户端证书；客户端 schema v2 必须配置 PEM CRL，并拒绝已撤销的服务器叶证书。schema v1 保持兼容，不执行服务器 CRL 检查。
 - **异步并发控制：** 串行化 TLS 流操作；管理自有缓冲区和有界写队列；提供背压、超时、TUN 读操作约束及幂等关闭。
 - **Windows 双栈网络事务：** 配置 Wintun、IPv4/IPv6 地址、双栈 MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
 - **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
@@ -38,8 +39,8 @@ flowchart LR
 
 | 验证项 | 最近结果 | 说明 |
 | --- | --- | --- |
-| Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
-| Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
+| Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；含客户端服务器 CRL 握手测试，测试证书存放在 Linux 文件系统 |
+| Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试；含 schema v2 profile 导入、CRL 复制与删除 |
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
 | Windows broker 安装器集成 | `86b828d` 复验失败 | 新的具体写入权限位检查仍在 `-WhatIf` 预检处拒绝 `C:\`；原因尚未从 runner ACL 完整证实。安装器生命周期和 ZIP 校验未运行。放宽目录写权限检查有安全风险，需先确定受支持的安全目录边界 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
@@ -84,7 +85,7 @@ cmake --build out/windows-client --config Release --parallel
 ctest --test-dir out/windows-client -C Release --output-on-failure
 ```
 
-客户端 UI 正常启动不需要提升权限。连接前，管理员需按[Windows broker 服务指南](docs/deployment/windows-broker.md)安装服务并配置机器网络策略；用户再导入 [`configs/client.example.json`](configs/client.example.json) 的副本。导入会把配置和凭据复制到当前用户受保护的 profile 目录。配置文件引用外部证书文件，不在配置中内嵌私钥。关闭持续性断线保护时会单独触发 UAC 提权确认。
+客户端 UI 正常启动不需要提升权限。连接前，管理员需按[Windows broker 服务指南](docs/deployment/windows-broker.md)安装服务并配置机器网络策略；用户再以 [`configs/client-v2.example.json`](configs/client-v2.example.json) 为基础填写凭据路径和服务器 CRL。导入会把配置和凭据复制到当前用户受保护的 profile 目录。配置文件引用外部证书文件，不在配置中内嵌私钥。关闭持续性断线保护时会单独触发 UAC 提权确认。
 
 ## 文档索引
 

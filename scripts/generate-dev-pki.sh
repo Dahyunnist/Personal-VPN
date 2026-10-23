@@ -88,6 +88,10 @@ openssl ca -config "$output_directory/ca-db/openssl.cnf" -revoke \
     "$output_directory/client-2.crt" -batch
 openssl ca -config "$output_directory/ca-db/openssl.cnf" -gencrl \
     -out "$output_directory/client.crl" -batch
+openssl ca -config "$output_directory/ca-db/openssl.cnf" -revoke \
+    "$output_directory/server.crt" -batch
+openssl ca -config "$output_directory/ca-db/openssl.cnf" -gencrl \
+    -out "$output_directory/server.crl" -batch
 
 chmod 600 "$output_directory"/*.key
 verification_time=$(($(date +%s) + 300))
@@ -104,5 +108,14 @@ if openssl verify -CAfile "$output_directory/ca.crt" \
     -CRLfile "$output_directory/client.crl" -crl_check \
     -purpose sslclient "$output_directory/client-2.crt"; then
     echo "revoked test client unexpectedly passed CRL verification" >&2
+    exit 1
+fi
+openssl verify -CAfile "$output_directory/ca.crt" \
+    -CRLfile "$output_directory/client.crl" -crl_check \
+    -purpose sslserver "$output_directory/server.crt"
+if openssl verify -CAfile "$output_directory/ca.crt" \
+    -CRLfile "$output_directory/server.crl" -crl_check \
+    -purpose sslserver "$output_directory/server.crt"; then
+    echo "revoked test server unexpectedly passed CRL verification" >&2
     exit 1
 fi

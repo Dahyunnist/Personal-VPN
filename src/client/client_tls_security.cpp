@@ -7,9 +7,12 @@
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
+#include <openssl/x509_vfy.h>
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -20,6 +23,7 @@ namespace
 {
 
 constexpr std::size_t kMaximumPrivateKeyBytes = 1024U * 1024U;
+constexpr std::uintmax_t kMaximumServerCrlBytes = 8U * 1024U * 1024U;
 
 struct SensitiveBuffer
 {
@@ -115,6 +119,28 @@ boost::asio::ssl::context make_client_tls_context(const ClientTlsConfig& config)
         boost::asio::ssl::host_name_verification(config.expected_server_name));
 
     auto* native = context.native_handle();
+    if (!config.server_crl_file.empty())
+    {
+        std::error_code crl_size_error;
+        const auto crl_size = std::filesystem::file_size(config.server_crl_file, crl_size_error);
+        if (crl_size_error || crl_size == 0U || crl_size > kMaximumServerCrlBytes)
+        {
+            throw std::invalid_argument(
+                "server certificate CRL must be a non-empty file up to 8 MiB");
+        }
+        auto* store = SSL_CTX_get_cert_store(native);
+        auto* lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file());
+        if (lookup == nullptr ||
+            X509_load_crl_file(lookup, config.server_crl_file.c_str(), X509_FILETYPE_PEM) <= 0)
+        {
+            throw std::runtime_error(openssl_error("failed to load server certificate CRL"));
+        }
+        if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK) != 1)
+        {
+            throw std::runtime_error(
+                openssl_error("failed to enable server certificate CRL checking"));
+        }
+    }
     if (SSL_CTX_check_private_key(native) != 1)
     {
         throw std::runtime_error(openssl_error("client private key does not match certificate"));
@@ -150,7 +176,8 @@ boost::asio::ssl::context make_client_tls_context(const ClientConfig& config)
     return make_client_tls_context(ClientTlsConfig{config.ca_file.string(),
                                                    config.certificate_chain_file.string(),
                                                    config.private_key_file.string(),
-                                                   config.expected_server_name});
+                                                   config.expected_server_name,
+                                                   config.server_crl_file.string()});
 }
 
 void configure_client_sni(SSL* ssl_handle, const std::string& expected_server_name)

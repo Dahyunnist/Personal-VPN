@@ -23,6 +23,7 @@ namespace
 namespace pt = boost::property_tree;
 
 constexpr std::uintmax_t kMaximumConfigBytes = 64U * 1024U;
+constexpr std::uintmax_t kMaximumServerCrlBytes = 8U * 1024U * 1024U;
 
 void ensure_keys(const pt::ptree& tree,
                  const std::set<std::string>& allowed,
@@ -236,17 +237,27 @@ static ClientConfig load_client_config_impl(const std::filesystem::path& config_
         throw std::invalid_argument("configuration is not valid JSON");
     }
     ensure_keys(root, {"schema_version", "server", "tls", "tunnel"}, "root");
-    if (require_unsigned(root, "schema_version", 1U, 1U) != 1U)
-    {
-        throw std::invalid_argument("unsupported client configuration schema");
-    }
+    const auto schema_version = require_unsigned(root, "schema_version", 1U, 2U);
 
     const auto& server = *require_section(root, "server");
     ensure_keys(server, {"host", "port", "expected_name"}, "server");
     const auto& tls = *require_section(root, "tls");
-    ensure_keys(tls,
-                {"ca_file", "certificate_chain_file", "private_key_file"},
-                "tls");
+    if (schema_version == 1U)
+    {
+        ensure_keys(tls,
+                    {"ca_file", "certificate_chain_file", "private_key_file"},
+                    "tls");
+    }
+    else
+    {
+        ensure_keys(tls,
+                    {"ca_file", "certificate_chain_file", "private_key_file", "server_crl_file"},
+                    "tls");
+        if (!tls.get_optional<std::string>("server_crl_file").has_value())
+        {
+            throw std::invalid_argument("schema version 2 requires tls.server_crl_file");
+        }
+    }
     const auto& tunnel = *require_section(root, "tunnel");
     ensure_keys(tunnel, {"requested_mtu", "routes", "allow_default_route"}, "tunnel");
 
@@ -259,6 +270,19 @@ static ClientConfig load_client_config_impl(const std::filesystem::path& config_
     config.ca_file = credential_path(directory, tls, "ca_file");
     config.certificate_chain_file = credential_path(directory, tls, "certificate_chain_file");
     config.private_key_file = credential_path(directory, tls, "private_key_file");
+    if (schema_version == 2U)
+    {
+        static_cast<void>(require_text(tls, "server_crl_file", 4'096U));
+        config.server_crl_file = credential_path(directory, tls, "server_crl_file");
+        std::error_code crl_size_error;
+        const auto crl_size = std::filesystem::file_size(config.server_crl_file,
+                                                          crl_size_error);
+        if (crl_size_error || crl_size == 0U || crl_size > kMaximumServerCrlBytes)
+        {
+            throw std::invalid_argument(
+                "server certificate CRL must be a non-empty file up to 8 MiB");
+        }
+    }
     validate_private_key_permissions(config.private_key_file);
     config.requested_mtu = static_cast<std::uint16_t>(require_unsigned(
         tunnel,

@@ -52,15 +52,17 @@ bool rejects(const std::filesystem::path& path, const std::string& content)
 
 std::string valid_config(const std::string& extra_root = "",
                          const std::string& routes = "[\"10.20.0.0/16\"]",
-                         const std::string& allow_default = "false")
+                         const std::string& allow_default = "false",
+                         const std::string& tls_extension = "",
+                         const unsigned int schema_version = 1U)
 {
     return "{\n"
-           "  \"schema_version\": 1,\n"
+           "  \"schema_version\": " + std::to_string(schema_version) + ",\n"
            "  \"server\": {\"host\": \"127.0.0.1\", \"port\": 8443, "
            "\"expected_name\": \"vpn.example.test\"},\n"
            "  \"tls\": {\"ca_file\": \"ca.crt\", "
            "\"certificate_chain_file\": \"client.crt\", "
-           "\"private_key_file\": \"client.key\"},\n"
+           "\"private_key_file\": \"client.key\"" + tls_extension + "},\n"
            "  \"tunnel\": {\"requested_mtu\": 1400, \"routes\": " + routes +
            ", \"allow_default_route\": " + allow_default + "}" + extra_root + "\n}\n";
 }
@@ -92,6 +94,65 @@ int main(int argc, char* argv[])
     auto tls_context = make_client_tls_context(config);
     check(tls_context.native_handle() != nullptr,
           "validated path configuration creates the mandatory mutual-TLS context");
+
+    write_config(path,
+                 valid_config("",
+                              "[\"10.20.0.0/16\"]",
+                              "false",
+                              ", \"server_crl_file\": \"client.crl\"",
+                              2U));
+    const auto config_with_crl = load_client_config(path);
+    check(config_with_crl.server_crl_file == (directory / "client.crl").lexically_normal(),
+          "schema version 2 resolves its optional server CRL path relative to the profile");
+    check(make_client_tls_context(config_with_crl).native_handle() != nullptr,
+          "schema version 2 loads a validated server CRL into TLS");
+    check(rejects(path,
+                  valid_config("",
+                               "[\"10.20.0.0/16\"]",
+                               "false",
+                               ", \"server_crl_file\": \"\"",
+                               2U)),
+          "schema version 2 rejects an empty server CRL path");
+    check(rejects(path, valid_config("", "[\"10.20.0.0/16\"]", "false", "", 2U)),
+          "schema version 2 requires its explicit server CRL field");
+    check(rejects(path,
+                  valid_config("",
+                               "[\"10.20.0.0/16\"]",
+                               "false",
+                               ", \"server_crl_file\": \"missing.crl\"",
+                               2U)),
+          "schema version 2 rejects a missing server CRL file");
+    const auto invalid_crl = directory / "invalid-server.crl";
+    write_config(invalid_crl, "not a PEM CRL\n");
+    write_config(path,
+                 valid_config("",
+                              "[\"10.20.0.0/16\"]",
+                              "false",
+                              ", \"server_crl_file\": \"invalid-server.crl\"",
+                              2U));
+    bool invalid_crl_rejected = false;
+    try
+    {
+        static_cast<void>(make_client_tls_context(load_client_config(path)));
+    }
+    catch (const std::runtime_error&)
+    {
+        invalid_crl_rejected = true;
+    }
+    check(invalid_crl_rejected,
+          "schema version 2 fails closed when OpenSSL cannot parse its server CRL");
+    std::filesystem::remove(invalid_crl);
+    const auto oversized_crl = directory / "oversized-server.crl";
+    std::ofstream(oversized_crl, std::ios::binary).close();
+    std::filesystem::resize_file(oversized_crl, 8U * 1024U * 1024U + 1U);
+    check(rejects(path,
+                  valid_config("",
+                               "[\"10.20.0.0/16\"]",
+                               "false",
+                               ", \"server_crl_file\": \"oversized-server.crl\"",
+                               2U)),
+          "schema version 2 rejects server CRL files larger than 8 MiB");
+    std::filesystem::remove(oversized_crl);
 
     check(rejects(path, valid_config(",\n  \"certs\": {\"client_key\": \"secret\"}")),
           "legacy embedded credential fields are rejected");
