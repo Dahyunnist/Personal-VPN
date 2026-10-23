@@ -213,7 +213,10 @@ if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
 endif()
 
 if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
-    add_library(personal_vpn_broker_runtime src/broker/windows_broker_profile_loader.cpp)
+    add_library(personal_vpn_broker_runtime
+        src/broker/broker_runtime_registry.cpp
+        src/broker/windows_broker_profile_loader.cpp
+    )
     add_library(PersonalVPN::BrokerRuntime ALIAS personal_vpn_broker_runtime)
     target_include_directories(personal_vpn_broker_runtime
         PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/broker/include>)

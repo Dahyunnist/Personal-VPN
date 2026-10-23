@@ -1,6 +1,7 @@
 #ifndef PERSONAL_VPN_CLIENT_RUNTIME_CONTROL_HPP
 #define PERSONAL_VPN_CLIENT_RUNTIME_CONTROL_HPP
 
+#include <functional>
 #include <string>
 
 namespace personal_vpn::client
@@ -28,6 +29,8 @@ struct ClientRuntimeEvent
 class ClientRuntimeControl
 {
    public:
+    using EventHandler = std::function<void(const ClientRuntimeEvent&)>;
+
     virtual ~ClientRuntimeControl() = default;
 
     ClientRuntimeControl(const ClientRuntimeControl&) = delete;

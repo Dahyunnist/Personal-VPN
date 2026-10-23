@@ -27,7 +27,7 @@ namespace personal_vpn::client
 class ClientRuntime final : public ClientRuntimeControl
 {
    public:
-    using EventHandler = std::function<void(const ClientRuntimeEvent&)>;
+    using EventHandler = ClientRuntimeControl::EventHandler;
 
     ClientRuntime(ClientConfig config,
                   std::unique_ptr<ClientPacketDevice> packet_device,
