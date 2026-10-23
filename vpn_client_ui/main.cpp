@@ -2,8 +2,8 @@
 #include "vpn_client_core.h"
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <cwchar>
 #include <iostream>
-#include <cstring>
 #include <shellapi.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -177,8 +177,15 @@ void CleanupRenderTarget() {
     }
 }
 
-int main(int argc, char* argv[]) {
-    if (argc == 2 && std::strcmp(argv[1], "--disable-kill-switch") == 0) {
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    int argument_count = 0;
+    LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
+    const bool disable_kill_switch = arguments != nullptr && argument_count == 2 &&
+        std::wcscmp(arguments[1], L"--disable-kill-switch") == 0;
+    if (arguments != nullptr) {
+        LocalFree(arguments);
+    }
+    if (disable_kill_switch) {
         if (!IsRunAsAdmin()) {
             wchar_t exePath[MAX_PATH]{};
             GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -200,7 +207,7 @@ int main(int argc, char* argv[]) {
 
     WNDCLASSEX wc = { 
         sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, 
-        GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, 
+        instance, nullptr, nullptr, nullptr, nullptr,
         TEXT("VPNClientUI"), nullptr 
     };
     RegisterClassEx(&wc);

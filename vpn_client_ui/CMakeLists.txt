@@ -50,6 +50,9 @@ target_compile_definitions(personal-vpn-client PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
 )
+if(MINGW)
+    target_link_options(personal-vpn-client PRIVATE -municode)
+endif()
 if(MSVC)
     target_compile_options(personal-vpn-client PRIVATE /W4 /permissive-)
 else()

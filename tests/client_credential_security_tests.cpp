@@ -352,11 +352,18 @@ int main()
         personal_vpn::broker::delete_broker_profile(stored_profile.profile_id);
         for (const auto* suffix : {"-ca.crt", "-client.crt", "-client.key", ".json"})
         {
-            if (GetFileAttributesW(
-                    (stored_directory / (stored_profile.profile_id + suffix)).c_str()) !=
-                INVALID_FILE_ATTRIBUTES)
+            const auto deleted_attributes = GetFileAttributesW(
+                (stored_directory / (stored_profile.profile_id + suffix)).c_str());
+            if (deleted_attributes != INVALID_FILE_ATTRIBUTES)
             {
                 throw std::runtime_error("profile deletion left a copied credential file");
+            }
+            const auto deletion_error = GetLastError();
+            if (deletion_error != ERROR_FILE_NOT_FOUND && deletion_error != ERROR_PATH_NOT_FOUND)
+            {
+                throw std::system_error(static_cast<int>(deletion_error),
+                                        std::system_category(),
+                                        "verify deleted broker profile file");
             }
         }
         personal_vpn::broker::delete_broker_profile(stored_profile.profile_id);
