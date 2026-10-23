@@ -38,10 +38,10 @@
 - `VPNClientCore` 已切换到 `BrokerClientRuntimeControl`；普通 UI 不再要求管理员令牌，也不再直接创建 `ClientRuntime` 或调用 Windows 网络后端。连接通过认证命名管道传输不透明 profile ID，状态由 broker 轮询返回；管道丢失后由服务端清理运行时。
 - GUI 导入配置时会将配置和凭据复制到当前用户保护目录。导入文件选择已改用 Unicode Windows API；profile store 使用文件流读取路径，避免非 ASCII 路径被窄字符编码破坏。
 - 持续性断线保护关闭仍单独启动 UAC 确认。失败时 UI 不回退到本地网络特权路径。
-- 当前 MinGW Debug 桌面套件通过 13/13 项 CTest；新增 WFP 双栈策略构建、地址校验和边界测试。该测试不调用 WFP，也不证明 Windows 实际过滤流量。
-- `0c44a0c` 远程 CI 与 CodeQL 全部通过。Windows runner 完成桌面构建和测试、受保护安装器源路径接受/危险祖先 ACL 拒绝、真实 SCM 安装/服务启动/卸载、失败回滚及 ZIP/SBOM 校验。安装器 CI 不验证 Wintun 隧道数据面、UAC 交互、真实用户登录管道、升级回滚或多会话。
+- 当前 MinGW Debug 桌面套件 13 项通过；WFP 动态会话集成用例因本机未提升权限而按预期跳过。WFP 双栈策略测试覆盖策略生成、地址校验和边界；动态会话用例会创建并关闭临时接口 Permit，不安装持久 Block。
+- `0c44a0c` 远程 CI 与 CodeQL 全部通过。随后新增的动态 WFP 会话集成用例仍待提升权限的 Windows CI 验证。Windows runner 已验证安装器源路径接受/危险祖先 ACL 拒绝、真实 SCM 安装/服务启动/卸载、失败回滚及 ZIP/SBOM 校验；安装器 CI 不验证 Wintun 隧道数据面、UAC 交互、真实用户登录管道、升级回滚或多会话。
 
-上述检查不等于真实 Windows VPN 隧道验证，也不能证明端到端性能。远程 Windows 打包门禁已通过；受控双主机证据仍待完成。本地 ZIP 检查不能替代 vcpkg SBOM 门禁。另见[GitHub 认证操作指南](authenticated-github-sop.md)及[性能测试说明](../performance/benchmarking.md)。
+上述检查不等于真实 Windows VPN 隧道验证，也不能证明端到端性能。远程 Windows 打包门禁已通过；新增动态 WFP 会话集成用例及受控双主机证据仍待完成。本地 ZIP 检查不能替代 vcpkg SBOM 门禁。另见[GitHub 认证操作指南](authenticated-github-sop.md)及[性能测试说明](../performance/benchmarking.md)。
 
 ## 1. 最终 Linux 与端到端测试套件
 
