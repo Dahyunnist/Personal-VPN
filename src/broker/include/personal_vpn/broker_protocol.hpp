@@ -40,6 +40,15 @@ class RequestReplayGuard final
     std::unordered_set<std::uint64_t> seen_;
 };
 
+class RequestDecoder final
+{
+   public:
+    [[nodiscard]] Request decode(const std::vector<std::uint8_t>& frame);
+
+   private:
+    RequestReplayGuard replay_guard_;
+};
+
 } // namespace personal_vpn::broker
 
 #endif

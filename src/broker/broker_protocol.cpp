@@ -199,4 +199,14 @@ bool RequestReplayGuard::accept(const std::uint64_t request_id)
     return seen_.insert(request_id).second;
 }
 
+Request RequestDecoder::decode(const std::vector<std::uint8_t>& frame)
+{
+    auto request = decode_request(frame);
+    if (!replay_guard_.accept(request.request_id))
+    {
+        throw std::invalid_argument("broker request ID was replayed or connection limit was reached");
+    }
+    return request;
+}
+
 } // namespace personal_vpn::broker

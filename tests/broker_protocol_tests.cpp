@@ -151,6 +151,13 @@ void reject_connection_replays()
     check(guard.accept(12U), "replay guard accepts first request ID");
     check(!guard.accept(12U), "replay guard rejects duplicate request IDs");
     check(guard.accept(11U), "replay guard allows distinct out-of-order request IDs");
+
+    personal_vpn::broker::RequestDecoder decoder;
+    const auto frame = personal_vpn::broker::encode_request(
+        {personal_vpn::broker::RequestType::GetStatus, 55U, {}});
+    static_cast<void>(decoder.decode(frame));
+    check_rejected([&] { static_cast<void>(decoder.decode(frame)); },
+                   "connection decoder rejects duplicate request before dispatch");
 }
 
 } // namespace
