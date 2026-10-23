@@ -9,6 +9,7 @@
 
 #include <openssl/ssl.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -112,6 +113,19 @@ std::vector<std::uint8_t> ipv4_packet(const Ipv4Address source,
     return packet;
 }
 
+std::vector<std::uint8_t> ipv6_packet(const Ipv6Address& source,
+                                      const Ipv6Address& destination)
+{
+    std::vector<std::uint8_t> packet(41U, 0U);
+    packet[0] = 0x60U;
+    packet[5] = 1U;
+    packet[6] = 59U;
+    packet[7] = 64U;
+    std::copy(source.begin(), source.end(), packet.begin() + 8);
+    std::copy(destination.begin(), destination.end(), packet.begin() + 24);
+    return packet;
+}
+
 void run_end_to_end_session(const std::string& ca_file,
                             const std::string& server_certificate,
                             const std::string& server_key,
@@ -130,12 +144,17 @@ void run_end_to_end_session(const std::string& ca_file,
                         parse_ipv4_address("10.8.0.1"),
                         24U,
                         1'400U,
-                        60s);
+                        60s,
+                        parse_ipv6_address("fd00:8::"),
+                        parse_ipv6_address("fd00:8::1"),
+                        64U);
 
     std::promise<std::shared_ptr<TlsTunnelSession>> session_promise;
     auto session_future = session_promise.get_future();
     std::promise<std::vector<std::uint8_t>> packet_promise;
     auto packet_future = packet_promise.get_future();
+    std::promise<std::vector<std::uint8_t>> ipv6_packet_promise;
+    auto ipv6_packet_future = ipv6_packet_promise.get_future();
     std::promise<void> closed_promise;
     auto closed_future = closed_promise.get_future();
     std::exception_ptr server_exception;
@@ -150,8 +169,17 @@ void run_end_to_end_session(const std::string& ca_file,
                 auto session = std::make_shared<TlsTunnelSession>(
                     TlsTunnelSession::TlsStream(std::move(socket), server_context),
                     leases,
-                    [&packet_promise](const std::vector<std::uint8_t>& packet)
-                    { packet_promise.set_value(packet); },
+                    [&packet_promise, &ipv6_packet_promise](const std::vector<std::uint8_t>& packet)
+                    {
+                        if (!packet.empty() && (packet[0] >> 4U) == 6U)
+                        {
+                            ipv6_packet_promise.set_value(packet);
+                        }
+                        else
+                        {
+                            packet_promise.set_value(packet);
+                        }
+                    },
                     TlsTunnelSession::EstablishedHandler{},
                     [&closed_promise](const std::optional<Lease>&, const TunnelPeer*)
                     { closed_promise.set_value(); });
@@ -192,8 +220,11 @@ void run_end_to_end_session(const std::string& ca_file,
     const auto assignment = decode_ip_assignment(assignment_frame.payload);
     check(assignment.client_address == parse_ipv4_address("10.8.0.2") &&
               assignment.gateway_address == parse_ipv4_address("10.8.0.1") &&
+              assignment.client_ipv6_address == parse_ipv6_address("fd00:8::a08:2") &&
+              assignment.gateway_ipv6_address == parse_ipv6_address("fd00:8::1") &&
+              assignment.ipv6_prefix_length == 64U &&
               assignment.mtu == 1'280U,
-          "server authoritatively assigns the expected address, gateway, and MTU");
+          "server authoritatively assigns IPv4 and IPv6 leases, gateways, and MTU");
 
     const LivenessProbe probe{0x1020304050607080ULL};
     const Frame ping{MessageType::Ping, 0U, 2U, encode_liveness_probe(probe)};
@@ -213,6 +244,15 @@ void run_end_to_end_session(const std::string& ca_file,
               packet_future.get() == client_packet,
           "authenticated client IPv4 packet reaches the server packet sink");
 
+    const auto client_ipv6_packet = ipv6_packet(
+        assignment.client_ipv6_address, parse_ipv6_address("2001:db8::10"));
+    const Frame ipv6_data{MessageType::DataIpv6, 0U, 4U, client_ipv6_packet};
+    const auto ipv6_data_bytes = encode_frame(ipv6_data);
+    boost::asio::write(client, boost::asio::buffer(ipv6_data_bytes));
+    check(ipv6_packet_future.wait_for(3s) == std::future_status::ready &&
+              ipv6_packet_future.get() == client_ipv6_packet,
+          "authenticated client IPv6 packet reaches the server packet sink");
+
     const auto server_packet =
         ipv4_packet(parse_ipv4_address("192.0.2.10"), assignment.client_address);
     session->send_ipv4_from_tun(server_packet);
@@ -221,9 +261,17 @@ void run_end_to_end_session(const std::string& ca_file,
               server_data.payload == server_packet,
           "server packet for the lease is delivered to the authenticated client");
 
+    const auto server_ipv6_packet = ipv6_packet(
+        parse_ipv6_address("2001:db8::10"), assignment.client_ipv6_address);
+    session->send_ipv6_from_tun(server_ipv6_packet);
+    const auto server_ipv6_data = read_frame(client);
+    check(server_ipv6_data.type == MessageType::DataIpv6 &&
+              server_ipv6_data.sequence == 4U && server_ipv6_data.payload == server_ipv6_packet,
+          "server IPv6 packet for the lease reaches the authenticated client");
+
     const Frame close{MessageType::Close,
                       0U,
-                      4U,
+                      5U,
                       encode_close_message(CloseMessage{0U})};
     const auto close_bytes = encode_frame(close);
     boost::asio::write(client, boost::asio::buffer(close_bytes));
