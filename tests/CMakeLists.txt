@@ -148,6 +148,25 @@ endif()
 
 add_test(NAME client_network_transaction_tests COMMAND client_network_transaction_tests)
 
+if(TARGET personal_vpn_windows_network)
+    add_executable(windows_kill_switch_policy_tests
+        windows_kill_switch_policy_tests.cpp)
+    target_include_directories(windows_kill_switch_policy_tests
+        PRIVATE ${PROJECT_SOURCE_DIR}/src/client)
+    target_link_libraries(windows_kill_switch_policy_tests
+        PRIVATE PersonalVPN::WindowsNetwork)
+    target_compile_features(windows_kill_switch_policy_tests PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(windows_kill_switch_policy_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(windows_kill_switch_policy_tests
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+    add_test(NAME windows_kill_switch_policy_tests
+        COMMAND windows_kill_switch_policy_tests)
+    set_tests_properties(windows_kill_switch_policy_tests PROPERTIES TIMEOUT 10)
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND PERSONAL_VPN_BUILD_LINUX_TRANSPORT)
     find_program(BASH_EXECUTABLE bash REQUIRED)
     set(TEST_PKI_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-pki")

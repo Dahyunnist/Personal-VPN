@@ -158,6 +158,7 @@ if(WIN32)
     add_library(personal_vpn_windows_network
         src/client/windows_network_backend.cpp
         src/client/windows_kill_switch.cpp
+        src/client/windows_kill_switch_policy.cpp
     )
     add_library(PersonalVPN::WindowsNetwork ALIAS personal_vpn_windows_network)
     target_include_directories(personal_vpn_windows_network

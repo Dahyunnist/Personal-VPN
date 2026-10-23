@@ -40,7 +40,7 @@ flowchart LR
 | 验证项 | 最近结果 | 说明 |
 | --- | --- | --- |
 | Linux 构建与测试 | 20/20 通过 | Ubuntu WSL；含 IPv4/IPv6 双向 TLS 隧道集成测试及服务器、客户端 CRL 握手测试，测试证书存放在 Linux 文件系统 |
-| Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试；含 schema v2 profile 导入、CRL 复制与删除 |
+| Windows 构建与测试 | 13/13 通过 | MinGW 桌面客户端完整测试集；含 schema v2 profile 导入、CRL 复制与删除，以及 IPv4/IPv6 WFP 故障关闭策略构建与输入边界测试 |
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
 | Windows broker 安装器集成 | 通过 | 最新远程 Windows CI 验证安装器生命周期；受保护祖先目录允许标准卷上的“创建子目录”权限，带 `DeleteSubdirectoriesAndFiles` 权限的祖先仍被拒绝 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
@@ -129,7 +129,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 客户端支持带抖动的指数退避重连；不支持会话恢复、漫游或无缝网络切换。
 - 服务端可通过 `SIGHUP` 验证并切换 TLS 凭据；客户端凭据变更仍需重启客户端，已有会话继续使用原 TLS 上下文。
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
-- Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
+- Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。WFP 故障关闭规则有策略单测，但尚未在真实 Windows 主机上验证实际网络过滤行为。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
 - 最新远程 CI（提交 `f11fbcb`）全部通过，CodeQL 也通过。Windows 安装器对祖先目录仅豁免“创建子目录”权限；删除子项、写入文件、ACL、所有权及重解析点检查仍保留。CI 的安装器生命周期用例验证了受保护路径接受和危险祖先 ACL 拒绝。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。

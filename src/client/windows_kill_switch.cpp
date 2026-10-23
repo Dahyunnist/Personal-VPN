@@ -1,4 +1,5 @@
 #include "windows_kill_switch.hpp"
+#include "windows_kill_switch_policy.hpp"
 
 #if !defined(_WIN32)
 #error "Windows kill switch must only be built on Windows"
@@ -54,7 +55,6 @@ constexpr UINT32 kIncludeBootTimeFilters = 0x00000008U;
 constexpr UINT32 kDynamicSession = 0x00000001U;
 constexpr UINT64 kAllowWeight = 0xF000000000000000ULL;
 constexpr UINT64 kBlockWeight = 0x1000000000000000ULL;
-constexpr UINT32 kMaximumEndpoints = 32U;
 
 [[noreturn]] void throw_wfp_error(const char* operation, const DWORD error)
 {
@@ -358,26 +358,28 @@ void add_endpoint_allow(HANDLE engine,
 void add_family_policy(HANDLE engine,
                        const GUID& packet_layer,
                        const GUID& transport_layer,
-                       const bool ipv6,
-                       const std::vector<WindowsVpnEndpoint>& endpoints)
+                       const detail::KillSwitchFamilyPolicy& policy)
 {
-    for (const auto& endpoint : endpoints)
+    for (const auto& endpoint : policy.endpoints)
     {
-        if (endpoint.ipv6 == ipv6)
-        {
-            add_endpoint_allow(engine, packet_layer, transport_layer, endpoint);
-        }
+        add_endpoint_allow(engine, packet_layer, transport_layer, endpoint);
     }
-    add_unconditional_filter(engine,
-                             transport_layer,
-                             kFilterPersistent,
-                             FWP_ACTION_BLOCK,
-                             kBlockWeight);
-    add_unconditional_filter(engine,
-                             packet_layer,
-                             kFilterPersistent,
-                             FWP_ACTION_BLOCK,
-                             kBlockWeight);
+    if (policy.persistent_transport_block)
+    {
+        add_unconditional_filter(engine,
+                                 transport_layer,
+                                 kFilterPersistent,
+                                 FWP_ACTION_BLOCK,
+                                 kBlockWeight);
+    }
+    if (policy.persistent_ip_block)
+    {
+        add_unconditional_filter(engine,
+                                 packet_layer,
+                                 kFilterPersistent,
+                                 FWP_ACTION_BLOCK,
+                                 kBlockWeight);
+    }
 }
 
 void remove_provider(HANDLE engine)
@@ -400,57 +402,35 @@ void remove_provider(HANDLE engine)
 
 void enable_windows_kill_switch(const std::vector<WindowsVpnEndpoint>& endpoints)
 {
-    if (endpoints.empty() || endpoints.size() > kMaximumEndpoints)
-    {
-        throw std::invalid_argument("kill switch requires valid VPN endpoints and interface");
-    }
-    for (const auto& endpoint : endpoints)
-    {
-        const auto address_length = endpoint.ipv6 ? 16U : 4U;
-        const bool all_zero = std::all_of(endpoint.address.begin(),
-                                          endpoint.address.begin() + address_length,
-                                          [](const std::uint8_t octet) { return octet == 0U; });
-        if (endpoint.port == 0U || all_zero)
-        {
-            throw std::invalid_argument("kill switch endpoint address or port is invalid");
-        }
-    }
+    const auto policy = detail::build_kill_switch_policy(endpoints);
 
     Engine engine;
     Transaction transaction(engine.get());
     ensure_provider_and_sublayer(engine.get());
     delete_provider_filters(engine.get());
 
-    add_unconditional_filter(engine.get(),
-                             kOutboundIpPacketV4,
-                             kFilterBootTime,
-                             FWP_ACTION_BLOCK,
-                             kBlockWeight);
-    add_unconditional_filter(engine.get(),
-                             kOutboundIpPacketV6,
-                             kFilterBootTime,
-                             FWP_ACTION_BLOCK,
-                             kBlockWeight);
-    add_family_policy(engine.get(),
-                      kOutboundIpPacketV4,
-                      kOutboundTransportV4,
-                      false,
-                      endpoints);
-    add_family_policy(engine.get(),
-                      kOutboundIpPacketV6,
-                      kOutboundTransportV6,
-                      true,
-                      endpoints);
+    for (const auto& family : policy)
+    {
+        const bool ipv6 = family.family == detail::IpFamily::IPv6;
+        const auto& packet_layer = ipv6 ? kOutboundIpPacketV6 : kOutboundIpPacketV4;
+        const auto& transport_layer = ipv6 ? kOutboundTransportV6 : kOutboundTransportV4;
+        if (family.boot_time_ip_block)
+        {
+            add_unconditional_filter(engine.get(),
+                                     packet_layer,
+                                     kFilterBootTime,
+                                     FWP_ACTION_BLOCK,
+                                     kBlockWeight);
+        }
+        add_family_policy(engine.get(), packet_layer, transport_layer, family);
+    }
     transaction.commit();
 }
 
 void replace_windows_tunnel_permit(void*& dynamic_session,
                                    const std::uint32_t tunnel_interface_index)
 {
-    if (tunnel_interface_index == 0U)
-    {
-        throw std::invalid_argument("Wintun interface index is invalid");
-    }
+    const auto policy = detail::build_tunnel_permit_policy(tunnel_interface_index);
     close_windows_tunnel_permit(dynamic_session);
 
     FWPM_SESSION0 session{};
@@ -465,10 +445,16 @@ void replace_windows_tunnel_permit(void*& dynamic_session,
     try
     {
         Transaction transaction(new_session);
-        add_interface_allow(new_session, kOutboundIpPacketV4, tunnel_interface_index);
-        add_interface_allow(new_session, kOutboundIpPacketV6, tunnel_interface_index);
-        add_interface_allow(new_session, kOutboundTransportV4, tunnel_interface_index);
-        add_interface_allow(new_session, kOutboundTransportV6, tunnel_interface_index);
+        for (const auto family : policy.families)
+        {
+            const bool ipv6 = family == detail::IpFamily::IPv6;
+            add_interface_allow(new_session,
+                                ipv6 ? kOutboundIpPacketV6 : kOutboundIpPacketV4,
+                                policy.interface_index);
+            add_interface_allow(new_session,
+                                ipv6 ? kOutboundTransportV6 : kOutboundTransportV4,
+                                policy.interface_index);
+        }
         transaction.commit();
     }
     catch (...)
