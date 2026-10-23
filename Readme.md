@@ -30,7 +30,7 @@ flowchart LR
 - **Windows 双栈网络事务：** 配置 Wintun、IPv4/IPv6 地址、双栈 MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
 - **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
 - **运行与发布基础：** Linux 服务端配置和 systemd 示例、JSON 指标、CI、ASan/UBSan、协议模糊测试、基准测试、CPack 打包及发布校验流程。
-- **Windows 权限边界探索：** SCM broker、管理员安装脚本、受保护 profile 导入器和客户端运行时适配器已接入桌面 UI。普通 UI 通过受 ACL 保护的命名管道请求服务连接，不直接创建 Wintun 或配置路由；断线、注销或服务停止时由服务清理运行时。profile 与凭据副本保存在当前用户受保护目录，尚无 GUI 清理/管理流程。当前仅支持活动物理控制台会话；RDP、多用户并发、安装升级回滚、服务 ACL 与真实 Wintun 部署验证仍未完成。部署步骤见 [Windows broker 服务指南](docs/deployment/windows-broker.md)。
+- **Windows 权限边界探索：** SCM broker、管理员安装脚本、受保护 profile 导入器和客户端运行时适配器已接入桌面 UI。普通 UI 通过受 ACL 保护的命名管道请求服务连接，不直接创建 Wintun 或配置路由；断线、注销或服务停止时由服务清理运行时。profile 与凭据副本保存在当前用户受保护目录；UI 可删除当前选中的 profile 副本，尚无历史列表和批量管理。当前仅支持活动物理控制台会话；RDP、多用户并发、安装升级回滚、服务 ACL 与真实 Wintun 部署验证仍未完成。部署步骤见 [Windows broker 服务指南](docs/deployment/windows-broker.md)。
 
 ## 验证状态
 
@@ -40,8 +40,8 @@ flowchart LR
 | --- | --- | --- |
 | Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
 | Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
-| Windows 核心构建与测试 | 9/9 通过 | 本轮 MinGW 核心配置；最新远程 MSVC CI 曾因 `max` 宏冲突失败，修复已加入本次待推送改动，须由新 CI 复验 |
-| Windows broker 安装器集成 | 已加入 CI，待首次远程运行 | 覆盖 `-WhatIf`、拒绝用户可写来源、失败回滚、SCM 安装/启动/卸载和策略保留；不覆盖真实隧道流量 |
+| Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
+| Windows broker 安装器集成 | 首次远程执行失败，修复待复验 | `ee2fdf7` runner 把 Program Files 的 inherit-only ACL 模板误判为当前写权限；当前工作区修正了 ACE 适用性判断。覆盖 `-WhatIf`、拒绝用户可写来源、失败回滚、SCM 安装/启动/卸载和策略保留；不覆盖真实隧道流量 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
@@ -129,7 +129,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
-- `14c08e1` 远程 CI 的核心、Linux、sanitizer、fuzz 和 benchmark 门禁通过；Windows 桌面构建已补齐 Boost.PropertyTree，随后暴露 GUI 入口符号不匹配。`wWinMain` 与 MinGW Unicode 启动修复已在当前工作区，尚待推送复验。
+- `ee2fdf7` 远程 CI 的核心、Linux、sanitizer、fuzz、benchmark、Windows 桌面构建和单元测试通过；broker 安装器集成测试因 Program Files 的 inherit-only ACL 模板被误判而失败。修正 ACL 适用范围的改动已在当前工作区，尚待推送复验。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 

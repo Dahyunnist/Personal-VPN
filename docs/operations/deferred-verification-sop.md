@@ -39,7 +39,7 @@
 - GUI 导入配置时会将配置和凭据复制到当前用户保护目录。导入文件选择已改用 Unicode Windows API；profile store 使用文件流读取路径，避免非 ASCII 路径被窄字符编码破坏。
 - 持续性断线保护关闭仍单独启动 UAC 确认。失败时 UI 不回退到本地网络特权路径。
 - MinGW 桌面构建通过，12/12 项 CTest 通过；测试覆盖 broker 命名管道 Connect/Status/Disconnect 生命周期。真实 SCM 服务身份、ACL、UAC 交互、Wintun 数据面、安装升级回滚和多会话尚未验证。
-- Windows CI 已增加安装器生命周期集成脚本：在干净 runner 上以受保护暂存区执行 `-WhatIf`、拒绝用户可写来源、模拟服务启动失败并验证回滚，再执行真实 SCM 安装/服务启动/卸载，并验证程序目录 ACL 所有者及策略保留。脚本已通过本机 PowerShell 语法解析；远程 Windows runner 首次执行结果待核验。该测试不验证 Wintun 隧道数据面、安装升级回滚或真实用户登录管道。
+- Windows CI 已增加安装器生命周期集成脚本：在干净 runner 上以受保护暂存区执行 `-WhatIf`、拒绝用户可写来源、模拟服务启动失败并验证回滚，再执行真实 SCM 安装/服务启动/卸载，并验证程序目录 ACL 所有者及策略保留。`ee2fdf7` 的首次远程执行通过桌面编译和单元测试，但安装器预检把 Program Files 的 inherit-only ACE 模板误判为当前对象写权限；当前工作区已调整为只检查作用于当前对象的 ACE，等待新远程复验。该测试不验证 Wintun 隧道数据面、安装升级回滚或真实用户登录管道。
 
 上述检查不等于真实 Windows VPN 隧道验证，也不能证明端到端性能。远程 Windows 打包门禁和受控双主机证据仍待完成；本地 ZIP 检查不能替代 vcpkg SBOM 门禁。另见[GitHub 认证操作指南](authenticated-github-sop.md)及[性能测试说明](../performance/benchmarking.md)。
 

@@ -17,7 +17,7 @@
 
 Linux 服务端打开私钥时不跟随符号链接；随后检查该已打开普通文件的所有者和权限，并从同一个文件描述符解析密钥。这可以避免权限检查和 OpenSSL 读取之间发生路径替换。私钥应归服务账号所有，权限设为 `0600`。
 
-Windows 客户端导入 profile 时，会把配置和三份凭据复制到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles`，并设置仅当前用户、SYSTEM、Administrators 可访问的 ACL。broker 通过命名管道认证调用者，在模拟用户身份下解析 profile 和凭据；凭据加载拒绝重解析点、空 DACL、宽泛读取权限和未知授权 ACE。随后从同一个文件句柄读取最多 1 MiB 到解析后会清零的缓冲区，再交给 OpenSSL 解析。句柄禁止其他进程共享写入/删除。自动化测试覆盖模拟令牌路径、授权主体白名单、非法 ACL 拒绝及 profile 复制后的 TLS 加载。当前没有 GUI profile 删除功能；删除前必须先断开该 profile 的隧道，并确认目标仅在应用 profile 根目录内。
+Windows 客户端导入 profile 时，会把配置和三份凭据复制到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles`，并设置仅当前用户、SYSTEM、Administrators 可访问的 ACL。broker 通过命名管道认证调用者，在模拟用户身份下解析 profile 和凭据；凭据加载拒绝重解析点、空 DACL、宽泛读取权限和未知授权 ACE。随后从同一个文件句柄读取最多 1 MiB 到解析后会清零的缓冲区，再交给 OpenSSL 解析。句柄禁止其他进程共享写入/删除。自动化测试覆盖模拟令牌路径、授权主体白名单、非法 ACL 拒绝、profile 删除及复制后的 TLS 加载。GUI 仅允许删除当前选中的 profile；先断开隧道并确认后，应用只删除固定目录中该 profile 的配置与凭据副本，不删除原始导入文件。
 
 生产客户端证书吊销使用通过 `--client-crl` 配置的 PEM CRL。应原子替换服务端证书、密钥、客户端 CA 和 CRL，然后发送 `SIGHUP`。服务端在切换前验证候选 TLS 上下文；验证失败时保留当前上下文。新握手使用更新后的信任材料，已有会话仍使用原 TLS 上下文。若要终止所有既有会话，需要协调重启服务端；服务端不会单独逐出某个已吊销客户端。见[运维手册](../operations/runbook.md#client-certificate-revocation)。
 

@@ -114,6 +114,12 @@ function Assert-AdministratorProtectedPath {
         }
         foreach ($rule in $acl.GetAccessRules($true, $true,
                 [Security.Principal.SecurityIdentifier])) {
+            # Inherit-only ACEs do not grant rights on this object. Descendants
+            # used by the installation are checked individually below.
+            if (($rule.PropagationFlags -band
+                    [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) {
+                continue
+            }
             if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
                 $rule.IdentityReference.Value -notin $trustedSids -and
                 (($rule.FileSystemRights -band $writeRights) -ne 0)) {
