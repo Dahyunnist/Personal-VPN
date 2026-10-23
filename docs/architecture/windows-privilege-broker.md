@@ -34,6 +34,8 @@ Windows 路径 helper `resolve_impersonated_profile_path(profile_id)` 只接受�
 
 Windows `BrokerClientRuntimeControl` 已提供桌面端运行时适配器：保持单条认证管道、发送 Connect、轮询 Status、发送 Disconnect；传输失败或客户端关闭会关闭管道，让服务端执行运行时清理。Windows 管道集成测试覆盖 Connect/Status/Disconnect 生命周期。当前 `VPNClientCore` 仍直接创建本地 `ClientRuntime`，该适配器尚未接入 GUI。
 
+`store_broker_profile` 已将经现有解析器验证的 profile 与三份凭据复制到当前用户固定的 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles` 根目录。它生成不透明 ID、重写凭据相对路径，拒绝 reparse 目录和非普通/超大凭据，并为目录、私钥和配置设定仅当前用户、SYSTEM、Administrators 可访问的 DACL。Windows 凭据测试会重新加载复制后的配置并建立 TLS 上下文。当前 GUI 尚未调用此导入器；导入产生的 profile 尚无 GUI 清理/管理流程。
+
 管道 DACL 只向明确授权的交互式用户 SID、Administrators 和 SYSTEM 授权。每个连接都要模拟调用方，检查令牌用户和交互会话，并将请求绑定到该身份。不得信任消息数据中提供的 SID、用户名、配置文件路径或会话 ID。每个用户最多建立一个活动隧道。断开连接、管道中断、注销、服务停止或传输故障，都必须使用现有幂等关闭和路由回滚路径。
 
 当前安装脚本配置服务为 LocalSystem，因为会话发现使用 `WTSQueryUserToken`。准确令牌权限和最小权限替代方案尚未通过提升权限集成测试验证。保护 UI/服务二进制、服务配置和更新路径，禁止普通用户写入；安装脚本仅允许管理员执行。

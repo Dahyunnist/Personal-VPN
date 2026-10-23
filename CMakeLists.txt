@@ -218,6 +218,7 @@ if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
         src/broker/windows_broker_service_policy.cpp
         src/broker/broker_runtime_registry.cpp
         src/broker/windows_broker_profile_loader.cpp
+        src/broker/windows_broker_profile_store.cpp
         src/broker/windows_broker_client_runtime.cpp
         src/broker/windows_broker_pipe_session.cpp
     )
@@ -225,7 +226,8 @@ if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
     target_include_directories(personal_vpn_broker_runtime
         PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/broker/include>)
     target_link_libraries(personal_vpn_broker_runtime
-        PUBLIC PersonalVPN::BrokerProtocol PersonalVPN::ClientTransport)
+        PUBLIC PersonalVPN::BrokerProtocol PersonalVPN::ClientTransport
+        PRIVATE ole32)
     target_compile_features(personal_vpn_broker_runtime PUBLIC cxx_std_17)
     if(MSVC)
         target_compile_options(personal_vpn_broker_runtime PRIVATE /W4 /permissive-)

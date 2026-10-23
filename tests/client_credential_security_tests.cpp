@@ -7,6 +7,8 @@
 #include "personal_vpn/credential_security.hpp"
 #include "personal_vpn/client_tls_security.hpp"
 #include "personal_vpn/client_config.hpp"
+#include "personal_vpn/windows_broker_profile_store.hpp"
+#include "personal_vpn/broker_protocol.hpp"
 
 #include <array>
 #include <cstdio>
@@ -322,6 +324,35 @@ int main()
         if (tls_context.native_handle() == nullptr)
         {
             throw std::runtime_error("TLS context did not load the profile's validated key");
+        }
+        const auto stored_profile = personal_vpn::broker::store_broker_profile(profile);
+        if (!personal_vpn::broker::is_valid_profile_id(stored_profile.profile_id) ||
+            stored_profile.config_path.filename() !=
+                std::filesystem::path(stored_profile.profile_id + ".json"))
+        {
+            throw std::runtime_error("broker profile store returned an invalid profile identity");
+        }
+        const auto stored_config =
+            personal_vpn::client::load_client_config(stored_profile.config_path);
+        if (stored_config.server_host != client_config.server_host ||
+            stored_config.server_port != client_config.server_port ||
+            stored_config.routes != client_config.routes ||
+            stored_config.private_key_file.filename() !=
+                std::filesystem::path(stored_profile.profile_id + "-client.key"))
+        {
+            throw std::runtime_error("stored broker profile or copied credentials are invalid");
+        }
+        auto stored_tls_context =
+            personal_vpn::client::make_client_tls_context(stored_config);
+        if (stored_tls_context.native_handle() == nullptr)
+        {
+            throw std::runtime_error("copied broker credentials did not load into TLS");
+        }
+        const auto stored_directory = stored_profile.config_path.parent_path();
+        for (const auto* suffix : {"-ca.crt", "-client.crt", "-client.key", ".json"})
+        {
+            static_cast<void>(DeleteFileW(
+                (stored_directory / (stored_profile.profile_id + suffix)).c_str()));
         }
         const personal_vpn::client::ClientNetworkPolicy network_policy{
             {"10.20.0.0/16"}, false};
