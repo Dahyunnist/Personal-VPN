@@ -115,6 +115,19 @@ HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid)
     return pipe;
 }
 
+bool accept_broker_pipe_client(const HANDLE pipe) noexcept
+{
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    if (ConnectNamedPipe(pipe, nullptr) != FALSE)
+    {
+        return true;
+    }
+    return GetLastError() == ERROR_PIPE_CONNECTED;
+}
+
 bool authenticate_broker_pipe_client(const HANDLE pipe,
                                      const std::wstring& authorized_logon_sid,
                                      const DWORD expected_session_id)
@@ -184,6 +197,58 @@ bool authenticate_broker_pipe_client(const HANDLE pipe,
     }
     const auto reverted = impersonation_guard.revert();
     return authenticated && reverted;
+}
+
+Request read_authenticated_broker_request(const HANDLE pipe,
+                                          const std::wstring& authorized_logon_sid,
+                                          const DWORD expected_session_id,
+                                          RequestDecoder& decoder)
+{
+    const auto disconnect_and_throw = [pipe](const char* message) -> void
+    {
+        static_cast<void>(DisconnectNamedPipe(pipe));
+        throw std::runtime_error(message);
+    };
+    if (!authenticate_broker_pipe_client(pipe, authorized_logon_sid, expected_session_id))
+    {
+        disconnect_and_throw("broker pipe peer authentication failed");
+    }
+
+    std::vector<std::uint8_t> frame(4U);
+    DWORD transferred = 0U;
+    if (!ReadFile(pipe, frame.data(), 4U, &transferred, nullptr) || transferred != 4U)
+    {
+        disconnect_and_throw("broker frame length read failed");
+    }
+    const auto body_size = static_cast<std::uint32_t>(frame[0]) |
+                           (static_cast<std::uint32_t>(frame[1]) << 8U) |
+                           (static_cast<std::uint32_t>(frame[2]) << 16U) |
+                           (static_cast<std::uint32_t>(frame[3]) << 24U);
+    if (body_size < 16U || body_size > maximum_frame_size - 4U)
+    {
+        disconnect_and_throw("broker frame length is outside the allowed range");
+    }
+    frame.resize(static_cast<std::size_t>(body_size) + 4U);
+    std::size_t offset = 4U;
+    while (offset < frame.size())
+    {
+        const auto remaining = static_cast<DWORD>(frame.size() - offset);
+        if (!ReadFile(pipe, frame.data() + offset, remaining, &transferred, nullptr) ||
+            transferred == 0U)
+        {
+            disconnect_and_throw("broker frame body read failed");
+        }
+        offset += transferred;
+    }
+    try
+    {
+        return decoder.decode(frame);
+    }
+    catch (...)
+    {
+        static_cast<void>(DisconnectNamedPipe(pipe));
+        throw;
+    }
 }
 
 } // namespace personal_vpn::broker
