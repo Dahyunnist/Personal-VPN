@@ -4,7 +4,7 @@
 
 ## 安装
 
-1. 从可信发布页下载 ZIP 和校验文件。在管理员 PowerShell 中建立受保护暂存目录，再把 ZIP 和策略文件放入其中。安装器会检查包、策略、每个父目录及文件的所有者、DACL 和 reparse 状态；用户可写源路径会被拒绝。
+1. 从可信发布页下载 ZIP 和校验文件。在管理员 PowerShell 中建立受保护暂存目录，再把 ZIP 和策略文件放入其中。安装器会拒绝 UNC 路径，并检查包、策略、每个父目录及文件的所有者、DACL 和 reparse 状态；用户可写源路径会被拒绝。
 
 ```powershell
 $stage = Join-Path $env:ProgramFiles 'PersonalVPN-Staging'

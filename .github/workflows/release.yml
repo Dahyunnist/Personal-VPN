@@ -100,7 +100,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Validate Windows broker installer syntax
         shell: pwsh
-        run: $null = [scriptblock]::Create((Get-Content deploy/windows/install-broker.ps1 -Raw))
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $null = [scriptblock]::Create((Get-Content deploy/windows/install-broker.ps1 -Raw))
       - name: Configure, build, and test
         shell: pwsh
         run: |

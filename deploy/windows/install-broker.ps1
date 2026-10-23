@@ -166,6 +166,9 @@ if ([string]::IsNullOrWhiteSpace($PackageDirectory) -or
 }
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
 $policySource = (Resolve-Path -LiteralPath $PolicyFile).Path
+if ($package.StartsWith('\\') -or $policySource.StartsWith('\\')) {
+    throw 'Package and policy must come from local, administrator-protected paths.'
+}
 Assert-AdministratorProtectedPath -Path $package
 Assert-AdministratorProtectedPath -Path $policySource
 $requiredFiles = @(
@@ -181,6 +184,10 @@ foreach ($name in $requiredFiles) {
     Assert-AdministratorProtectedPath -Path $binary
 }
 $policy = Get-Content -LiteralPath $policySource -Raw | ConvertFrom-Json
+$policyLength = (Get-Item -LiteralPath $policySource).Length
+if ($policyLength -le 0 -or $policyLength -gt 65536) {
+    throw 'Policy file must be between 1 and 65536 bytes.'
+}
 if ($policy.schema_version -ne 1 -or $null -eq $policy.network -or
     $null -eq $policy.network.allowed_routes -or
     $policy.network.allow_default_route -isnot [bool]) {
@@ -200,6 +207,10 @@ if (Test-Path -LiteralPath $dataDirectory) {
         throw 'Existing policy must not be a reparse point.'
     }
     $existingPolicy = Get-Content -LiteralPath $installedPolicy -Raw | ConvertFrom-Json
+    $existingPolicyLength = (Get-Item -LiteralPath $installedPolicy).Length
+    if ($existingPolicyLength -le 0 -or $existingPolicyLength -gt 65536) {
+        throw 'Existing policy file must be between 1 and 65536 bytes.'
+    }
     if ($existingPolicy.schema_version -ne 1 -or $null -eq $existingPolicy.network -or
         $null -eq $existingPolicy.network.allowed_routes -or
         $existingPolicy.network.allow_default_route -isnot [bool]) {
@@ -226,39 +237,58 @@ if (-not $PSCmdlet.ShouldProcess($programDirectory, 'Install PersonalVPN broker 
     exit 0
 }
 
-New-Item -ItemType Directory -Path $binaryDirectory -Force | Out-Null
-New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
-Set-PrivateDirectoryAcl -Path $programDirectory -AllowUsersRead
-Set-PrivateDirectoryAcl -Path $binaryDirectory -AllowUsersRead
-Set-PrivateDirectoryAcl -Path $dataDirectory
-Set-TrustedOwner -Path $programDirectory
-Set-TrustedOwner -Path $binaryDirectory
-Set-TrustedOwner -Path $dataDirectory
-foreach ($name in $requiredFiles) {
-    Copy-Item -LiteralPath (Join-Path $package "bin\$name") `
-        -Destination (Join-Path $binaryDirectory $name)
-}
-if (-not $reuseInstalledPolicy) {
-    Copy-Item -LiteralPath $policySource -Destination $installedPolicy
-}
-Set-PrivateDirectoryAcl -Path $dataDirectory
-Set-PrivateFileAcl -Path $installedPolicy
+try {
+    New-Item -ItemType Directory -Path $binaryDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
+    Set-PrivateDirectoryAcl -Path $programDirectory -AllowUsersRead
+    Set-PrivateDirectoryAcl -Path $binaryDirectory -AllowUsersRead
+    Set-PrivateDirectoryAcl -Path $dataDirectory
+    Set-TrustedOwner -Path $programDirectory
+    Set-TrustedOwner -Path $binaryDirectory
+    Set-TrustedOwner -Path $dataDirectory
+    foreach ($name in $requiredFiles) {
+        Copy-Item -LiteralPath (Join-Path $package "bin\$name") `
+            -Destination (Join-Path $binaryDirectory $name)
+    }
+    if (-not $reuseInstalledPolicy) {
+        Copy-Item -LiteralPath $policySource -Destination $installedPolicy
+    }
+    Set-PrivateDirectoryAcl -Path $dataDirectory
+    Set-PrivateFileAcl -Path $installedPolicy
 
-$serviceExecutable = Join-Path $binaryDirectory 'personal-vpn-broker-service.exe'
-New-Service -Name $serviceName -DisplayName 'PersonalVPN Broker' `
-    -Description 'Runs the authenticated PersonalVPN tunnel broker.' `
-    -BinaryPathName ('"{0}"' -f $serviceExecutable) -StartupType Automatic | Out-Null
-& sc.exe failure $serviceName 'reset=' '86400' `
-    'actions=' 'restart/60000/restart/60000/restart/60000' | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    & sc.exe delete $serviceName | Out-Null
-    throw "Unable to configure service recovery: $LASTEXITCODE"
+    $serviceExecutable = Join-Path $binaryDirectory 'personal-vpn-broker-service.exe'
+    New-Service -Name $serviceName -DisplayName 'PersonalVPN Broker' `
+        -Description 'Runs the authenticated PersonalVPN tunnel broker.' `
+        -BinaryPathName ('"{0}"' -f $serviceExecutable) -StartupType Automatic | Out-Null
+    & sc.exe failure $serviceName 'reset=' '86400' `
+        'actions=' 'restart/60000/restart/60000/restart/60000' | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to configure service recovery: $LASTEXITCODE"
+    }
+    & sc.exe failureflag $serviceName '1' | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to configure service failure actions: $LASTEXITCODE"
+    }
+    Start-Service -Name $serviceName
+} catch {
+    $failure = $_
+    try {
+        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($null -ne $service) {
+            if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+                Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+            }
+            & sc.exe delete $serviceName | Out-Null
+        }
+        if (Test-Path -LiteralPath $programDirectory) {
+            Remove-Item -LiteralPath $programDirectory -Recurse -Force
+        }
+        if (-not $reuseInstalledPolicy -and (Test-Path -LiteralPath $dataDirectory)) {
+            Remove-Item -LiteralPath $dataDirectory -Recurse -Force
+        }
+    } catch {
+        Write-Warning "Install rollback was incomplete: $($_.Exception.Message)"
+    }
+    throw $failure
 }
-& sc.exe failureflag $serviceName '1' | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    & sc.exe stop $serviceName | Out-Null
-    & sc.exe delete $serviceName | Out-Null
-    throw "Unable to configure service failure actions: $LASTEXITCODE"
-}
-Start-Service -Name $serviceName
 Write-Output "Installed PersonalVPN broker. Policy: $installedPolicy"
