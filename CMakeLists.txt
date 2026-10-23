@@ -232,6 +232,28 @@ if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
         target_compile_options(personal_vpn_broker_runtime
             PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
     endif()
+
+    add_executable(personal-vpn-broker-service src/broker/windows_broker_service.cpp)
+    target_link_libraries(personal-vpn-broker-service PRIVATE
+        PersonalVPN::BrokerRuntime
+        PersonalVPN::ClientTransport
+        advapi32
+        shell32
+        wtsapi32
+    )
+    target_compile_features(personal-vpn-broker-service PRIVATE cxx_std_17)
+    target_compile_definitions(personal-vpn-broker-service PRIVATE
+        _WIN32_WINNT=0x0A00 WINVER=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(MINGW)
+        target_link_options(personal-vpn-broker-service PRIVATE -municode)
+    endif()
+    if(MSVC)
+        target_compile_options(personal-vpn-broker-service PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(personal-vpn-broker-service
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+    install(TARGETS personal-vpn-broker-service RUNTIME DESTINATION bin)
 endif()
 
 if(PERSONAL_VPN_BUILD_WINDOWS_UI)

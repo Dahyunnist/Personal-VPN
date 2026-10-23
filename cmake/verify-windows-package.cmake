@@ -14,6 +14,7 @@ endif()
 
 set(required_suffixes
     "/bin/personal-vpn-client.exe"
+    "/bin/personal-vpn-broker-service.exe"
     "/bin/wintun.dll"
     "/config/client.example.json"
     "/licenses/imgui/LICENSE.txt"
