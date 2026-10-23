@@ -435,7 +435,8 @@ void replace_windows_tunnel_permit(void*& dynamic_session,
                                    const std::uint32_t tunnel_interface_index)
 {
     const auto policy = detail::build_tunnel_permit_policy(tunnel_interface_index);
-    close_windows_tunnel_permit(dynamic_session);
+    check_wfp(close_windows_tunnel_permit(dynamic_session),
+              "close previous dynamic WFP tunnel-permit session");
 
     FWPM_SESSION0 session{};
     session.flags = kDynamicSession;
@@ -473,13 +474,19 @@ void replace_windows_tunnel_permit(void*& dynamic_session,
     dynamic_session = new_session;
 }
 
-void close_windows_tunnel_permit(void*& dynamic_session) noexcept
+std::uint32_t close_windows_tunnel_permit(void*& dynamic_session) noexcept
 {
-    if (dynamic_session != nullptr)
+    if (dynamic_session == nullptr)
     {
-        static_cast<void>(FwpmEngineClose0(dynamic_session));
+        return ERROR_SUCCESS;
+    }
+
+    const auto result = FwpmEngineClose0(dynamic_session);
+    if (result == ERROR_SUCCESS)
+    {
         dynamic_session = nullptr;
     }
+    return result;
 }
 
 void disable_windows_kill_switch()

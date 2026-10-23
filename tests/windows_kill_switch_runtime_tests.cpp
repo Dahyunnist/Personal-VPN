@@ -105,10 +105,6 @@ personal_vpn::client::WindowsVpnEndpoint parse_endpoint(const std::string_view a
     {
         throw std::invalid_argument("runner WFP test endpoint address is invalid");
     }
-    if (!is_public_endpoint(endpoint))
-    {
-        throw std::invalid_argument("runner WFP test endpoint must use a public address");
-    }
     return endpoint;
 }
 
@@ -149,6 +145,15 @@ std::vector<personal_vpn::client::WindowsVpnEndpoint> test_endpoints()
         }
         const auto endpoint = parse_endpoint(record.substr(0U, separator),
                                              record.substr(separator + 1U));
+        if (!is_public_endpoint(endpoint))
+        {
+            if (record_end == std::string_view::npos)
+            {
+                break;
+            }
+            remaining.remove_prefix(record_end + 1U);
+            continue;
+        }
         const auto duplicate = std::find_if(endpoints.begin(), endpoints.end(),
                                             [&endpoint](const auto& candidate) {
                                                 return candidate.address == endpoint.address &&
@@ -168,6 +173,10 @@ std::vector<personal_vpn::client::WindowsVpnEndpoint> test_endpoints()
             break;
         }
         remaining.remove_prefix(record_end + 1U);
+    }
+    if (endpoints.size() == 2U)
+    {
+        throw std::runtime_error("no public runner control-plane endpoints were found");
     }
     return endpoints;
 }
@@ -310,7 +319,14 @@ int main(const int argc, char** argv)
         }
 
         std::cout << "Closing dynamic WFP session\n" << std::flush;
-        personal_vpn::client::close_windows_tunnel_permit(session.handle());
+        const auto close_result =
+            personal_vpn::client::close_windows_tunnel_permit(session.handle());
+        if (close_result != ERROR_SUCCESS)
+        {
+            throw std::system_error(static_cast<int>(close_result),
+                                    std::system_category(),
+                                    "close dynamic WFP tunnel-permit session");
+        }
         if (session.handle() != nullptr)
         {
             std::cerr << "WFP dynamic session handle was not cleared\n";
