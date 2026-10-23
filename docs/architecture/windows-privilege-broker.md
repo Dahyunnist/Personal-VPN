@@ -12,7 +12,7 @@
 
 使用带版本和长度前缀的本地命名管道协议。服务端拒绝远程管道客户端、格式错误或超大消息、未知版本、未知消息类型及重复请求 ID。每条连接最多接受 256 个唯一请求 ID；达到上限后必须关闭连接，避免重放跟踪内存无界增长。初始消息只允许：
 
-当前 Windows broker pipe helper 已创建固定名称的首个实例，DACL 只授予 SYSTEM、Administrators 和服务提供的授权登录 SID，并启用 `PIPE_REJECT_REMOTE_CLIENTS`。连接后认证函数会模拟客户端，要求至少 `SecurityImpersonation` 令牌级别，核对管道会话 ID、线程令牌会话 ID及令牌中的登录 SID，并保证恢复服务身份。客户端 helper 会以 `SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION` 打开管道并发送受限请求。服务尚未集成该 helper；授权 SID 的可信发现和请求处理仍未实现，因此此代码本身不构成可运行的 broker 服务。
+当前 Windows broker pipe helper 已创建固定名称的首个实例，DACL 只授予 SYSTEM、Administrators 和服务提供的授权登录 SID，并启用 `PIPE_REJECT_REMOTE_CLIENTS`。连接后认证函数会模拟客户端，要求至少 `SecurityImpersonation` 令牌级别，核对管道会话 ID、线程令牌会话 ID及令牌中的登录 SID，并保证恢复服务身份。客户端 helper 会以 `SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION` 打开管道并发送受限请求；有界请求/响应均带 request ID，Windows 集成测试覆盖一次真实管道往返。服务尚未集成该 helper；授权 SID 的可信发现和请求处理仍未实现，因此此代码本身不构成可运行的 broker 服务。
 
 - `Connect(profile_id)`；
 - `Disconnect(request_id)`；
@@ -28,8 +28,8 @@
 
 ## 集成顺序
 
-1. 从 `ClientRuntime` 抽取面向 broker 的隧道生命周期接口；保留 TLS、重连、事务和 join 完整关闭等不变量。
-2. 有界请求编解码器已有 Windows/可移植往返与负向测试，并已加入 libFuzzer 目标。仍需增加管道 ACL、调用方令牌绑定、拒绝远程客户端和连接级重放处理的 Windows 测试。
+1. 已从 `ClientRuntime` 抽取生命周期控制接口，UI 当前仍实例化本地运行时；TLS、重连、事务和 join 完整关闭逻辑未变。
+2. 有界请求/响应编解码器已有可移植往返与负向测试，并已加入 libFuzzer 目标。Windows 集成测试覆盖当前用户登录 SID/会话认证、请求解码和响应关联；仍需以真实服务身份验证 ACL、远程拒绝及跨进程重放处理。
 3. 在服务中承载现有客户端运行时和 `WindowsNetworkBackend`。确保配置和私钥在调用方身份下读取，TLS 验证仍在服务进程内完成。
 4. 将 `VPNClientCore` 对运行时的直接所有权改为 IPC 客户端。UI 消息只公开状态和有界诊断，不携带凭据或路由。
 5. 增加安装程序、服务恢复策略、升级/回滚/卸载流程和提权集成测试。之后移除 UI 自行提权，并验证 UI 令牌未提权时，真实隧道配置和清理仍然成功。

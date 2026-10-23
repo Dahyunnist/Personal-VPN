@@ -3,6 +3,7 @@
 
 #include "personal_vpn/client_config.hpp"
 #include "personal_vpn/client_network_transaction.hpp"
+#include "personal_vpn/client_runtime_control.hpp"
 #include "personal_vpn/client_tls_security.hpp"
 #include "personal_vpn/tls_tunnel_client.hpp"
 
@@ -23,26 +24,7 @@
 namespace personal_vpn::client
 {
 
-enum class ClientRuntimeState
-{
-    Stopped,
-    Starting,
-    Resolving,
-    Connecting,
-    ConfiguringNetwork,
-    Connected,
-    Reconnecting,
-    Stopping,
-    Failed,
-};
-
-struct ClientRuntimeEvent
-{
-    ClientRuntimeState state{ClientRuntimeState::Stopped};
-    std::string message;
-};
-
-class ClientRuntime final
+class ClientRuntime final : public ClientRuntimeControl
 {
    public:
     using EventHandler = std::function<void(const ClientRuntimeEvent&)>;
@@ -56,12 +38,12 @@ class ClientRuntime final
     ClientRuntime(const ClientRuntime&) = delete;
     ClientRuntime& operator=(const ClientRuntime&) = delete;
 
-    void start();
-    void stop();
-    void wait();
+    void start() override;
+    void stop() override;
+    void wait() override;
 
-    [[nodiscard]] ClientRuntimeState state() const noexcept { return state_.load(); }
-    [[nodiscard]] std::string failure_message() const;
+    [[nodiscard]] ClientRuntimeState state() const noexcept override { return state_.load(); }
+    [[nodiscard]] std::string failure_message() const override;
 
    private:
     using Tcp = boost::asio::ip::tcp;

@@ -1,7 +1,7 @@
 #ifndef VPN_CLIENT_CORE_H
 #define VPN_CLIENT_CORE_H
 
-#include "personal_vpn/client_runtime.hpp"
+#include "personal_vpn/client_runtime_control.hpp"
 #include "personal_vpn/client_config.hpp"
 
 #include <atomic>
@@ -35,7 +35,7 @@ class VPNClientCore final
     void Log(const std::string& message, bool is_error) const;
 
     mutable std::mutex mutex_;
-    std::unique_ptr<personal_vpn::client::ClientRuntime> runtime_;
+    std::unique_ptr<personal_vpn::client::ClientRuntimeControl> runtime_;
     LogCallback log_callback_;
     std::atomic<bool> connected_{false};
     std::atomic<bool> reconnecting_{false};

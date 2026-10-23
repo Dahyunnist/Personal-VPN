@@ -1,6 +1,7 @@
 #include "vpn_client_core.h"
 
 #include "personal_vpn/client_config.hpp"
+#include "personal_vpn/client_runtime.hpp"
 #include "personal_vpn/windows_network_backend.hpp"
 
 #include <exception>
@@ -49,7 +50,7 @@ bool VPNClientCore::Start(personal_vpn::client::ClientConfig config,
 
 void VPNClientCore::Stop()
 {
-    std::unique_ptr<personal_vpn::client::ClientRuntime> runtime;
+    std::unique_ptr<personal_vpn::client::ClientRuntimeControl> runtime;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         runtime = std::move(runtime_);
