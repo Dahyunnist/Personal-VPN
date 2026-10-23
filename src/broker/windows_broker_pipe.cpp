@@ -92,6 +92,48 @@ bool read_exact_pipe(HANDLE pipe,
     return true;
 }
 
+bool write_exact_pipe(HANDLE pipe,
+                      const std::uint8_t* input,
+                      const std::size_t size,
+                      const ULONGLONG deadline) noexcept
+{
+    std::size_t offset = 0U;
+    while (offset < size)
+    {
+        const auto event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (event == nullptr)
+        {
+            return false;
+        }
+        std::unique_ptr<void, EventCloser> event_owner(event);
+        OVERLAPPED operation{};
+        operation.hEvent = event;
+        DWORD transferred = 0U;
+        const auto remaining = static_cast<DWORD>(size - offset);
+        const auto started = WriteFile(pipe, input + offset, remaining, &transferred, &operation);
+        if (!started && GetLastError() != ERROR_IO_PENDING)
+        {
+            return false;
+        }
+        if (!started)
+        {
+            const auto now = GetTickCount64();
+            if (now >= deadline ||
+                !wait_overlapped(pipe, operation, static_cast<DWORD>(deadline - now)) ||
+                !GetOverlappedResult(pipe, &operation, &transferred, FALSE))
+            {
+                return false;
+            }
+        }
+        if (transferred == 0U)
+        {
+            return false;
+        }
+        offset += transferred;
+    }
+    return true;
+}
+
 struct LocalFreeDeleter
 {
     void operator()(void* value) const noexcept
@@ -179,6 +221,35 @@ bool write_broker_request(const HANDLE pipe, const Request& request)
         offset += written;
     }
     return true;
+}
+
+Response read_broker_response(const HANDLE pipe, const std::uint64_t request_id)
+{
+    const auto deadline = GetTickCount64() + pipe_operation_timeout_ms;
+    std::vector<std::uint8_t> frame(4U);
+    if (pipe == INVALID_HANDLE_VALUE || !read_exact_pipe(pipe, frame.data(), frame.size(), deadline))
+    {
+        throw std::runtime_error("broker response length read failed or timed out");
+    }
+    const auto body_size = static_cast<std::uint32_t>(frame[0]) |
+                           (static_cast<std::uint32_t>(frame[1]) << 8U) |
+                           (static_cast<std::uint32_t>(frame[2]) << 16U) |
+                           (static_cast<std::uint32_t>(frame[3]) << 24U);
+    if (body_size < 19U || body_size > maximum_response_size - 4U)
+    {
+        throw std::runtime_error("broker response length is invalid");
+    }
+    frame.resize(static_cast<std::size_t>(body_size) + 4U);
+    if (!read_exact_pipe(pipe, frame.data() + 4U, frame.size() - 4U, deadline))
+    {
+        throw std::runtime_error("broker response body read failed or timed out");
+    }
+    const auto response = decode_response(frame);
+    if (response.request_id != request_id)
+    {
+        throw std::runtime_error("broker response correlation ID mismatch");
+    }
+    return response;
 }
 
 HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid)
@@ -401,6 +472,19 @@ Request read_authenticated_broker_request(const HANDLE pipe,
         static_cast<void>(DisconnectNamedPipe(pipe));
         throw;
     }
+}
+
+bool write_broker_response(const HANDLE pipe, const Response& response)
+{
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    const auto frame = encode_response(response);
+    return write_exact_pipe(pipe,
+                            frame.data(),
+                            frame.size(),
+                            GetTickCount64() + pipe_operation_timeout_ms);
 }
 
 } // namespace personal_vpn::broker

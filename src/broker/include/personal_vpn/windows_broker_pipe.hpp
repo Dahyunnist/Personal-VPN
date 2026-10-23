@@ -15,6 +15,7 @@ namespace personal_vpn::broker
 
 [[nodiscard]] HANDLE connect_broker_pipe_client(DWORD timeout_ms) noexcept;
 [[nodiscard]] bool write_broker_request(HANDLE pipe, const Request& request);
+[[nodiscard]] Response read_broker_response(HANDLE pipe, std::uint64_t request_id);
 
 // Creates the first instance of the fixed local broker pipe, ACLed to one trusted logon SID.
 [[nodiscard]] HANDLE create_broker_pipe_server(const std::wstring& authorized_logon_sid);
@@ -31,6 +32,7 @@ namespace personal_vpn::broker
     const std::wstring& authorized_logon_sid,
     DWORD expected_session_id,
     RequestDecoder& decoder);
+[[nodiscard]] bool write_broker_response(HANDLE pipe, const Response& response);
 
 } // namespace personal_vpn::broker
 

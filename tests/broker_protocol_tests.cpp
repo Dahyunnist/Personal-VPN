@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #ifdef _WIN32
+#include <atomic>
 #include <thread>
 #include <chrono>
 #endif
@@ -249,7 +250,8 @@ void named_pipe_authentication_and_framing()
         throw std::runtime_error("CreateEventW failed");
     }
     std::unique_ptr<void, decltype(&CloseHandle)> completed_owner(completed, CloseHandle);
-    std::thread client([completed]
+    std::atomic<bool> client_ok{false};
+    std::thread client([completed, &client_ok]
     {
         const auto pipe = connect_broker_pipe_client(1'000U);
         if (pipe == INVALID_HANDLE_VALUE)
@@ -257,8 +259,19 @@ void named_pipe_authentication_and_framing()
             return;
         }
         std::unique_ptr<void, decltype(&CloseHandle)> pipe_owner(pipe, CloseHandle);
-        static_cast<void>(write_broker_request(
-            pipe, {RequestType::GetStatus, 101U, {}}));
+        if (!write_broker_request(pipe, {RequestType::GetStatus, 101U, {}}))
+        {
+            return;
+        }
+        try
+        {
+            const auto response = read_broker_response(pipe, 101U);
+            client_ok.store(response.type == ResponseType::Status && response.connected &&
+                            response.message == "connected");
+        }
+        catch (...)
+        {
+        }
         static_cast<void>(WaitForSingleObject(completed, 5'000U));
     });
     RequestDecoder decoder;
@@ -271,6 +284,9 @@ void named_pipe_authentication_and_framing()
             const auto request = read_authenticated_broker_request(server, sid, session_id, decoder);
             check(request.type == RequestType::GetStatus && request.request_id == 101U,
                   "named pipe authenticates current logon and decodes one request");
+            check(write_broker_response(server,
+                                        {ResponseType::Status, 101U, true, "connected"}),
+                  "named pipe writes a bounded response");
         }
         else
         {
@@ -283,6 +299,7 @@ void named_pipe_authentication_and_framing()
     }
     static_cast<void>(SetEvent(completed));
     client.join();
+    check(client_ok.load(), "named pipe returns a correlated response to the client");
     if (server_error)
     {
         std::rethrow_exception(server_error);
