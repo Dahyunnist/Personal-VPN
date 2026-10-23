@@ -40,6 +40,7 @@ flowchart LR
 | --- | --- | --- |
 | Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
 | Windows 构建与测试 | 12/12 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
+| Windows 核心构建与测试 | 9/9 通过 | 本轮 MinGW 核心配置；最新远程 MSVC CI 曾因 `max` 宏冲突失败，修复已加入本次待推送改动，须由新 CI 复验 |
 | Windows broker 安装器集成 | 已加入 CI，待首次远程运行 | 覆盖 `-WhatIf`、拒绝用户可写来源、失败回滚、SCM 安装/启动/卸载和策略保留；不覆盖真实隧道流量 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
