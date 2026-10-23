@@ -23,6 +23,8 @@ $dataDirectory = Join-Path $env:ProgramData 'PersonalVPN'
 $installedPolicy = Join-Path $dataDirectory 'broker-policy.json'
 $stage = Join-Path $env:ProgramFiles ('PersonalVPN-Installer-Test-' + [guid]::NewGuid().ToString('N'))
 $rollbackStage = Join-Path $env:ProgramFiles ('PersonalVPN-Rollback-Test-' + [guid]::NewGuid().ToString('N'))
+$unsafeAncestor = Join-Path $env:ProgramFiles ('PersonalVPN-Installer-Ancestor-Test-' + [guid]::NewGuid().ToString('N'))
+$unsafeAncestorStage = Join-Path $unsafeAncestor 'trusted-source'
 $untrustedStage = Join-Path $env:TEMP ('PersonalVPN-Installer-Test-' + [guid]::NewGuid().ToString('N'))
 $installationSucceeded = $false
 $testPolicyHash = $null
@@ -121,6 +123,34 @@ try {
         throw "Installer did not reject user-writable source paths: $($untrusted.Output)"
     }
 
+    New-Item -ItemType Directory -Path $unsafeAncestor -Force | Out-Null
+    Set-TestSourceAcl -Path $unsafeAncestor
+    $unsafeAncestorBin = Join-Path $unsafeAncestorStage 'bin'
+    New-Item -ItemType Directory -Path $unsafeAncestorBin -Force | Out-Null
+    Copy-Item -LiteralPath $BrokerExecutable `
+        -Destination (Join-Path $unsafeAncestorBin 'personal-vpn-broker-service.exe')
+    Copy-Item -LiteralPath $ClientExecutable `
+        -Destination (Join-Path $unsafeAncestorBin 'personal-vpn-client.exe')
+    Copy-Item -LiteralPath $WintunDll -Destination (Join-Path $unsafeAncestorBin 'wintun.dll')
+    Copy-Item -LiteralPath $PolicyTemplate `
+        -Destination (Join-Path $unsafeAncestorStage 'broker-policy.json')
+    Set-TestSourceAcl -Path $unsafeAncestorStage
+    $ancestorAcl = Get-Acl -LiteralPath $unsafeAncestor
+    $deleteChildRule = [Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new('S-1-5-11'),
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles,
+        [Security.AccessControl.AccessControlType]::Allow)
+    [void]$ancestorAcl.AddAccessRule($deleteChildRule)
+    Set-Acl -LiteralPath $unsafeAncestor -AclObject $ancestorAcl
+    $unsafeAncestorAttempt = Invoke-InstallerProcess -Action Install `
+        -PackageDirectory $unsafeAncestorStage `
+        -PolicyFile (Join-Path $unsafeAncestorStage 'broker-policy.json') `
+        -WhatIf
+    if ($unsafeAncestorAttempt.ExitCode -eq 0 -or
+        $unsafeAncestorAttempt.Output -notmatch 'grants write access') {
+        throw "Installer accepted a source below an ancestor that can delete child paths: $($unsafeAncestorAttempt.Output)"
+    }
+
     $rollbackBin = Join-Path $rollbackStage 'bin'
     New-Item -ItemType Directory -Path $rollbackBin -Force | Out-Null
     Copy-Item -LiteralPath $FailureServiceExecutable `
@@ -204,7 +234,7 @@ try {
         throw 'Uninstall did not preserve the installed policy unchanged.'
     }
 
-    Write-Output 'Windows broker installer integration passed: WhatIf, source ACL rejection, failed-start rollback, SCM install/start/uninstall, ACL ownership, and policy preservation.'
+    Write-Output 'Windows broker installer integration passed: WhatIf, source and ancestor ACL rejection, failed-start rollback, SCM install/start/uninstall, ACL ownership, and policy preservation.'
 } finally {
     if ($installationSucceeded) {
         if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
@@ -226,6 +256,9 @@ try {
     }
     if (Test-Path -LiteralPath $rollbackStage) {
         Remove-Item -LiteralPath $rollbackStage -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $unsafeAncestor) {
+        Remove-Item -LiteralPath $unsafeAncestor -Recurse -Force
     }
     if (Test-Path -LiteralPath $untrustedStage) {
         Remove-Item -LiteralPath $untrustedStage -Recurse -Force
