@@ -7,6 +7,7 @@
 #include <Windows.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -73,14 +74,20 @@ class PersistentPolicy final
     bool installed_{false};
 };
 
+bool environment_variable_equals(const char* name, const char* expected)
+{
+    char value[16U]{};
+    const auto length = GetEnvironmentVariableA(
+        name, value, static_cast<DWORD>(sizeof(value)));
+    return length > 0U && length < sizeof(value) && std::strcmp(value, expected) == 0;
+}
+
 } // namespace
 
 int main()
 {
-    const char* github_actions = std::getenv("GITHUB_ACTIONS");
-    const char* enable_integration = std::getenv("PERSONAL_VPN_RUN_WFP_INTEGRATION");
-    if (github_actions == nullptr || std::string(github_actions) != "true" ||
-        enable_integration == nullptr || std::string(enable_integration) != "1")
+    if (!environment_variable_equals("GITHUB_ACTIONS", "true") ||
+        !environment_variable_equals("PERSONAL_VPN_RUN_WFP_INTEGRATION", "1"))
     {
         std::cout << "Skipped: WFP integration is restricted to opted-in GitHub runners\n";
         return 77;
