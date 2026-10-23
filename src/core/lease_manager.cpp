@@ -1,5 +1,8 @@
 #include "personal_vpn/lease_manager.hpp"
 
+#include <boost/asio/ip/address.hpp>
+
+#include <algorithm>
 #include <charconv>
 #include <limits>
 #include <stdexcept>
@@ -12,6 +15,11 @@ namespace
 bool is_unspecified(const Ipv4Address& address) noexcept
 {
     return address[0] == 0U && address[1] == 0U && address[2] == 0U && address[3] == 0U;
+}
+
+bool is_unspecified(const Ipv6Address& address) noexcept
+{
+    return std::all_of(address.begin(), address.end(), [](std::uint8_t value) { return value == 0U; });
 }
 
 } // namespace
@@ -61,10 +69,27 @@ std::string format_ipv4_address(const Ipv4Address& address)
            std::to_string(address[2]) + "." + std::to_string(address[3]);
 }
 
+Ipv6Address parse_ipv6_address(const std::string& text)
+{
+    boost::system::error_code error;
+    const auto address = boost::asio::ip::make_address_v6(text, error);
+    if (error || address.scope_id() != 0U)
+    {
+        throw std::invalid_argument("IPv6 address is invalid or has a scope identifier");
+    }
+    return address.to_bytes();
+}
+
+std::string format_ipv6_address(const Ipv6Address& address)
+{
+    return boost::asio::ip::address_v6(address).to_string();
+}
+
 bool Lease::operator==(const Lease& other) const noexcept
 {
     return lease_id == other.lease_id && identity == other.identity &&
-           address == other.address && expires_at == other.expires_at;
+           address == other.address && ipv6_address == other.ipv6_address &&
+           expires_at == other.expires_at;
 }
 
 LeaseManager::LeaseManager(const Ipv4Address first_address,
@@ -72,13 +97,19 @@ LeaseManager::LeaseManager(const Ipv4Address first_address,
                            const Ipv4Address gateway_address,
                            const std::uint8_t prefix_length,
                            const std::uint16_t mtu,
-                           const std::chrono::seconds lease_duration)
+                           const std::chrono::seconds lease_duration,
+                           const Ipv6Address ipv6_prefix,
+                           const Ipv6Address ipv6_gateway,
+                           const std::uint8_t ipv6_prefix_length)
     : first_address_(to_integer(first_address)),
       last_address_(to_integer(last_address)),
       gateway_address_(gateway_address),
       prefix_length_(prefix_length),
       mtu_(mtu),
-      lease_duration_(lease_duration)
+      lease_duration_(lease_duration),
+      ipv6_prefix_(ipv6_prefix),
+      ipv6_gateway_(ipv6_gateway),
+      ipv6_prefix_length_(ipv6_prefix_length)
 {
     if (first_address_ > last_address_)
     {
@@ -101,6 +132,26 @@ LeaseManager::LeaseManager(const Ipv4Address first_address,
             static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()))
     {
         throw std::invalid_argument("lease duration is outside the protocol range");
+    }
+    if (ipv6_prefix_length_ != 0U)
+    {
+        if (ipv6_prefix_length_ != 64U || is_unspecified(ipv6_gateway_))
+        {
+            throw std::invalid_argument("IPv6 lease pool requires a non-zero gateway and /64 prefix");
+        }
+        for (std::size_t index = 0U; index < 8U; ++index)
+        {
+            if (ipv6_prefix_[index] != ipv6_gateway_[index])
+            {
+                throw std::invalid_argument("IPv6 gateway must belong to the configured /64 prefix");
+            }
+        }
+        if (!std::all_of(ipv6_prefix_.begin() + 8,
+                         ipv6_prefix_.end(),
+                         [](std::uint8_t value) { return value == 0U; }))
+        {
+            throw std::invalid_argument("IPv6 lease prefix must be canonical /64 network address");
+        }
     }
 
     const auto gateway = to_integer(gateway_address_);
@@ -150,10 +201,18 @@ Lease LeaseManager::acquire(const std::string& identity, const TimePoint now)
             {
                 throw std::runtime_error("virtual IP lease generation is exhausted");
             }
-            Lease lease{next_lease_id_++,
-                        identity,
-                        from_integer(candidate),
-                        now + lease_duration_};
+            const auto ipv4 = from_integer(candidate);
+            Ipv6Address ipv6{};
+            if (ipv6_prefix_length_ != 0U)
+            {
+                std::copy_n(ipv6_prefix_.begin(), 8U, ipv6.begin());
+                std::copy(ipv4.begin(), ipv4.end(), ipv6.begin() + 12);
+                if (ipv6 == ipv6_gateway_)
+                {
+                    throw std::runtime_error("derived IPv6 lease collides with gateway address");
+                }
+            }
+            Lease lease{next_lease_id_++, identity, ipv4, ipv6, now + lease_duration_};
             leases_by_identity_.emplace(identity, lease);
             identity_by_address_.emplace(candidate, identity);
             return lease;
@@ -247,7 +306,10 @@ protocol::IpAssignment LeaseManager::to_assignment(const Lease& lease) const
                                   gateway_address_,
                                   prefix_length_,
                                   mtu_,
-                                  static_cast<std::uint32_t>(lease_duration_.count())};
+                                  static_cast<std::uint32_t>(lease_duration_.count()),
+                                  lease.ipv6_address,
+                                  ipv6_gateway_,
+                                  ipv6_prefix_length_};
 }
 
 std::uint32_t LeaseManager::to_integer(const Ipv4Address& address) noexcept

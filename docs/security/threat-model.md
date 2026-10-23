@@ -1,69 +1,57 @@
-# Threat model
+# 威胁模型
 
-## Assets and security goals
+## 资产与安全目标
 
-- Client and server private keys remain confidential.
-- A tunnel peer is authenticated before receiving an address or packet access.
-- One client cannot claim, spoof, or receive another client's virtual address traffic.
-- Untrusted network bytes cannot cause unbounded allocation, concurrent TLS access,
-  undefined behavior, or host route corruption.
-- Shutdown removes only process-owned resources and remains safe after partial setup.
+- 客户端和服务端私钥保持机密。
+- 隧道对端必须先完成身份认证，才能获得地址或访问数据包。
+- 一个客户端不能声明、伪造或接收其他客户端虚拟地址上的流量。
+- 不可信网络字节不能导致无界内存分配、并发 TLS 访问、未定义行为或主机路由损坏。
+- 关闭时只清理本进程创建的资源；即使初始化只完成一部分，也必须安全退出。
 
-Availability against an adversary with unlimited traffic and protection of a fully
-compromised endpoint are out of scope.
+不覆盖无限流量攻击者造成的可用性问题，也不试图保护已经被完全控制的端点。
 
-## Adversaries
+## 对手模型
 
-1. A passive network observer sees TCP metadata and ciphertext.
-2. An active network attacker can intercept, replay, fragment, coalesce, delay, or
-   modify traffic and present an untrusted certificate.
-3. An authenticated but malicious client sends malformed controls/IP packets, spoofs
-   sources, floods queues, or opens many sessions.
-4. A local unprivileged user attempts to read key files or replace a credential path.
-5. A configuration author supplies unsafe routes, malformed limits, or an unexpected
-   server identity.
-6. A dependency or release artifact is replaced upstream or in transit.
+1. 被动网络观察者可以看到 TCP 元数据和密文。
+2. 主动网络攻击者可以拦截、重放、拆分、合并、延迟或篡改流量，也可以提供不受信任的证书。
+3. 已认证但恶意的客户端可以发送格式错误的控制消息/IP 包、伪造源地址、灌满队列或创建大量会话。
+4. 本地低权限用户试图读取密钥文件或替换凭据路径。
+5. 配置编写者提供不安全路由、格式错误的限制值或意外的服务端身份。
+6. 依赖项或发布制品在上游或传输过程中遭到替换。
 
-## Controls
+## 安全控制
 
-| Threat | Control | Residual risk / verification |
+| 威胁 | 控制措施 | 残余风险 / 验证方式 |
 |---|---|---|
-| Network interception | TLS, CA validation, exact server-name verification, mTLS | TCP endpoints/timing remain visible; verify with disposable PKI E2E tests |
-| Stolen/revoked client cert | CRL verification and fingerprint identity; server validates and atomically reloads a new CRL on `SIGHUP` | Revocation applies to new TLS handshakes after a successful reload; established sessions keep their original TLS context and need a coordinated server restart to terminate |
-| Address spoofing | Server-issued leases plus source/destination validation | IPv6 is unsupported and rejected |
-| Stream confusion | Magic/version/type/flags/length/sequence validation | Protocol v1 has no extension negotiation |
-| Memory/CPU exhaustion | Payload, queue, sessions, threads, MTU, profile, timeout bounds | Volumetric DoS needs upstream firewall/rate controls |
-| Async lifetime bugs | Serialized stream access, owned buffers, weak/shared ownership, joined shutdown | Enforced by tests, sanitizers, and fuzzing, not a formal proof |
-| Route damage | Strict route parsing and transactional exact rollback | Entire Windows GUI currently runs elevated; review imported routes and profiles |
-| Privileged client compromise | Strict profile schema, credential ACL/reparse checks, and bounded network operations | UI, parser, TLS stack, and profile loading share the elevated process; no broker isolation |
-| Local key disclosure | External paths, Linux mode checks, Windows ACL/reparse checks | Malware/admin access and memory extraction are out of scope |
-| Supply-chain replacement | pinned ImGui tag, pinned Wintun version/hash, checksums | Boost/OpenSSL/toolchain trust the build environment; no signed first-party binary yet |
-| Secret committed to Git | ignore/policy checks and credential rotation guidance | Historical commits require coordinated secret rotation/history treatment |
+| 网络窃听或篡改 | TLS、CA 验证、精确服务端名称验证、mTLS | TCP 端点和时序仍可见；使用临时 PKI 端到端测试验证 |
+| 客户端证书被盗或吊销 | CRL 验证和证书指纹身份；服务端在 `SIGHUP` 时验证并原子加载新 CRL | 成功重载后，吊销仅对新 TLS 握手生效；已建立会话保留原 TLS 上下文，需要协调重启服务端才能终止 |
+| 地址伪造 | 服务端分配租约并校验源/目标地址 | 不支持 IPv6，并会拒绝 IPv6 |
+| 字节流混淆 | 校验魔数、版本、类型、标志、长度和序列号 | v1 不支持扩展协商 |
+| 内存/CPU 耗尽 | 限制载荷、队列、会话、线程、MTU、配置文件和超时 | 大流量拒绝服务需要上游防火墙/限速措施 |
+| 异步生命周期错误 | 串行化流操作、拥有缓冲区、弱/共享所有权、等待线程退出 | 由测试、sanitizer 和 fuzz 验证，不构成形式化证明 |
+| 路由损坏 | 严格解析路由，并按事务精确回滚 | 整个 Windows GUI 仍以提升权限运行；应审查导入的路由和配置文件 |
+| 特权客户端被攻破 | 严格配置文件 schema、凭据 ACL/重解析点检查、有界网络操作 | UI、解析器、TLS 栈和配置文件加载仍共享提升权限进程；没有 broker 隔离 |
+| 本地密钥泄漏 | 使用外部路径、Linux 文件权限检查、Windows ACL/重解析点检查 | 恶意软件、管理员访问和内存提取不在保护范围内 |
+| 供应链替换 | 固定 ImGui 标签、固定 Wintun 版本/哈希、校验和 | Boost/OpenSSL/工具链仍依赖构建环境可信；尚无正式签名的第一方二进制 |
+| 密钥被提交到 Git | 忽略规则/策略检查及凭据轮换指南 | 历史提交仍需协调轮换密钥并处理仓库历史 |
 
-## Trust boundaries
+## 信任边界
 
-- TLS termination is not authorization: protocol and lease checks remain mandatory.
-- A valid client certificate identifies a credential, not a human or a secure device.
-- Wintun/TUN and IP Helper calls cross into privileged kernel state.
-- Imported configuration and PKI paths are local inputs, not remote inputs; the Windows
-  client currently processes them in the elevated GUI process.
-- The user must review imported routes and protect profile and credential paths. A
-  separate least-privilege UI and narrowly scoped privileged network broker are not
-  implemented.
-- Host routing, firewall, NAT, DNS policy, endpoint hardening, and key issuance are
-  deployment responsibilities.
+- TLS 终止不等于授权：仍必须校验协议和地址租约。
+- 有效客户端证书只能识别凭据，不能证明持有人是某个人或设备安全。
+- Wintun/TUN 及 IP Helper 调用会触及特权内核状态。
+- 导入的配置和 PKI 路径是本地输入，不是远端输入；Windows 客户端目前在提升权限的 GUI 进程中处理它们。
+- 用户必须审查导入路由并保护配置文件和凭据路径。独立的低权限 UI 和范围受限的特权网络 broker 尚未实现。
+- 主机路由、防火墙、NAT、DNS 策略、端点加固和密钥签发属于部署责任。
 
-## Security test cases
+## 安全测试用例
 
-- unknown CA, expired certificate, hostname mismatch, and revoked client fail before
-  protocol establishment;
-- duplicate/gapped sequence, invalid state/type/flags/length, oversized payload, and
-  malformed IPv4 fail closed;
-- spoofed client source and misaddressed downlink never reach TUN/Wintun;
-- queue/session limits reject excess work without unbounded growth;
-- handshake and idle deadlines close and release the exact lease generation;
-- partial Windows setup rolls back only completed steps;
-- private-key permission/ACL failures occur before OpenSSL loads the key.
+- 未知 CA、过期证书、主机名不匹配和已吊销客户端必须在协议建立前失败；
+- 重复/跳跃序列号、无效状态/类型/标志/长度、超大载荷和格式错误的 IPv4 必须失败并关闭；
+- 伪造客户端源地址和目标不匹配的下行包不得到达 TUN/Wintun；
+- 超出队列/会话限制时必须拒绝新增工作，不能无界增长；
+- 握手和空闲截止时间必须关闭连接并释放准确的租约代次；
+- Windows 初始化部分失败时，只回滚已完成的步骤；
+- 加载密钥前，必须先检测私钥权限/ACL 错误。
 
-Report security issues using GitHub private vulnerability reporting where available;
-do not publish exploitable details or real credentials in a public issue.
+如需报告安全问题，请在 GitHub 提供私密漏洞报告功能时使用该渠道；不要在公开 issue 中发布可利用细节或真实凭据。

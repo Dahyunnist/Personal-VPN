@@ -127,7 +127,7 @@ void test_invalid_headers_fail_closed()
                           "failed decoder cannot silently resume");
 
     auto bad_version = valid;
-    bad_version[4] = 2U;
+    bad_version[4] = 1U;
     FrameDecoder version_decoder;
     expect_protocol_error(ProtocolErrorCode::UnsupportedVersion,
                           [&] { static_cast<void>(version_decoder.push(bad_version)); },

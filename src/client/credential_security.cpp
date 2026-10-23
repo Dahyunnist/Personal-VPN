@@ -14,6 +14,7 @@
 #include <io.h>
 #include <memory>
 #include <fcntl.h>
+#include <vector>
 #endif
 
 namespace personal_vpn::client
@@ -67,34 +68,52 @@ void validate_private_key_acl(HANDLE handle)
         throw std::invalid_argument("client private key must not have an unrestricted DACL");
     }
 
-    constexpr std::array<WELL_KNOWN_SID_TYPE, 11U> broad_principals{
-        WinWorldSid,
-        WinAuthenticatedUserSid,
-        WinBuiltinUsersSid,
-        WinBuiltinGuestsSid,
-        WinInteractiveSid,
-        WinNetworkSid,
-        WinBatchSid,
-        WinServiceSid,
-        WinAnonymousSid,
-        WinTerminalServerSid,
-        WinRestrictedCodeSid};
-    std::array<std::array<unsigned char, SECURITY_MAX_SID_SIZE>, broad_principals.size()>
-        sid_storage{};
-    std::array<PSID, broad_principals.size()> broad_sids{};
-    for (std::size_t index = 0U; index < broad_principals.size(); ++index)
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE)
+    {
+        throw std::system_error(static_cast<int>(GetLastError()),
+                                std::system_category(),
+                                "open client process token");
+    }
+    HandlePtr token_owner(token);
+    DWORD token_user_size = 0U;
+    static_cast<void>(GetTokenInformation(token, TokenUser, nullptr, 0U, &token_user_size));
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || token_user_size == 0U)
+    {
+        throw std::system_error(static_cast<int>(GetLastError()),
+                                std::system_category(),
+                                "query client token user size");
+    }
+    std::vector<unsigned char> token_user_storage(token_user_size);
+    if (GetTokenInformation(token,
+                            TokenUser,
+                            token_user_storage.data(),
+                            token_user_size,
+                            &token_user_size) == FALSE)
+    {
+        throw std::system_error(static_cast<int>(GetLastError()),
+                                std::system_category(),
+                                "read client token user");
+    }
+    const auto* token_user = reinterpret_cast<const TOKEN_USER*>(token_user_storage.data());
+
+    std::array<std::array<unsigned char, SECURITY_MAX_SID_SIZE>, 2U> system_sid_storage{};
+    constexpr std::array<WELL_KNOWN_SID_TYPE, 2U> system_principals{
+        WinLocalSystemSid, WinBuiltinAdministratorsSid};
+    std::array<PSID, 2U> system_sids{};
+    for (std::size_t index = 0U; index < system_principals.size(); ++index)
     {
         DWORD sid_size = SECURITY_MAX_SID_SIZE;
-        if (CreateWellKnownSid(broad_principals[index],
+        if (CreateWellKnownSid(system_principals[index],
                                nullptr,
-                               sid_storage[index].data(),
+                               system_sid_storage[index].data(),
                                &sid_size) == FALSE)
         {
             throw std::system_error(static_cast<int>(GetLastError()),
                                     std::system_category(),
-                                    "create ACL policy SID");
+                                    "create trusted ACL policy SID");
         }
-        broad_sids[index] = sid_storage[index].data();
+        system_sids[index] = system_sid_storage[index].data();
     }
 
     for (DWORD index = 0U; index < dacl->AceCount; ++index)
@@ -107,9 +126,14 @@ void validate_private_key_acl(HANDLE handle)
                                     "inspect client private-key ACL entry");
         }
         const auto* header = static_cast<const ACE_HEADER*>(raw_ace);
-        if (header->AceType != ACCESS_ALLOWED_ACE_TYPE)
+        if (header->AceType == ACCESS_DENIED_ACE_TYPE)
         {
             continue;
+        }
+        if (header->AceType != ACCESS_ALLOWED_ACE_TYPE)
+        {
+            throw std::invalid_argument(
+                "client private key ACL contains an unsupported access ACE");
         }
         const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw_ace);
         constexpr DWORD readable = FILE_READ_DATA | GENERIC_READ | GENERIC_ALL;
@@ -118,13 +142,15 @@ void validate_private_key_acl(HANDLE handle)
             continue;
         }
         PSID sid = const_cast<DWORD*>(&ace->SidStart);
-        for (const auto broad_sid : broad_sids)
+        bool trusted_principal = EqualSid(sid, token_user->User.Sid) != FALSE;
+        for (const auto trusted_sid : system_sids)
         {
-            if (EqualSid(sid, broad_sid) != FALSE)
-            {
-                throw std::invalid_argument(
-                    "client private key ACL grants read access to a broad Windows principal");
-            }
+            trusted_principal = trusted_principal || EqualSid(sid, trusted_sid) != FALSE;
+        }
+        if (!trusted_principal)
+        {
+            throw std::invalid_argument(
+                "client private key ACL grants read access to an unauthorized principal");
         }
     }
 }
@@ -188,7 +214,7 @@ ValidatedPrivateKeyFile open_validated_private_key_file(
                                 std::generic_category(),
                                 "read client private key");
     }
-    return ValidatedPrivateKeyFile(stream, &std::fclose);
+    return ValidatedPrivateKeyFile(stream);
 #else
     auto* stream = std::fopen(private_key_file.string().c_str(), "rb");
     if (stream == nullptr)
@@ -197,7 +223,7 @@ ValidatedPrivateKeyFile open_validated_private_key_file(
                                 std::generic_category(),
                                 "open client private key");
     }
-    return ValidatedPrivateKeyFile(stream, &std::fclose);
+    return ValidatedPrivateKeyFile(stream);
 #endif
 }
 

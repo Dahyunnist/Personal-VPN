@@ -28,6 +28,7 @@ enum class ClientSessionErrorCode : std::uint16_t
     InvalidAssignment = 104U,
     InvalidIpv4Packet = 105U,
     AddressMismatch = 106U,
+    InvalidIpv6Packet = 107U,
 };
 
 struct ClientSessionResult
@@ -69,6 +70,10 @@ class ClientSessionController
                                                 std::vector<std::uint8_t> payload);
     [[nodiscard]] bool assignment_is_acceptable(const protocol::IpAssignment& assignment) const;
     [[nodiscard]] bool validate_ipv4_packet(const std::vector<std::uint8_t>& packet,
+                                            bool from_server,
+                                            ClientSessionErrorCode& error_code,
+                                            std::string& error_message) const;
+    [[nodiscard]] bool validate_ipv6_packet(const std::vector<std::uint8_t>& packet,
                                             bool from_server,
                                             ClientSessionErrorCode& error_code,
                                             std::string& error_message) const;

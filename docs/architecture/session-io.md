@@ -1,40 +1,33 @@
-# Session I/O invariants
+# 会话 I/O 约束
 
-The redesigned server transport separates byte transport, protocol framing, session policy, and TUN delivery. `TlsTunnelSession` owns only transport orchestration; it delegates parsing to `FrameDecoder`, authorization to `SessionController`, and buffering limits to `OutboundFrameQueue`.
+重构后的服务端传输将字节传输、协议帧、会话策略和 TUN 交付分开。`TlsTunnelSession` 只负责传输编排；解析交给 `FrameDecoder`，授权交给 `SessionController`，缓冲区限制交给 `OutboundFrameQueue`。
 
-## Concurrency
+## 并发
 
-Every callback and externally requested send is dispatched through one Boost.Asio strand per session. Session state, decoder state, and queue state are therefore never accessed concurrently even when the server runs one `io_context` on multiple worker threads.
+每个会话的所有回调和外部发送请求都会通过同一个 Boost.Asio strand 分发。因此，即使服务端在多个工作线程上运行一个 `io_context`，会话状态、解码器状态和队列状态也不会被并发访问。
 
-## Read path
+## 读取路径
 
-1. TLS produces an arbitrary byte chunk.
-2. `FrameDecoder` emits zero or more complete frames and retains any partial frame.
-3. `SessionController` validates message order, sequence, lease ownership, control payloads, and IPv4 source policy.
-4. Only authorized complete IPv4 packets are passed to the TUN sink.
+1. TLS 产生长度任意的字节块。
+2. `FrameDecoder` 输出零个或多个完整帧，并保留未完成帧。
+3. `SessionController` 校验消息顺序、序列号、租约所有权、控制载荷和 IPv4 源地址策略。
+4. 只有经过授权的完整 IPv4 数据包才能传给 TUN 接收端。
 
-A framing or transport error closes the connection. A policy error queues one bounded `ERROR` frame and closes after that write completes.
+帧格式或传输错误会关闭连接。策略错误会排入一个有界 `ERROR` 帧，并在该帧写入完成后关闭。
 
-## Write path
+## 写入路径
 
-1. A frame is fully encoded into an owning byte vector.
-2. The byte vector is inserted into a bounded FIFO queue.
-3. Exactly one `async_write` is outstanding for the session.
-4. Its completion handler removes the front buffer and starts the next write.
+1. 将帧完整编码到一个由发送端拥有的字节向量。
+2. 将字节向量插入有界 FIFO 队列。
+3. 每个会话最多有一个未完成的 `async_write`。
+4. 写入完成处理器移除队首缓冲区，并启动下一次写入。
 
-The completion handler also captures the current shared buffer. The bytes therefore remain alive until the asynchronous operation completes. This replaces the legacy code that passed pointers to temporary packet storage.
+完成处理器也会捕获当前共享缓冲区。因此异步操作完成前，数据字节仍保持有效。这替代了旧代码中将临时数据包存储指针交给异步操作的做法。
 
-The initial limits are 256 frames and 1 MiB per session. A client that cannot drain its queue is closed instead of consuming unbounded server memory.
+每会话初始上限为 256 帧和 1 MiB。无法及时排空队列的客户端会被关闭，而不是允许其消耗无界服务端内存。
 
-## Current boundary
+## 当前边界
 
-The transport library is built on Linux in both Debug and Release configurations.
-Before any protocol bytes are accepted, the session completes a server-side mTLS
-handshake and derives its immutable identity from the verified client certificate.
+Linux Debug 和 Release 配置均会构建传输库。在接受任何协议字节前，会话必须完成服务端 mTLS 握手，并从已验证客户端证书导出不可变身份。
 
-The loopback integration test crosses the real TLS record layer and asynchronous
-transport. It verifies fragmented `CLIENT_HELLO`, server-authoritative `IP_ASSIGN`,
-coalesced `PING` plus `DATA_IPV4`, bidirectional IPv4 delivery, monotonic outbound
-sequence numbers, prompt `CLOSE`, and lease release. Linux TUN ownership and the
-multi-session acceptor remain outside this library and are the next server-runtime
-integration boundary.
+loopback 集成测试会经过真实 TLS 记录层和异步传输。测试覆盖分片的 `CLIENT_HELLO`、服务端决定的 `IP_ASSIGN`、合并传入的 `PING` 与 `DATA_IPV4`、双向 IPv4 交付、单调递增的出站序列号、及时处理 `CLOSE` 以及租约释放。Linux TUN 所有权和多会话 acceptor 不属于此库范围，后续服务端运行时负责组合这些部分。

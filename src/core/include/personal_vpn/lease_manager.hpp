@@ -16,15 +16,19 @@ namespace personal_vpn::core
 {
 
 using Ipv4Address = std::array<std::uint8_t, 4U>;
+using Ipv6Address = std::array<std::uint8_t, 16U>;
 
 [[nodiscard]] Ipv4Address parse_ipv4_address(const std::string& text);
 [[nodiscard]] std::string format_ipv4_address(const Ipv4Address& address);
+[[nodiscard]] Ipv6Address parse_ipv6_address(const std::string& text);
+[[nodiscard]] std::string format_ipv6_address(const Ipv6Address& address);
 
 struct Lease
 {
     std::uint64_t lease_id{0U};
     std::string identity;
     Ipv4Address address{};
+    Ipv6Address ipv6_address{};
     std::chrono::steady_clock::time_point expires_at{};
 
     [[nodiscard]] bool operator==(const Lease& other) const noexcept;
@@ -41,7 +45,10 @@ class LeaseManager
                  Ipv4Address gateway_address,
                  std::uint8_t prefix_length,
                  std::uint16_t mtu,
-                 std::chrono::seconds lease_duration);
+                 std::chrono::seconds lease_duration,
+                 Ipv6Address ipv6_prefix = {},
+                 Ipv6Address ipv6_gateway = {},
+                 std::uint8_t ipv6_prefix_length = 0U);
 
     [[nodiscard]] Lease acquire(const std::string& identity, TimePoint now = Clock::now());
     [[nodiscard]] std::optional<Lease> find_by_identity(const std::string& identity,
@@ -69,6 +76,9 @@ class LeaseManager
     const std::uint8_t prefix_length_;
     const std::uint16_t mtu_;
     const std::chrono::seconds lease_duration_;
+    const Ipv6Address ipv6_prefix_;
+    const Ipv6Address ipv6_gateway_;
+    const std::uint8_t ipv6_prefix_length_;
 
     std::mutex mutex_;
     std::unordered_map<std::string, Lease> leases_by_identity_;

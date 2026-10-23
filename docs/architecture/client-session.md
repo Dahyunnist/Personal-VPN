@@ -1,39 +1,21 @@
-# Client session state machine
+# 客户端会话状态机
 
-`ClientSessionController` is the portable protocol and policy boundary for the
-redesigned Windows client. TLS and Wintun adapters may only exchange frames and packets
-through this controller.
+`ClientSessionController` 是重构后 Windows 客户端中可跨平台复用的协议与策略边界。TLS 和 Wintun 适配器只能通过此控制器交换帧和数据包。
 
-## Lifecycle
+## 生命周期
 
-1. After an authenticated TLS client handshake, `start()` emits `CLIENT_HELLO` with
-   sequence 1, the requested MTU, and IPv4 capability.
-2. The first server frame must be sequence-1 `IP_ASSIGN`.
-3. The client validates that the assigned address and gateway are distinct usable
-   hosts in the same subnet and that the negotiated MTU does not exceed its request.
-4. Only then may the Windows adapter be configured and routes installed.
-5. Local packets become `DATA_IPV4` only when their source equals the assigned address.
-6. Server packets reach Wintun only when their destination equals the assigned address.
-7. Sequence gaps, invalid transitions, malformed controls, and misaddressed downlink
-   packets emit a bounded `ERROR` and fail the transport closed.
+1. TLS 客户端握手通过认证后，`start()` 发送序列号为 1 的 `CLIENT_HELLO`，其中包含请求 MTU 和 IPv4 能力。
+2. 服务端第一帧必须是序列号为 1 的 `IP_ASSIGN`。
+3. 客户端校验分配地址和网关是否为同一子网内不同且可用的主机地址，并确认协商 MTU 不超过请求值。
+4. 只有完成上述校验后，才可配置 Windows 适配器并安装路由。
+5. 仅当本地数据包源地址等于分配地址时，才可转为 `DATA_IPV4`。
+6. 只有目标地址等于分配地址的服务端数据包才可送入 Wintun。
+7. 序列号跳跃、状态转换无效、控制消息格式错误或下行地址不匹配时，发送有界 `ERROR` 并关闭传输。
 
-PING/PONG nonces are correlated. Only one client liveness probe may be outstanding, and
-an unsolicited or mismatched PONG is a protocol error. A structured server `ERROR` is
-retained in the result so the UI can show a safe diagnostic instead of scraping global
-standard output.
+PING/PONG 随机数会做配对校验。客户端最多只能有一个未完成的存活探测；未请求或不匹配的 PONG 属于协议错误。结构化服务端 `ERROR` 会保留在结果中，供 UI 显示安全诊断，而不是从全局标准输出中抓取文本。
 
-## Runtime integration
+## 运行时集成
 
-`ClientRuntime` connects this controller to the serialized TLS transport and the
-transactional Windows network backend. Wintun configuration begins only after a
-validated `IP_ASSIGN`; any later failure converges on joined shutdown and exact route,
-address, session, adapter, and module rollback. The historical duplicated client is no
-longer part of the root desktop executable.
+`ClientRuntime` 将此控制器连接到串行化 TLS 传输和具事务性的 Windows 网络后端。只有经过验证的 `IP_ASSIGN` 到达后才会开始配置 Wintun；此后的任意失败都会进入 join 完整的关闭流程，并精确回滚路由、地址、会话、适配器和模块。历史重复客户端已不再编入根目录桌面程序。
 
-Transient DNS, TCP, connection-timeout, and transport failures enter `Reconnecting`.
-The runtime retries indefinitely with equal jitter between half the exponential cap and
-the cap; the cap grows from 1 second to 30 seconds. It invalidates stale async callbacks,
-interrupts and joins the packet reader, and rolls back network state before retrying.
-Successful tunnel establishment resets the backoff. TLS verification/protocol errors,
-server rejections, and local network-setup failures remain terminal. User stop cancels
-the retry timer and joins the runtime without leaving routes installed.
+暂时性的 DNS、TCP、连接超时和传输故障会进入 `Reconnecting` 状态。运行时会无限重试，退避时长在指数上限的一半与上限之间均匀抖动；上限从 1 秒逐步增加至 30 秒。每次重试前会使过期异步回调失效、中断并 join 数据包读取线程，并回滚网络状态。隧道成功建立后退避计时重置。TLS 验证/协议错误、服务端拒绝和本地网络配置失败仍是终止错误。用户停止时会取消重试定时器并 join 运行时，不留下已安装路由。

@@ -2,6 +2,7 @@
 #include "personal_vpn/client_config.hpp"
 
 #include <cstring>
+#include <algorithm>
 #include <exception>
 #include <utility>
 
@@ -170,6 +171,21 @@ void UIMain::StartVPN() {
         AddLog("请先导入有效配置文件", true);
         return;
     }
+    const bool fullTunnel = m_clientConfig->allow_default_route &&
+        (std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "0.0.0.0/0") !=
+             m_clientConfig->routes.end() ||
+         std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "::/0") !=
+             m_clientConfig->routes.end());
+    if (fullTunnel && MessageBoxW(
+            m_hwnd,
+            L"全隧道会启用系统级 IPv4/IPv6 断线保护。\n"
+            L"断开连接、程序崩溃或重启后，网络仍会封锁。\n"
+            L"只有点击“关闭全局断线保护”才会恢复普通网络。\n\n"
+            L"继续启用？",
+            L"启用全隧道保护",
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
+        return;
+    }
     AddLog("正在建立 mTLS 隧道并等待服务器分配地址...");
     
     auto logCallback = [this](const std::string& line, bool isError) {
@@ -192,7 +208,15 @@ void UIMain::StopVPN() {
     m_vpnClient->Stop();
     m_isConnected = false;
     m_isStarting = false;
-    AddLog("VPN 已断开，地址、MTU 和路由已回滚");
+    if (m_clientConfig.has_value() && m_clientConfig->allow_default_route &&
+        (std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "0.0.0.0/0") !=
+             m_clientConfig->routes.end() ||
+         std::find(m_clientConfig->routes.begin(), m_clientConfig->routes.end(), "::/0") !=
+             m_clientConfig->routes.end())) {
+        AddLog("隧道已断开；系统级断线保护仍生效。手动关闭后才会恢复普通网络");
+    } else {
+        AddLog("VPN 已断开，地址、MTU 和路由已回滚");
+    }
 }
 
 void UIMain::Render() {
@@ -252,6 +276,25 @@ void UIMain::Render() {
                 (m_isReconnecting ? "连接中断，正在重连" :
                  (m_isStarting ? "连接中" : "未连接"));
             ImGui::TextUnformatted(connection_state);
+            if (!m_isConnected && !m_isStarting) {
+                if (ImGui::Button("关闭全局断线保护", ImVec2(190, 36))) {
+                    const auto choice = MessageBoxW(
+                        m_hwnd,
+                        L"这会删除 PersonalVPN 的持久过滤规则并恢复 IPv4/IPv6 普通网络。\n"
+                        L"请先确认 VPN 已断开。继续？",
+                        L"解除断线保护",
+                        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+                    if (choice == IDYES) {
+                        try {
+                            m_vpnClient->Stop();
+                            VPNClientCore::DisableKillSwitch();
+                            AddLog("全局断线保护已关闭；IPv4/IPv6 普通网络已恢复");
+                        } catch (const std::exception& error) {
+                            AddLog(std::string("关闭断线保护失败：") + error.what(), true);
+                        }
+                    }
+                }
+            }
 
             ImGui::EndTabItem();
         }

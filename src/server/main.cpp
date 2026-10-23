@@ -83,9 +83,12 @@ int run_server(const personal_vpn::server::ServerConfig& config)
                                parse_ipv4_address(config.gateway_address),
                                config.prefix_length,
                                config.mtu,
-                               std::chrono::seconds(config.lease_seconds));
+                               std::chrono::seconds(config.lease_seconds),
+                               personal_vpn::core::parse_ipv6_address(config.ipv6_prefix_address),
+                               personal_vpn::core::parse_ipv6_address(config.ipv6_gateway_address),
+                               64U);
     auto tun_device = LinuxTunDevice::open(io_context, config.tun_name);
-    const auto listen_address = boost::asio::ip::make_address_v4(config.listen_address);
+    const auto listen_address = boost::asio::ip::make_address(config.listen_address);
     boost::asio::signal_set signals(io_context, SIGINT, SIGTERM, SIGHUP);
     auto metrics_timer = std::make_shared<boost::asio::steady_timer>(io_context);
     auto server = std::make_shared<TlsTunnelServer>(

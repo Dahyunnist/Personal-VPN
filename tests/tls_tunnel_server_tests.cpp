@@ -133,7 +133,7 @@ IpAssignment establish(TestClient& client)
     const Frame hello{MessageType::ClientHello,
                       0U,
                       1U,
-                      encode_client_hello(ClientHello{1'280U, kCapabilityIpv4})};
+                      encode_client_hello(ClientHello{1'280U, kCapabilityIpv4 | kCapabilityIpv6})};
     const auto bytes = encode_frame(hello);
     boost::asio::write(client.stream, boost::asio::buffer(bytes));
     const auto response = read_frame(client.stream);
@@ -276,7 +276,7 @@ void run_multi_client_server(const std::vector<std::string>& paths)
         MessageType::ClientHello,
         0U,
         1U,
-        encode_client_hello(ClientHello{1'280U, kCapabilityIpv4})};
+        encode_client_hello(ClientHello{1'280U, kCapabilityIpv4 | kCapabilityIpv6})};
     const auto duplicate_hello_bytes = encode_frame(duplicate_hello);
     boost::asio::write(duplicate.stream, boost::asio::buffer(duplicate_hello_bytes));
     const auto duplicate_response = read_frame(duplicate.stream);

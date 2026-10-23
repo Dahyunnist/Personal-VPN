@@ -144,7 +144,14 @@ void TlsTunnelServer::start_on_strand()
         {
             if (const auto self = weak_self.lock())
             {
-                static_cast<void>(self->router_.route_ipv4_packet(std::move(packet)));
+                if (!packet.empty() && (packet[0] >> 4U) == 6U)
+                {
+                    static_cast<void>(self->router_.route_ipv6_packet(std::move(packet)));
+                }
+                else
+                {
+                    static_cast<void>(self->router_.route_ipv4_packet(std::move(packet)));
+                }
             }
         },
         [weak_self](const boost::system::error_code&)
@@ -179,6 +186,11 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
     }
     if (error)
     {
+        if (error == boost::asio::error::connection_aborted)
+        {
+            accept_next();
+            return;
+        }
         stop_on_strand();
         return;
     }
@@ -203,21 +215,31 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
                     self->tun_device_->async_write_packet(packet);
                 }
             },
-            [weak_self](const core::Ipv4Address& address,
+            [weak_self](const core::Lease& lease,
                         const std::shared_ptr<core::TunnelPeer>& peer)
             {
                 if (const auto self = weak_self.lock())
                 {
-                    return self->router_.register_peer(address, peer);
+                    if (!self->router_.register_peer(lease.address, peer))
+                    {
+                        return false;
+                    }
+                    if (lease.ipv6_address != core::Ipv6Address{} &&
+                        !self->router_.register_peer(lease.ipv6_address, peer))
+                    {
+                        static_cast<void>(self->router_.unregister_peer(lease.address, peer.get()));
+                        return false;
+                    }
+                    return true;
                 }
                 return false;
             },
-            [weak_self](const std::optional<core::Ipv4Address>& address,
+            [weak_self](const std::optional<core::Lease>& lease,
                         const core::TunnelPeer* peer)
             {
                 if (const auto self = weak_self.lock())
                 {
-                    self->handle_session_closed(address, peer);
+                    self->handle_session_closed(lease, peer);
                 }
             },
             256U,
@@ -234,12 +256,16 @@ void TlsTunnelServer::handle_accept(const boost::system::error_code& error, Tcp:
 }
 
 void TlsTunnelServer::handle_session_closed(
-    const std::optional<core::Ipv4Address>& address,
+    const std::optional<core::Lease>& lease,
     const core::TunnelPeer* peer)
 {
-    if (address)
+    if (lease)
     {
-        static_cast<void>(router_.unregister_peer(*address, peer));
+        static_cast<void>(router_.unregister_peer(lease->address, peer));
+        if (lease->ipv6_address != core::Ipv6Address{})
+        {
+            static_cast<void>(router_.unregister_peer(lease->ipv6_address, peer));
+        }
     }
     boost::asio::post(strand_,
                       [self = shared_from_this(), peer] { self->remove_session(peer); });

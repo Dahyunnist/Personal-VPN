@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Dahyunnist/Personal-VPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Dahyunnist/Personal-VPN/actions/workflows/ci.yml)
 
-Personal-VPN 是一个基于 C++17 的 VPN 隧道参考实现：Windows 客户端通过 Wintun 接入本机 IP 网络，使用双向 TLS 与 Linux 服务端通信；服务端将经过认证和校验的数据包转发到 Linux TUN 设备。
+Personal-VPN 是一个基于 C++17 的双栈 VPN 隧道参考实现：Windows 客户端通过 Wintun 接入本机 IPv4/IPv6 网络，使用协议 v2 和双向 TLS 与 Linux 服务端通信；服务端将经过认证和校验的数据包转发到 Linux TUN 设备。
 
 本项目用于学习、技术预研和工程实践，不是可直接部署的商用 VPN 产品。项目尚未经过独立安全审计，不应承载生产或敏感流量。
 
@@ -13,20 +13,20 @@ flowchart LR
     A[Windows 应用] --> B[Windows IP 协议栈]
     B --> C[Wintun 虚拟网卡]
     C --> D[C++ 客户端运行时]
-    D <-->|协议 v1 / 双向 TLS| E[C++ Linux 服务端]
+    D <-->|协议 v2 / 双向 TLS| E[C++ Linux 服务端]
     E <--> F[Linux TUN]
     F --> G[Linux 路由 / 防火墙 / NAT]
     G --> H[目标网络]
 ```
 
-客户端从 Wintun 读取数据包，校验源地址后封装并通过 TLS 发送。服务端验证客户端证书，将身份绑定到服务端分配的 IPv4 地址租约，再校验数据包并写入 TUN。回程数据包按目标租约路由，只能交付给拥有该地址的会话。
+客户端从 Wintun 读取 IPv4/IPv6 数据包，校验源地址后封装并通过 TLS 发送。服务端验证客户端证书，将身份绑定到服务端分配的双栈地址租约，再校验数据包并写入 TUN。回程数据包按目标租约路由，只能交付给拥有该地址的会话。
 
 ## 当前能力
 
-- **有界传输协议：** 采用带版本的 20 字节帧头；限制长度、标志位、消息顺序和序列号，并处理 TLS 读操作中的拆包与粘包。
-- **身份认证与地址授权：** 双向 TLS、主机名验证、可选客户端 CRL、证书指纹身份，以及由服务端管理的 IPv4 地址租约。
+- **双栈协议 v2：** 采用带版本的 20 字节帧头，承载 IPv4/IPv6 数据包；限制长度、标志位、消息顺序和序列号，并处理 TLS 读操作中的拆包与粘包。
+- **身份认证与地址授权：** 双向 TLS、主机名验证、可选客户端 CRL、证书指纹身份，以及服务端管理的 IPv4/IPv6 地址租约和按租约路由。
 - **异步并发控制：** 串行化 TLS 流操作；管理自有缓冲区和有界写队列；提供背压、超时、TUN 读操作约束及幂等关闭。
-- **Windows 网络事务：** 配置 Wintun、地址、MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
+- **Windows 双栈网络事务：** 配置 Wintun、IPv4/IPv6 地址、双栈 MTU 和路由；失败时按反序回滚，不删除操作前已存在的主机网络状态。
 - **凭据保护：** Linux 服务端检查私钥文件权限；Windows 客户端预检私钥 ACL，并限制凭据文件加载方式。
 - **运行与发布基础：** Linux 服务端配置和 systemd 示例、JSON 指标、CI、ASan/UBSan、协议模糊测试、基准测试、CPack 打包及发布校验流程。
 - **Windows 权限边界探索：** 已定义受限 broker 请求协议和架构边界；完整的低权限 UI 与特权服务拆分尚未完成，当前 GUI 仍需提升权限运行。
@@ -37,11 +37,12 @@ flowchart LR
 
 | 验证项 | 最近结果 | 说明 |
 | --- | --- | --- |
-| Linux Release 测试 | 20/20 通过 | WSL2 Ubuntu；测试证书存放在 Linux 文件系统，确保私钥权限检查有效 |
-| Windows Release 测试 | 10/10 通过 | 本地构建与测试 |
-| Windows Debug 测试 | 10/10 通过 | 含桌面客户端构建配置 |
+| Linux 构建与测试 | 20/20 通过 | 本轮 Ubuntu WSL 构建；测试证书存放在 Linux 文件系统 |
+| Windows 构建与测试 | 10/10 通过 | 本轮 MinGW 桌面客户端构建及单元测试 |
 | Windows ZIP 内容 | 校验通过 | 本地打包内容检查通过；本机已有的 Wintun DLL 缺少随包许可证文件，因此该 ZIP 不可直接作为可分发产品包 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
+
+以上测试验证代码构建和自动化测试，不代表真实公网 IPv6 连通性、双主机部署或生产环境验证。Linux 服务端不会自动开启 IPv6 转发、配置云防火墙、上游路由或 NAT66；部署前请阅读 [IPv6 部署说明](docs/operations/ipv6-deployment.md)。
 
 协议微基准曾在 Windows 10 x64、GCC 14.2.0、1400 字节载荷下测得：编码 3,761.38 MiB/s、解码 4,471.05 MiB/s。该数字只表示协议编解码微基准，不代表端到端 VPN 吞吐量。受控的带宽、延迟、CPU、并发和长稳测试方法见[性能测试说明](docs/performance/benchmarking.md)。
 
@@ -85,7 +86,8 @@ ctest --test-dir out/windows-client -C Release --output-on-failure
 ## 文档索引
 
 - [系统架构与数据包流向](docs/architecture/overview.md)
-- [线路协议 v1](docs/protocol-v1.md)
+- [线路协议 v2](docs/protocol-v2.md)
+- [IPv6 部署说明](docs/operations/ipv6-deployment.md)
 - [威胁模型](docs/security/threat-model.md)
 - [凭据处理与证书吊销](docs/security/credential-handling.md)
 - [观测指标与资源限制](docs/architecture/observability-and-limits.md)
@@ -117,12 +119,12 @@ vpn_base/          保留的实习原型，用于历史对照
 
 ## 已知限制
 
-- 目前仅支持 IPv4；没有 IPv6 数据面或双栈授权策略。
+- v2 支持 IPv4/IPv6 隧道数据面；当前 IPv6 地址池要求 `/64`，且不实现 SLAAC、DHCPv6、邻居发现代理或 NAT66。公网 IPv6 可达性依赖服务器转发、上游路由及防火墙配置。
 - 数据传输采用 TLS/TCP；网络丢包时可能出现 TCP-over-TCP 性能退化。
 - 客户端支持带抖动的指数退避重连；不支持会话恢复、漫游或无缝网络切换。
 - 服务端可通过 `SIGHUP` 验证并切换 TLS 凭据；客户端凭据变更仍需重启客户端，已有会话继续使用原 TLS 上下文。
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
-- Linux 网络配置和 Windows 提权仍需要管理员参与；Windows 特权 broker 尚未完整落地。
+- Linux 转发/路由配置和 Windows 提权仍需要管理员参与；Windows 特权 broker 尚未完整落地。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 

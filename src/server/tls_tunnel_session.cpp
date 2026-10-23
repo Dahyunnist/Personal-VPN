@@ -82,6 +82,32 @@ void TlsTunnelSession::send_ipv4_from_tun(std::vector<std::uint8_t> packet)
         });
 }
 
+void TlsTunnelSession::send_ipv6_from_tun(std::vector<std::uint8_t> packet)
+{
+    boost::asio::post(
+        strand_,
+        [self = shared_from_this(), packet = std::move(packet)]() mutable
+        {
+            if (self->stopped_ || !self->controller_)
+            {
+                return;
+            }
+            const auto frame = self->controller_->make_data_to_client(packet);
+            if (!frame.has_value())
+            {
+                if (self->controller_->state() != core::SessionState::Established)
+                {
+                    self->close_now();
+                }
+                return;
+            }
+            if (!self->enqueue_frame(*frame))
+            {
+                self->close_now();
+            }
+        });
+}
+
 void TlsTunnelSession::stop()
 {
     boost::asio::post(strand_, [self = shared_from_this()] { self->close_now(); });
@@ -178,12 +204,12 @@ void TlsTunnelSession::handle_read(const boost::system::error_code& error,
         {
             arm_idle_timeout();
             auto result = controller_->handle(frame);
-            if (!route_address_ && controller_->state() == core::SessionState::Established &&
+            if (!route_lease_ && controller_->state() == core::SessionState::Established &&
                 controller_->lease() != nullptr)
             {
-                route_address_ = controller_->lease()->address;
+                route_lease_ = *controller_->lease();
                 if (established_handler_ &&
-                    !established_handler_(*route_address_, shared_from_this()))
+                    !established_handler_(*route_lease_, shared_from_this()))
                 {
                     close_now();
                     return;
@@ -343,7 +369,7 @@ void TlsTunnelSession::close_now()
     if (close_handler_)
     {
         auto handler = std::move(close_handler_);
-        handler(route_address_, this);
+        handler(route_lease_, this);
     }
 }
 

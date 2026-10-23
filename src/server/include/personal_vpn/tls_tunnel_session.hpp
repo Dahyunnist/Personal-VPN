@@ -32,9 +32,9 @@ class TlsTunnelSession final : public core::TunnelPeer,
     using TlsStream = boost::asio::ssl::stream<Tcp::socket>;
     using PacketSink = std::function<void(const std::vector<std::uint8_t>&)>;
     using EstablishedHandler =
-        std::function<bool(const core::Ipv4Address&, const std::shared_ptr<core::TunnelPeer>&)>;
+        std::function<bool(const core::Lease&, const std::shared_ptr<core::TunnelPeer>&)>;
     using CloseHandler =
-        std::function<void(const std::optional<core::Ipv4Address>&, const core::TunnelPeer*)>;
+        std::function<void(const std::optional<core::Lease>&, const core::TunnelPeer*)>;
 
     TlsTunnelSession(TlsStream stream,
                      core::LeaseManager& lease_manager,
@@ -50,6 +50,7 @@ class TlsTunnelSession final : public core::TunnelPeer,
 
     void start();
     void send_ipv4_from_tun(std::vector<std::uint8_t> packet) override;
+    void send_ipv6_from_tun(std::vector<std::uint8_t> packet) override;
     void stop();
 
     [[nodiscard]] TlsStream& stream() noexcept { return stream_; }
@@ -81,7 +82,7 @@ class TlsTunnelSession final : public core::TunnelPeer,
     const std::chrono::milliseconds idle_timeout_;
     ServerMetrics* metrics_;
     std::unique_ptr<core::SessionController> controller_;
-    std::optional<core::Ipv4Address> route_address_;
+    std::optional<core::Lease> route_lease_;
     std::array<std::uint8_t, 64U * 1024U> read_buffer_{};
     bool write_in_progress_{false};
     bool close_after_write_{false};

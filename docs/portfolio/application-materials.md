@@ -1,59 +1,25 @@
-# Application and recruiting materials
+# 申请与招聘材料
 
-These drafts deliberately separate verified implementation facts from facts that still
-require confirmation by the internship mentor. Replace bracketed fields only with
-documented evidence.
+以下草稿会区分已验证的实现事实与仍需实习导师确认的信息。方括号字段只能用有证据支持的内容替换。
 
-## English CV bullets
+## 简历要点草稿
 
-- Conducted secure-communication technical research and built a cross-platform IPv4
-  tunnel in C++17 using Boost.Asio, OpenSSL, Linux TUN, and Windows Wintun, supporting
-  mutual TLS and multi-client asynchronous packet forwarding.
-- Designed a bounded versioned framing protocol and identity-bound server-side address
-  leases; applied serialized writes, owned buffers, backpressure, deadlines, and
-  transactional route rollback to address TCP stream boundaries and asynchronous
-  lifetime failures.
-- Established cross-platform unit/integration/E2E tests, Clang ASan/UBSan, libFuzzer,
-  CodeQL, reproducible dependency pins, CI, and checksummed release packages; verified
-  18/18 Linux tests and 8/8 Windows core tests in local upgrade validation.
+- 面向安全通信开展技术预研，使用 C++17、Boost.Asio、OpenSSL、Linux TUN 和 Windows Wintun 构建跨平台 IPv4 隧道，实现双向 TLS 和多客户端异步数据包转发。
+- 设计有界、带版本的帧协议及与客户端身份绑定的服务端地址租约；采用串行化写入、自有缓冲区、背压、截止时间和事务化路由回滚，处理 TCP 字节流边界与异步生命周期风险。
+- 建立跨平台单元/集成/端到端测试、Clang ASan/UBSan、libFuzzer、CodeQL、依赖版本固定、CI 和带校验和的发布包；本地升级验证中 Linux 测试 20/20、Windows 桌面测试 10/10 通过。
 
-Do not add customer, production, throughput, concurrency, uptime, or percentage-
-improvement claims until the mentor/lab evidence exists.
+在导师/实验室证据确认前，不要增加客户、生产、吞吐量、并发规模、可用性或百分比提升等表述。
 
-## Personal-statement paragraph (English)
+## 个人陈述段落草稿
 
-During my internship, I developed a C++ prototype that connected a Windows Wintun
-client to a Linux TUN server through mutually authenticated TLS. What initially looked
-like a packet-forwarding task exposed deeper systems questions: TLS over TCP does not
-preserve packet boundaries, asynchronous operations must own their buffers until
-completion, authentication alone does not authorize a client to claim an IP address,
-and a partially failed route update must not damage the host network. I subsequently
-redesigned the prototype around an explicit protocol state machine, server-authoritative
-leases, serialized I/O, bounded resources, transactional rollback, and adversarial
-testing. This experience motivated me to study [computer networks / systems security /
-distributed systems] more rigorously, particularly how protocol invariants and
-operational evidence turn a functional prototype into a dependable system.
+实习期间，我开发了一个 C++ 原型，通过双向认证 TLS 将 Windows Wintun 客户端连接到 Linux TUN 服务端。最初看起来像是数据包转发任务，实际却暴露出更深层的系统问题：TLS over TCP 不保留数据包边界；异步操作必须在完成前持续拥有缓冲区；完成身份认证并不等于客户端有权声明某个 IP 地址；路由更新部分失败时也不能破坏宿主网络。随后，我围绕显式协议状态机、服务端权威租约、串行化 I/O、有界资源、事务回滚和对抗性测试重构了原型。这段经历促使我更系统地学习[计算机网络/系统安全/分布式系统]，特别关注如何通过协议不变量和运行证据，让可运行原型更可靠。
 
-## 90-second Chinese interview introduction
+## 90 秒中文面试自我介绍
 
-这个项目是我在实习中完成并在之后持续工程化改造的跨平台 VPN 技术预研。Windows 端通过
-Wintun 捕获三层 IP 包，Linux 端通过 TUN 接入内核路由，中间使用 Boost.Asio 和 OpenSSL
-建立双向 mTLS 隧道。最初版本能完成转发，但存在几个典型系统问题：把 TLS read 当成包边界、
-异步写并发和 buffer 生命周期不清晰、客户端自行声明地址、Windows 路由失败后缺少精确回滚。
-我把系统拆成协议、平台无关状态机、Linux/Windows 适配器和运行时所有权层，设计了有界帧协议，
-用 strand 与单写队列保证 TLS 串行访问，以证书身份绑定服务端租约，并把 Wintun 地址和路由做成
-事务。验证层面加入了 18 项 Linux 测试、8 项跨平台核心测试、sanitizer、fuzz、CI 和发布包。
-这个项目最有价值的地方不是“用了很多库”，而是让我能够完整解释一个 IP 包的内核/用户态路径、
-异步资源所有权、安全授权和故障回滚。
+这个项目是我在实习中完成、之后持续工程化改造的跨平台 VPN 技术预研。Windows 端通过 Wintun 捕获三层 IP 包，Linux 端通过 TUN 接入内核路由，中间使用 Boost.Asio 和 OpenSSL 建立双向 mTLS 隧道。初版能够转发，但存在几个典型系统问题：把 TLS read 当成包边界、并发写入和缓冲区生命周期不清晰、客户端自行声明地址、Windows 路由失败后缺少精确回滚。我把系统拆分为协议、平台无关状态机、Linux/Windows 适配器和运行时所有权层；设计有界帧协议，用 strand 与单写队列保证 TLS 串行访问，以证书身份绑定服务端租约，并将 Wintun 地址和路由配置改为事务。验证方面，目前有 20 项 Linux 测试、10 项 Windows 桌面测试，以及 sanitizer、fuzz、CI 和发布包流程。这个项目最有价值的部分不是“用了很多库”，而是让我能解释 IP 包的内核/用户态路径、异步资源所有权、安全授权和故障回滚。
 
-## Mentor fact-check message
+## 向导师核实事实的消息草稿
 
-> 老师您好，我正在整理当年在物联安全产品线参与的 VPN 项目，用于研究生申请和校招。为了确保
-> 表述准确、不涉及公司敏感信息，想请您帮我确认几个事实：当时项目属于实习培养、技术预研、
-> POC 还是正式产品模块？主要验证的业务/技术问题是什么？我的代码或方案后来是否被团队参考、
-> 演示、合并或继续开发？哪些个人职责、性能/稳定性数据和产品方向可以公开描述？另外，项目代码
-> 公开展示和选择开源许可证是否获得公司允许？如果有不能公开的部分，我会删除或只做抽象描述。
-> 谢谢老师。
+> 老师您好，我正在整理当年在物联安全产品线参与的 VPN 项目，用于研究生申请和校招。为了确保表述准确、不涉及公司敏感信息，想请您帮忙确认几个事实：当时项目属于实习培养、技术预研、POC 还是正式产品模块？主要验证的业务/技术问题是什么？我的代码或方案后来是否被团队参考、演示、合并或继续开发？哪些个人职责、性能/稳定性数据和产品方向可以公开描述？另外，项目代码公开展示和选择开源许可证是否获得公司允许？如果有不能公开的部分，我会删除或只做抽象描述。谢谢老师。
 
-Keep the reply as evidence, but do not commit private correspondence or company-
-confidential details to this repository.
+保留导师回复作为事实依据，但不要将私人通信或公司机密提交到本仓库。

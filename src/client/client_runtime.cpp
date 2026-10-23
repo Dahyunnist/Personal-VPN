@@ -1,8 +1,13 @@
 #include "personal_vpn/client_runtime.hpp"
 
+#if defined(_WIN32)
+#include "personal_vpn/windows_network_backend.hpp"
+#endif
+
 #include <boost/asio/connect.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <exception>
 #include <stdexcept>
@@ -10,6 +15,18 @@
 
 namespace personal_vpn::client
 {
+namespace
+{
+
+bool requests_full_tunnel(const ClientConfig& config)
+{
+    return config.allow_default_route &&
+           (std::find(config.routes.begin(), config.routes.end(), "0.0.0.0/0") !=
+                config.routes.end() ||
+            std::find(config.routes.begin(), config.routes.end(), "::/0") != config.routes.end());
+}
+
+} // namespace
 
 ClientRuntime::ClientRuntime(ClientConfig config,
                              std::unique_ptr<ClientPacketDevice> packet_device,
@@ -156,6 +173,51 @@ void ClientRuntime::handle_resolve(const std::uint64_t generation,
     {
         retry_on_io("server name resolution failed: " + error.message());
         return;
+    }
+    if (requests_full_tunnel(config_))
+    {
+#if defined(_WIN32)
+        auto* windows_backend = dynamic_cast<WindowsNetworkBackend*>(packet_device_.get());
+        if (windows_backend == nullptr)
+        {
+            record_failure("full-tunnel mode requires the Windows fail-closed network backend");
+            finish_on_io();
+            return;
+        }
+        try
+        {
+            std::vector<WindowsVpnEndpoint> vpn_endpoints;
+            for (const auto& endpoint : endpoints)
+            {
+                WindowsVpnEndpoint vpn_endpoint;
+                vpn_endpoint.port = endpoint.endpoint().port();
+                if (endpoint.endpoint().address().is_v4())
+                {
+                    const auto address = endpoint.endpoint().address().to_v4().to_bytes();
+                    std::copy(address.begin(), address.end(), vpn_endpoint.address.begin());
+                }
+                else
+                {
+                    const auto address = endpoint.endpoint().address().to_v6().to_bytes();
+                    std::copy(address.begin(), address.end(), vpn_endpoint.address.begin());
+                    vpn_endpoint.ipv6 = true;
+                }
+                vpn_endpoints.push_back(vpn_endpoint);
+            }
+            windows_backend->enable_kill_switch(vpn_endpoints);
+        }
+        catch (const std::exception& failure)
+        {
+            record_failure(std::string("failed to enable persistent dual-stack kill switch: ") +
+                           failure.what());
+            finish_on_io();
+            return;
+        }
+#else
+        record_failure("full-tunnel mode is unavailable without a dual-stack kill switch");
+        finish_on_io();
+        return;
+#endif
     }
     transition(ClientRuntimeState::Connecting, "connecting with mutual TLS");
     pending_stream_ =

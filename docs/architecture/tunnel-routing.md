@@ -1,23 +1,15 @@
-# Tunnel packet routing
+# 隧道路由
 
-`TunnelRouter` is the boundary between packets read from the Linux TUN device and
-authenticated TLS sessions. It maps each server-issued virtual IPv4 lease to a weak
-`TunnelPeer` reference.
+`TunnelRouter` 是 Linux TUN 设备读取到的数据包与已认证 TLS 会话之间的边界。它将每个由服务端签发的虚拟 IPv4 租约映射到一个弱 `TunnelPeer` 引用。
 
-## Invariants
+## 不变量
 
-- Only one live peer may own a virtual address. A second peer cannot replace it.
-- Registration by the same peer is idempotent.
-- An expired weak reference can be reclaimed without retaining a closed session.
-- Unregistration includes the expected peer pointer, so a late close callback cannot
-  remove a newer route for a reused address.
-- IPv4 version, header length, total length, and destination are validated before a
-  packet is delivered.
-- Packet buffers are passed by value to preserve ownership across asynchronous session
-  strands.
-- The registry is mutex-protected. The mutex is released before calling a peer, so
-  packet delivery cannot re-enter the registry while it is locked.
+- 一个虚拟地址最多只能由一个活动 peer 所有；第二个 peer 不能替换它。
+- 同一 peer 重复注册是幂等的。
+- 弱引用过期后可以回收，不会因此延长已关闭会话的生命周期。
+- 注销操作包含预期 peer 指针，因此迟到的关闭回调不能删除已复用地址的新路由。
+- 数据包交付前校验 IPv4 版本、首部长度、总长度和目标地址。
+- 数据包缓冲区按值传递，以保证跨异步会话 strand 传递时仍由接收方拥有。
+- 注册表由互斥锁保护。调用 peer 前先释放互斥锁，避免交付数据包时在持锁状态下重新进入注册表。
 
-The router intentionally does not configure interfaces, execute shell commands, or
-hold TLS details. The Linux TUN adapter and session acceptor will compose around this
-portable, unit-tested core.
+路由器刻意不配置接口、不执行 shell 命令，也不持有 TLS 细节。Linux TUN 适配器和会话 acceptor 会组合在这个可移植且经单元测试覆盖的核心周围。

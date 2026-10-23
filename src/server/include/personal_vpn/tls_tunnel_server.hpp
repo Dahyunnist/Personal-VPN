@@ -68,7 +68,7 @@ class TlsTunnelServer final : public std::enable_shared_from_this<TlsTunnelServe
     void start_on_strand();
     void accept_next();
     void handle_accept(const boost::system::error_code& error, Tcp::socket socket);
-    void handle_session_closed(const std::optional<core::Ipv4Address>& address,
+    void handle_session_closed(const std::optional<core::Lease>& lease,
                                const core::TunnelPeer* peer);
     void remove_session(const core::TunnelPeer* peer);
     void stop_on_strand();

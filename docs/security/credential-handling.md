@@ -1,38 +1,26 @@
-# Credential handling
+# 凭据处理
 
-## Repository policy
+## 仓库策略
 
-Private keys, PKCS#12 bundles, generated client profiles, and machine-specific configuration files must never be committed. Development credentials are generated locally and stored below an ignored `credentials/` or server certificate directory.
+不得提交私钥、PKCS#12 凭据包、生成的客户端配置文件或机器专用配置。开发凭据应在本地生成，并保存在已忽略的 `credentials/` 或服务端证书目录下。
 
-Certificates and keys that appeared in repository history before the enterprise redesign must be treated as compromised. Deleting them from the latest commit does not make them safe to reuse.
+企业化重构前出现在仓库历史中的证书和密钥都应视为已泄露。仅从最新提交删除并不能使它们重新安全。
 
-## Required rotation procedure
+## 必须执行的轮换流程
 
-1. Revoke and stop using every historical server and client key.
-2. Create a dedicated development CA that is not also used as a server leaf certificate.
-3. Issue a unique certificate and private key for every client identity.
-4. Give server and client certificates the appropriate Extended Key Usage and Subject Alternative Name extensions.
-5. Store private keys with least-privilege filesystem ACLs; see [client-configuration.md](client-configuration.md) for the Windows profile boundary.
-6. Generate test credentials during local setup or CI and destroy them after the test run.
+1. 吊销并停止使用所有历史服务端和客户端密钥。
+2. 创建专用开发 CA，不要将服务端叶证书同时用作 CA。
+3. 为每个客户端身份签发独立证书和私钥。
+4. 为服务端和客户端证书设置正确的扩展密钥用途及主题备用名称扩展。
+5. 使用最小权限文件 ACL 保存私钥；Windows 配置文件边界见 [client-configuration.md](client-configuration.md)。
+6. 在本地初始化或 CI 测试期间生成测试凭据，并在测试结束后销毁。
 
-The Linux server opens the private key without following a symlink, then validates the
-opened regular file's owner and permissions before parsing from that same descriptor.
-This prevents a path swap between the permission check and OpenSSL's key read. Keep the
-key owned by the service account with mode `0600`. The Windows client rejects key
-reparse points, null DACLs, and read grants to broad built-in principals on the opened
-handle, then reads at most 1 MiB from that handle into a cleared-after-use buffer for
-OpenSSL parsing. The key handle denies write/delete sharing during the operation. Use a
-private-key ACL limited to the client identity; Windows CI exercises valid PEM loading
-and rejects broad-principal grants at the TLS context entry point.
+Linux 服务端打开私钥时不跟随符号链接；随后检查该已打开普通文件的所有者和权限，并从同一个文件描述符解析密钥。这可以避免权限检查和 OpenSSL 读取之间发生路径替换。私钥应归服务账号所有，权限设为 `0600`。
 
-Production client revocation uses a PEM CRL configured with `--client-crl`. Replace
-the server certificate, key, client CA, and CRL atomically, then send `SIGHUP`. The
-server validates the candidate TLS context before swapping it; a failed reload keeps
-the active context. New handshakes use refreshed trust material, while established
-sessions retain their original TLS context. A coordinated server restart is required
-to terminate all existing sessions; the server does not selectively evict a revoked
-client. See the [operations runbook](../operations/runbook.md#client-certificate-revocation).
+Windows 客户端会拒绝密钥重解析点、空 DACL，以及向当前用户、Administrators、SYSTEM 以外主体授予的读取权限；同时拒绝未知授权 ACE。随后从同一个文件句柄读取最多 1 MiB 到解析后会清零的缓冲区，再交给 OpenSSL 解析。操作期间该句柄禁止其他进程共享写入/删除。Windows CI 会验证授权主体白名单和非法 ACL 拒绝。
 
-## History cleanup
+生产客户端证书吊销使用通过 `--client-crl` 配置的 PEM CRL。应原子替换服务端证书、密钥、客户端 CA 和 CRL，然后发送 `SIGHUP`。服务端在切换前验证候选 TLS 上下文；验证失败时保留当前上下文。新握手使用更新后的信任材料，已有会话仍使用原 TLS 上下文。若要终止所有既有会话，需要协调重启服务端；服务端不会单独逐出某个已吊销客户端。见[运维手册](../operations/runbook.md#client-certificate-revocation)。
 
-History rewriting will be performed as a separate, coordinated operation after the replacement branch is stable. It changes commit IDs and requires force-updating the public repository and fresh clones for all collaborators.
+## 历史清理
+
+待替换分支稳定后，再单独协调重写仓库历史。此操作会更改提交 ID，需要对公开仓库强制更新，并要求所有协作者重新克隆。

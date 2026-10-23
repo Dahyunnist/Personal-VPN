@@ -1,50 +1,36 @@
-# Mutual TLS policy
+# 双向 TLS 策略
 
-The tunnel transport uses mutual TLS (mTLS). A TCP connection is not a Personal VPN
-session until the TLS server handshake succeeds and OpenSSL verifies a client
-certificate against the configured client CA.
+隧道传输使用双向 TLS（mTLS）。TCP 连接只有在 TLS 服务端握手成功，且 OpenSSL 根据已配置的客户端 CA 验证客户端证书后，才成为 Personal-VPN 会话。
 
-## Trust boundaries
+## 信任边界
 
-- The server certificate chain, its private key, and the client CA bundle are runtime
-  inputs. Private keys must never be committed to this repository.
-- The server requests and requires a client certificate. Anonymous TLS clients are
-  rejected before the frame decoder or lease manager is reached.
-- The authenticated session identity is the SHA-256 fingerprint of the verified leaf
-  certificate. Callers cannot provide or override this identity.
-- The TLS minimum is 1.2. TLS 1.2 is limited to forward-secret AEAD suites; TLS 1.3
-  uses AES-GCM or ChaCha20-Poly1305 suites.
-- Clients must validate the server certificate chain and the expected DNS name or IP
-  subject alternative name.
+- 服务端证书链、其私钥及客户端 CA 证书包是运行时输入。私钥不得提交到本仓库。
+- 服务端会请求并强制要求客户端证书。匿名 TLS 客户端会在进入帧解码器或租约管理器前被拒绝。
+- 已认证会话的身份取自已验证叶证书的 SHA-256 指纹。调用方不能提供或覆盖该身份。
+- TLS 最低版本为 1.2。TLS 1.2 仅允许具备前向保密能力的 AEAD 套件；TLS 1.3 使用 AES-GCM 或 ChaCha20-Poly1305 套件。
+- 客户端必须验证服务端证书链，以及与预期 DNS 名称或 IP 地址匹配的主题备用名称（SAN）。
 
-## Development PKI
+## 开发用 PKI
 
-Run the helper only for local development or automated tests:
+仅在本地开发或自动化测试中运行此辅助脚本：
 
 ```bash
 scripts/generate-dev-pki.sh out/dev-pki
 ```
 
-It creates a short-lived development CA, a `localhost` server certificate, and an
-integration-test client certificate under an ignored output directory. Generated
-private keys are mode `0600`. This CA is not suitable for a shared, staging, or
-production environment.
+脚本会在被忽略的输出目录中生成短期开发 CA、`localhost` 服务端证书和集成测试客户端证书。生成的私钥权限为 `0600`。该 CA 不适用于共享、预发布或生产环境。
 
-## Production requirements
+## 生产要求
 
-Production deployments should issue a unique certificate per device through an
-external CA or secrets platform, store server keys in a restricted secret mount, and
-rotate certificates before expiry. Compromise response must revoke the affected
-device identity, publish a PEM CRL, and terminate its active session. `--client-crl`
-enables OpenSSL CRL checking for the full client chain. Trust, leaf certificates,
-keys, and CRLs are immutable for one server process lifetime; rotation uses a graceful
-service restart so an `SSL_CTX` is never mutated concurrently with handshakes.
+生产部署应通过外部 CA 或密钥管理平台为每台设备签发独立证书；服务端密钥应存储在权限受限的密钥挂载目录中，并在证书到期前轮换。密钥泄露时应吊销受影响设备身份、发布 PEM CRL，并终止其活动会话。`--client-crl` 用于启用 OpenSSL 对完整客户端证书链的 CRL 检查。
 
-The integration test creates an isolated PKI and verifies these boundaries:
+信任材料、叶证书、密钥和 CRL 在一个服务端进程生命周期内不可变；轮换时应优雅重启服务，避免在握手期间并发修改 `SSL_CTX`。
 
-1. a valid client and server complete an mTLS handshake;
-2. the server derives the exact client certificate fingerprint;
-3. a client without a certificate is rejected by the server; and
-4. a client rejects a server certificate with the wrong hostname;
-5. an unrevoked client remains valid when CRL checking is enabled; and
-6. a client listed in the CRL is rejected during TLS authentication.
+集成测试会创建隔离 PKI，并验证以下边界：
+
+1. 有效客户端与服务端成功完成 mTLS 握手；
+2. 服务端计算出准确的客户端证书指纹；
+3. 未提供证书的客户端被服务端拒绝；
+4. 客户端拒绝主机名错误的服务端证书；
+5. 启用 CRL 检查时，未被吊销的客户端仍然有效；
+6. 被列入 CRL 的客户端在 TLS 认证阶段遭到拒绝。

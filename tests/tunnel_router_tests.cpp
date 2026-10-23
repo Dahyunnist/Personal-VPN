@@ -1,6 +1,7 @@
 #include "personal_vpn/tunnel_router.hpp"
 
 #include <cstdlib>
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -32,6 +33,11 @@ class RecordingPeer final : public TunnelPeer
         std::lock_guard<std::mutex> lock(mutex_);
         packets_.push_back(std::move(packet));
     }
+    void send_ipv6_from_tun(std::vector<std::uint8_t> packet) override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        packets_.push_back(std::move(packet));
+    }
 
     [[nodiscard]] std::vector<std::vector<std::uint8_t>> packets() const
     {
@@ -57,6 +63,15 @@ std::vector<std::uint8_t> packet_to(const Ipv4Address& destination)
     return packet;
 }
 
+std::vector<std::uint8_t> packet_to(const Ipv6Address& destination)
+{
+    std::vector<std::uint8_t> packet(40U, 0U);
+    packet[0] = 0x60U;
+    packet[7] = 64U;
+    std::copy(destination.begin(), destination.end(), packet.begin() + 24);
+    return packet;
+}
+
 void test_route_registration_and_delivery()
 {
     TunnelRouter router;
@@ -71,6 +86,22 @@ void test_route_registration_and_delivery()
     const auto delivered = peer->packets();
     check(delivered.size() == 1U && delivered.front() == packet,
           "routed peer receives an owning packet buffer");
+}
+
+void test_ipv6_route_registration_and_delivery()
+{
+    TunnelRouter router;
+    const auto address = parse_ipv6_address("fd00:8::a08:2");
+    auto peer = std::make_shared<RecordingPeer>();
+    check(router.register_peer(address, peer), "IPv6 lease route registers");
+    const auto packet = packet_to(address);
+    check(router.route_ipv6_packet(packet), "valid IPv6 packet routes by destination lease");
+    check(peer->packets().size() == 1U && peer->packets().front() == packet,
+          "IPv6 packet reaches its owning peer");
+    auto malformed = packet;
+    malformed[5] = 1U;
+    check(!router.route_ipv6_packet(std::move(malformed)),
+          "inconsistent IPv6 payload length is dropped");
 }
 
 void test_live_route_cannot_be_stolen_or_wrongly_removed()
@@ -159,6 +190,7 @@ void test_concurrent_delivery()
 int main()
 {
     test_route_registration_and_delivery();
+    test_ipv6_route_registration_and_delivery();
     test_live_route_cannot_be_stolen_or_wrongly_removed();
     test_expired_route_is_reclaimed();
     test_malformed_and_unroutable_packets_are_dropped();

@@ -70,7 +70,7 @@ bool Frame::operator==(const Frame& other) const noexcept
 bool is_known_message_type(const std::uint8_t raw_type) noexcept
 {
     return raw_type >= static_cast<std::uint8_t>(MessageType::ClientHello) &&
-           raw_type <= static_cast<std::uint8_t>(MessageType::Close);
+           raw_type <= static_cast<std::uint8_t>(MessageType::DataIpv6);
 }
 
 std::vector<std::uint8_t> encode_frame(const Frame& frame)

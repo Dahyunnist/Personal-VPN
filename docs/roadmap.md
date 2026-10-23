@@ -1,53 +1,34 @@
-# Known limitations and roadmap
+# 已知限制与路线图
 
-## Current limitations
+## 当前限制
 
-- IPv4 only; no IPv6 data plane or dual-stack policy.
-- TLS over TCP can suffer TCP-over-TCP performance collapse under loss.
-- Automatic reconnect handles transient DNS/TCP/transport failures with capped jittered
-  exponential backoff; session resumption, roaming, and seamless network change remain
-  unsupported.
-- Server certificates, client CA, and CRL reload on `SIGHUP`; client credentials still
-  require client restart. Existing server sessions retain their original TLS context.
-- JSON metrics go to stdout; no native Prometheus endpoint or distributed tracing.
-- Linux network provisioning and Windows elevation remain administrator tasks.
-- The complete Windows GUI currently runs elevated; network operations do not yet use a
-  narrowly scoped privileged broker with authenticated IPC.
-- No signed first-party Windows executable/installer and no reproducible-build claim.
-- Release archives and checksums now have keyless GitHub artifact-attestation steps;
-  remote execution and consumer-side verification remain pending authentication.
-- End-to-end throughput, latency, CPU, concurrency, and 24-hour soak evidence awaits a
-  controlled two-host lab.
-- No independent security audit or production incident/rollback experience.
+- 协议 v2 已支持 IPv4/IPv6 隧道数据面；IPv6 地址池当前要求 `/64`。服务器转发、上游路由、云防火墙和 NAT66 仍需按部署拓扑配置，真实公网 IPv6 尚未验证。
+- 使用 TLS over TCP；存在丢包时可能出现 TCP-over-TCP 性能下降。
+- 客户端会对暂时性 DNS、TCP 和传输故障自动重连，并使用带上限的抖动指数退避；尚不支持会话恢复、漫游或无缝网络切换。
+- 服务端证书、客户端 CA 和 CRL 可通过 `SIGHUP` 重新加载；客户端凭据变更仍需重启客户端。已有服务端会话保留创建时使用的 TLS 上下文。
+- JSON 指标写入标准输出；没有原生 Prometheus 网络端点或分布式追踪。
+- Linux 网络配置和 Windows 提权仍需管理员操作。
+- Windows 桌面 GUI 目前整体以提升权限运行；网络操作尚未迁移到经认证 IPC 连接的最小权限 broker。
+- 没有正式签名的 Windows 可执行文件/安装程序，也没有可复现构建声明。
+- 发布归档与校验和已配置 GitHub 无密钥制品证明步骤；远程发布执行及消费者侧验证仍待完成。
+- 端到端吞吐量、延迟、CPU、并发和 24 小时长稳测试仍需在受控的双主机实验环境中完成。
+- 尚未进行独立安全审计，也没有生产事故和回滚实践。
 
-## Prioritized next work
+## 优先后续工作
 
-1. Split the Windows UI from privileged network operations. Define a minimal broker API,
-   authenticated local IPC, service ACLs, safe install/upgrade/uninstall, and integration
-   tests before moving Wintun and route changes into the broker.
-2. Produce controlled direct-vs-tunnel performance and soak evidence with profiles.
-3. Add Windows code signing and a verified installer/uninstaller. Provenance/SBOM
-   generation is implemented; authenticate and verify the release workflow first.
-4. Evaluate a UDP-based data transport after protocol/security requirements are fixed.
-5. Design IPv6 authorization and routing rather than treating it as a parser extension.
+1. 分离 Windows UI 与特权网络操作。在迁移 Wintun 和路由操作前，先定义最小化 broker API、经认证的本地 IPC、服务 ACL、安全安装/升级/卸载流程及集成测试。
+2. 记录受控的直连与隧道性能对比、性能剖析结果和长稳测试证据。
+3. 添加 Windows 代码签名和经过验证的安装/卸载程序。来源证明及 SBOM 生成已实现；先完成发布工作流认证和验证。
+4. 在协议和安全要求确定后，评估基于 UDP 的数据传输。
+5. 在双主机环境验证 IPv6 上下行、断线保护、路由清理及真实网络故障场景。
 
-## Completed roadmap work
+## 已完成的路线图工作
 
-- Added transient client reconnect with capped jittered exponential backoff, user-stop
-  cancellation, non-retryable TLS/protocol failure handling, and network rollback before
-  retry. Linux integration tests exercise server loss, route cleanup, recovery, and stop
-  during the next retry window.
-- Added server-side TLS context replacement on `SIGHUP`; candidate key, certificate,
-  CA, and CRL are validated before swap. Failed reload keeps the current context, and
-  active sessions retain their original context until close.
-- Added schema-v1 JSON Lines and Prometheus text exposition for all server counters and
-  active sessions, without client-specific labels or an unauthenticated listener.
-- Hardened Windows private-key ACL checks against 11 broad built-in principals and
-  added Windows CI coverage for least-privilege and broad-read ACL cases.
-- Added Windows dependency SPDX packaging and release gates for Linux/Windows packages.
-  Keyless GitHub attestations cover Linux archive/checksum and Windows ZIP assets.
-  The public Actions run and downloaded-asset verification remain unconfirmed.
+- 增加客户端暂时性故障重连：采用带上限的抖动指数退避，支持用户停止取消，区分不可重试的 TLS/协议错误，并在重试前回滚网络状态。Linux 集成测试覆盖服务端故障、路由清理、恢复，以及下一次重试窗口内停止客户端。
+- 增加服务端 `SIGHUP` TLS 上下文替换。切换前验证候选密钥、证书、CA 和 CRL；失败时保留当前上下文，已有会话关闭前继续使用原上下文。
+- 升级隧道协议 v2，增加 IPv6 租约、数据包路由、Windows 地址/路由/MTU 事务及部署说明；客户端与服务端必须同步升级。
+- 增加 schema v1 JSON Lines 和 Prometheus 文本格式，导出服务端计数器及活动会话；不使用客户端特定标签，也不开放未经认证的监听端口。
+- 加固 Windows 私钥 ACL 检查，覆盖 11 个宽泛内置主体；Windows CI 增加最小权限及宽泛读取授权测试。
+- 增加 Windows 依赖 SPDX 打包，以及 Linux/Windows 发布包门禁。Linux 归档/校验和与 Windows ZIP 制品均已配置 GitHub 无密钥证明。公开 Actions 运行及下载制品验证仍待确认。
 
-Every performance optimization must begin with a retained profile and end with the
-same controlled experiment. Every new protocol capability requires a compatibility
-rule, parser bounds, negative tests, and threat-model review.
+所有性能优化都必须从保留性能剖析结果开始，并以同一套受控实验结束。每项新增协议能力都必须定义兼容规则、解析边界、负向测试，并完成威胁模型审查。

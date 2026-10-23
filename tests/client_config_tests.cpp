@@ -103,7 +103,13 @@ int main(int argc, char* argv[])
 
     write_config(path, valid_config("", "[\"0.0.0.0/0\"]", "true"));
     check(load_client_config(path).allow_default_route,
-          "explicitly authorized full-tunnel configuration is accepted");
+          "numeric server IP permits explicitly authorized full-tunnel configuration");
+    auto hostname_full_tunnel = valid_config("", "[\"0.0.0.0/0\"]", "true");
+    const auto address_position = hostname_full_tunnel.find("127.0.0.1");
+    hostname_full_tunnel.replace(address_position, std::string("127.0.0.1").size(),
+                                 "vpn.example.test");
+    check(rejects(path, hostname_full_tunnel),
+          "full-tunnel mode rejects DNS hostnames to prevent resolver leakage");
     std::error_code ignored;
     std::filesystem::remove(path, ignored);
 

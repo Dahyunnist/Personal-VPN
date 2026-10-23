@@ -1,24 +1,15 @@
-# Internship IP and licensing checklist
+# 实习项目知识产权与许可清单
 
-This repository originated from an internship project. Public visibility does not by
-itself prove that the author owns the right to sublicense the code.
+本仓库源自实习项目。代码公开可见本身并不能证明作者有权再许可该代码。
 
-Before adding MIT, Apache-2.0, GPL, or another open-source license:
+在添加 MIT、Apache-2.0、GPL 或其他开源许可证前：
 
-1. Review the internship agreement, NDA, employee-invention clause, and company code
-   publication policy.
-2. Ask the mentor/manager whether the task was a training project, technical research,
-   product code, or derived from an internal codebase.
-3. Identify which files were written personally, supplied by colleagues, copied from
-   internal examples, or derived from third-party samples.
-4. Preserve written approval that the repository and portfolio descriptions may be
-   public; ask what company/product/client names and metrics may be disclosed.
-5. Inventory third-party licenses, especially Wintun, Dear ImGui, Boost, OpenSSL, and
-   any copied snippets or assets; ship their required notices.
-6. Rotate any credential ever published and decide with collaborators whether Git
-   history must be rewritten.
-7. Only then select a license with the rights holder and add copyright attribution.
+1. 审查实习协议、保密协议、职务发明条款和公司代码发布政策。
+2. 向导师/经理确认任务属于培训项目、技术预研、产品代码，还是基于内部代码库开发。
+3. 盘点哪些文件由本人编写、同事提供、复制自内部示例或派生自第三方样例。
+4. 保存仓库及作品集描述可公开的书面批准；确认公司/产品/客户名称和指标中哪些可以披露。
+5. 盘点第三方许可证，尤其是 Wintun、Dear ImGui、Boost、OpenSSL，以及复制的代码片段或资源；随包提供所需声明。
+6. 轮换曾经公开过的所有凭据，并与协作者决定是否需要重写 Git 历史。
+7. 与权利持有人确认许可后，再选择许可证并添加版权归属说明。
 
-Until this review is complete, describe the repository as source-available educational
-evidence, do not accept external code contributions, and do not claim commercial
-deployment, customer use, production scale, or ownership beyond verified facts.
+完成审核前，应将仓库描述为源码可见的教育性实践材料，不接受外部代码贡献，也不要声称已商业部署、被客户使用、达到生产规模或拥有未经核实的权利。

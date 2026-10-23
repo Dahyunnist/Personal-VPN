@@ -1,60 +1,42 @@
-# Windows network transaction
+# Windows 网络事务
 
-The redesigned Windows client treats adapter, address, route, and packet-ring setup as
-one transaction. `ClientNetworkTransaction` owns the ordering while
-`WindowsNetworkBackend` owns the operating-system and Wintun calls.
+重构后的 Windows 客户端把适配器、地址、路由和数据包环形缓冲区初始化视为一个事务。`ClientNetworkTransaction` 负责操作顺序，`WindowsNetworkBackend` 负责调用操作系统和 Wintun。
 
-## Apply and rollback order
+## 应用与回滚顺序
 
 ```text
-open adapter
-  -> start Wintun packet session
-    -> add assigned interface address
-      -> apply negotiated interface MTU
-        -> add configured routes in profile order
+打开适配器
+  -> 启动 Wintun 数据包会话
+    -> 添加已分配的接口地址
+      -> 应用协商得到的接口 MTU
+        -> 按配置文件顺序添加路由
 
-rollback:
-created routes in reverse order
-  -> restore prior MTU when changed
-    -> created address
-      -> packet session
-        -> adapter handle
+回滚：
+按反序移除本进程创建的路由
+  -> 如修改过 MTU，则恢复原值
+    -> 移除本进程创建的地址
+      -> 关闭数据包会话
+        -> 关闭适配器句柄
 ```
 
-Every backend mutation reports whether this process actually created the object. An
-already-existing address or route is usable but is not recorded, so shutdown cannot
-delete state owned by an administrator or another process. Exact route keys retain
-the destination prefix, server-assigned gateway, and interface LUID; cleanup never
-relies on one global route string.
+后端每次变更都会报告对象是否由当前进程实际创建。已存在的地址或路由可以使用，但不会记录为本进程创建，因此关闭时不会删除管理员或其他进程拥有的状态。精确路由键保存目标前缀、服务端分配的网关和接口 LUID；清理时不依赖一个全局路由字符串。
 
-`activate` rolls back automatically if any operation throws. The destructor and an
-explicit `rollback` use the same idempotent, non-throwing path. Fault-injection tests
-fail each setup step in turn and assert that only completed work is unwound.
+`activate` 在任一步骤抛出异常时都会自动回滚。析构函数和显式 `rollback` 共用相同的幂等、无异常清理路径。故障注入测试会逐个令初始化步骤失败，并断言仅撤销已经完成的操作。
 
-## Wintun boundary
+## Wintun 边界
 
-The Windows backend:
+Windows 后端：
 
-- loads only `wintun.dll` from the application directory or System32, avoiding the
-  current working-directory DLL search path;
-- resolves and validates every required export before opening the adapter;
-- reuses the stable `PersonalVPN` adapter name instead of leaking timestamp-named
-  adapters across reconnects;
-- requests a bounded 4 MiB packet ring;
-- copies received packets before releasing Wintun-owned memory and transfers each
-  allocated send buffer exactly once;
-- configures interface address, prefix, route gateway, and MTU inputs only from the
-  authenticated `IP_ASSIGN` plus the validated route policy; and
-- exposes the Wintun read event for an interruptible runtime loop rather than using
-  polling sleeps or detached threads.
+- 只从应用程序目录或 System32 加载 `wintun.dll`，避免从当前工作目录搜索 DLL；
+- 打开适配器前解析并验证所有必需导出函数；
+- 复用稳定的 `PersonalVPN` 适配器名称，避免重连时遗留以时间戳命名的适配器；
+- 请求有界的 4 MiB 数据包环形缓冲区；
+- 释放 Wintun 所有的数据包内存前先复制接收数据；每个分配的发送缓冲区恰好移交一次；
+- 接口地址、前缀、路由网关和 MTU 仅来自已认证的 `IP_ASSIGN` 及经过验证的路由策略；
+- 暴露 Wintun 读取事件供运行时中断等待，不使用轮询休眠或分离线程。
 
-The DLL itself is not committed. Packaging must fetch a pinned, checksum-verified
-Wintun release and place it beside the signed executable.
+仓库不提交 DLL。打包时必须获取固定版本且经过校验和验证的 Wintun 发布包，并将其放到已签名可执行文件旁。
 
-## Verification
+## 验证
 
-The portable transaction and fault-injection suite runs on Linux, MinGW, and MSVC.
-The Windows backend is compiled with `/W4 /WX /permissive-` under MSVC and equivalent
-strict warnings under MinGW. A privileged Windows integration job will later exercise
-the real driver; unit tests intentionally require no administrator access or machine
-route mutation.
+可移植事务逻辑和故障注入测试会在 Linux、MinGW 和 MSVC 上运行。Windows 后端使用 MSVC `/W4 /WX /permissive-` 编译；MinGW 采用等效严格警告。未来增加的 Windows 特权集成工作流会验证真实驱动；单元测试刻意不要求管理员权限，也不修改机器路由。

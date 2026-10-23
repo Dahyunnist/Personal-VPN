@@ -1,35 +1,29 @@
-# GitHub authentication and release SOP
+# GitHub 认证与发布操作指南
 
-This procedure contains the steps intentionally left for a repository owner when the
-development environment cannot authenticate to GitHub. Run commands from the
-repository root on a trusted computer. Never paste a token, private key, certificate,
-or one-time code into an issue, commit, build log, or chat.
+当开发环境不能直接访问 GitHub 时，由仓库所有者按本指南完成需要本人认证的步骤。请在可信电脑的仓库根目录运行命令。不要把令牌、私钥、证书或一次性验证码粘贴到 issue、提交、构建日志或聊天中。
 
-## 1. Authenticate
+## 1. 认证
 
-Choose one method.
+任选一种方式。
 
-### GitHub CLI over HTTPS
+### 通过 HTTPS 使用 GitHub CLI
 
 ```powershell
 gh auth login --hostname github.com --git-protocol https --web
 gh auth status
 ```
 
-Complete the browser flow as the account that owns or can write to
-`Dahyunnist/Personal-VPN`.
+请在浏览器中使用对 `Dahyunnist/Personal-VPN` 有写入权限的账号完成认证。
 
-### Existing SSH key
+### 使用已有 SSH 密钥
 
 ```powershell
 ssh -T git@github.com
 ```
 
-If no trusted key exists, follow GitHub's current SSH-key documentation. Keep the
-private key outside this repository and protect it with an OS credential store and a
-passphrase.
+若没有可信密钥，请遵循 GitHub 当前 SSH 密钥文档创建并配置。私钥必须放在仓库之外，使用操作系统凭据存储保护，并设置口令。
 
-## 2. Verify the target before writing
+## 2. 写入前核对目标
 
 ```powershell
 git remote -v
@@ -38,77 +32,60 @@ git branch --show-current
 git status --short
 ```
 
-The destination must be `git@github.com:Dahyunnist/Personal-VPN.git` (or its HTTPS
-equivalent), and the upgrade branch must be `codex/enterprise-upgrade`. Do not push to
-an unrelated `origin` remote.
+目标必须是 `git@github.com:Dahyunnist/Personal-VPN.git`（或其 HTTPS 等价地址）。远程默认分支为 `master`。不要推送到无关的 `origin` 远程。
 
-## 3. Verify the local phase commits
+## 3. 核对本地改动
 
-The command below lists every commit that is local and not yet pushed. Treat the
-command output, not a fixed count, as authoritative.
+以下命令列出尚未包含在指定远程分支中的提交；以实际输出为准，不要依赖固定提交数。
 
 ```powershell
-git log --oneline personal-vpn/codex/enterprise-upgrade..HEAD
+git fetch personal-vpn
+git log --oneline personal-vpn/master..HEAD
 git status --short
 git diff --check
 ```
 
-Earlier engineering and evidence commits are already on the remote branch. Keep
-generated builds and packages out of Git.
+不要把生成的构建目录或安装包提交到 Git。
 
-## 4. Push and verify CI
+## 4. 推送并检查 CI
 
-The last remote Windows package job failed at `Verify package`. Inspect its log using
-the next section first. Send the first error excerpt for diagnosis; after its fix is
-committed locally, push all reviewed commits and wait for every CI job to pass:
+只有在目标分支和改动确认无误后才推送。新功能通常应通过 Pull Request 合并；若直接推送受分支规则保护的 `master`，GitHub 会拒绝写入。
 
 ```powershell
-git push --set-upstream personal-vpn codex/enterprise-upgrade
-gh run list --repo Dahyunnist/Personal-VPN --branch codex/enterprise-upgrade --limit 10
+git push personal-vpn HEAD
+gh run list --repo Dahyunnist/Personal-VPN --branch (git branch --show-current) --limit 10
 $runId = gh run list --repo Dahyunnist/Personal-VPN `
-  --branch codex/enterprise-upgrade --limit 1 --json databaseId --jq '.[0].databaseId'
+  --branch (git branch --show-current) --limit 1 --json databaseId --jq '.[0].databaseId'
 gh run watch $runId --repo Dahyunnist/Personal-VPN --exit-status
 ```
 
-### Inspect the current Windows package failure
+如果打包验证失败，先打开对应的 Actions 运行和失败任务，复制第一条实际错误及少量上下文进行排查。不要分享令牌、Cookie、私钥或无关的运行器环境信息。先修复确定性错误，再重跑工作流；不要反复重跑来掩盖稳定失败。
 
-The public Actions status confirms that dependency installation, configuration, build,
-and tests passed. The `Verify package` step failed. GitHub requires owner access to read
-the detailed step log. After signing in as a repository collaborator, open:
-
-`https://github.com/Dahyunnist/Personal-VPN/actions/runs/39358023115/job/118417280796`
-
-Expand **Verify package**, copy the first actual error and nearby context, and share
-only that excerpt for diagnosis. Do not share tokens, cookies, private keys, or unrelated
-runner environment values. Alternatively, with authenticated `gh`:
-
-```powershell
-gh run view 39358023115 --repo Dahyunnist/Personal-VPN --job 118417280796 --log
-```
-
-Do not rerun the workflow until the deterministic packaging check is fixed. After the
-fix, commit and push the focused change, then verify every job with `gh run watch`.
-
-Open a pull request only after all jobs are green:
+所有检查通过后，如需创建 Pull Request：
 
 ```powershell
 gh pr create --repo Dahyunnist/Personal-VPN `
   --base master `
-  --head codex/enterprise-upgrade `
-  --title "Enterprise correctness, security, and release upgrade" `
+  --head <feature-branch> `
+  --title "简明描述改动" `
   --body-file .github/pull_request_template.md
 ```
 
-Review failures; do not rerun repeatedly to hide a deterministic failure.
+审查失败结果。不要将失败或未执行的任务标为成功。
 
-## 5. Publish a versioned release
+## 5. 创建版本化发布
 
-After merging and updating the local default branch:
+合并改动后更新本地默认分支：
 
 ```powershell
 git switch master
 git pull --ff-only personal-vpn master
 git status --short
+```
+
+确认 `CMakeLists.txt` 中 `project(PersonalVPN VERSION ...)` 的版本号后，再创建并推送匹配标签：
+
+```powershell
 git tag -a v0.1.0 -m "Personal-VPN v0.1.0"
 git push personal-vpn v0.1.0
 $runId = gh run list --repo Dahyunnist/Personal-VPN `
@@ -116,15 +93,9 @@ $runId = gh run list --repo Dahyunnist/Personal-VPN `
 gh run watch $runId --repo Dahyunnist/Personal-VPN --exit-status
 ```
 
-The tag must exactly match `project(PersonalVPN VERSION 0.1.0 ...)` in `CMakeLists.txt`.
-The release workflow creates `.tar.gz` and `.zip` archives plus SHA-256 files. It also
-creates GitHub artifact attestations for release archives and checksum files. Attestation
-creation is a release gate; no signing secret or user certificate is required. Before
-publishing, the workflow downloads all six draft assets and checks every digest and
-attestation against the exact release workflow and triggering tag. Any mismatch keeps
-the release draft.
+标签必须与 `CMakeLists.txt` 中的 `project(PersonalVPN VERSION 0.1.0 ...)` 完全一致。发布工作流会生成 `.tar.gz`、`.zip` 归档及 SHA-256 文件，也会为归档和校验和文件生成 GitHub 制品证明。创建证明属于发布门禁，不需要签名密钥或用户证书。发布前，工作流会下载六个草稿制品，并将每个摘要和证明与准确的发布工作流及触发标签核对。任何不匹配都会使 release 保持草稿状态。
 
-## 6. Verify downloaded assets
+## 6. 验证下载制品
 
 ```powershell
 gh release download v0.1.0 --repo Dahyunnist/Personal-VPN --dir release-check
@@ -132,43 +103,25 @@ Get-ChildItem release-check
 Get-FileHash release-check\personal-vpn-*.zip -Algorithm SHA256
 ```
 
-Compare the computed hash with the corresponding `.sha256` file, extract into a new
-directory, and confirm the Windows archive contains `personal-vpn-client.exe`,
-`wintun.dll`, the example profile, Wintun license, and documentation. Perform the
-equivalent `sha256sum -c` validation for the Linux archive.
+将计算出的哈希与对应 `.sha256` 文件比较；解压到新目录，并确认 Windows 归档包含 `personal-vpn-client.exe`、`wintun.dll`、示例配置、Wintun 许可证和文档。Linux 归档应执行等效的 `sha256sum -c` 校验。
 
-Verify provenance before installing or distributing an asset. Install or update the
-official GitHub CLI, then run from a trusted computer with network access:
+安装或分发前验证来源证明。请在有网络连接的可信电脑上安装/更新官方 GitHub CLI，然后执行：
 
 ```powershell
 gh attestation verify .\release-check\personal-vpn-0.1.0-Windows-AMD64.zip `
   --repo Dahyunnist/Personal-VPN
 ```
 
-Run the equivalent command for the Linux `.tar.gz` and Windows SBOM `.zip`. Verification
-must report a valid attestation from `Dahyunnist/Personal-VPN`; stop distribution if
-missing or invalid. GitHub stores attestations with the repository, not as ordinary
-release assets.
+对 Linux `.tar.gz` 和 Windows SBOM `.zip` 执行等效命令。验证结果必须显示证明来自 `Dahyunnist/Personal-VPN`；若证明缺失或无效，应停止分发。GitHub 将证明保存在仓库中，而不是作为普通 release 附件。
 
-## 7. Repository settings (web UI)
+## 7. 仓库设置（网页界面）
 
-On the default branch, enable a ruleset that requires pull requests, blocks force
-pushes and deletions, requires all CI jobs, requires the branch to be up to date, and
-dismisses stale approvals. Enable secret scanning, push protection, Dependabot alerts,
-and private vulnerability reporting where the repository plan supports them.
+在默认分支启用规则集：要求 Pull Request、禁止强推和删除、要求全部 CI 任务通过、要求分支保持最新，并在有新提交后撤销过期批准。若仓库方案支持，还应启用密钥扫描、推送保护、Dependabot 警报和私密漏洞报告。
 
-Do not mark a failing or unexecuted job as successful merely to publish a release.
+不得为了发布而把失败或未执行任务标记为成功。
 
-## 8. Historical credential incident
+## 8. 历史凭据事故
 
-Any certificate private key that ever appeared in the public history is compromised.
-Revoke it at the issuing CA, issue a distinct replacement, publish the updated CRL, and
-verify that no deployed host still trusts or uses the old key. This is required even if
-the current branch no longer contains the file.
+任何曾出现在公开历史中的证书私钥都应视为已泄露。应在签发 CA 中吊销、签发不同的新凭据、发布更新后的 CRL，并确认没有已部署主机仍信任或使用旧密钥。即使当前分支已不包含该文件，这些操作仍然必要。
 
-History rewriting is optional after rotation and must be coordinated separately: make
-a fresh mirror clone, preserve a recoverable offline bundle, enumerate the exact secret
-paths, use GitHub's sensitive-data-removal procedure, verify every ref locally, then
-force-update only the intended repository and require all collaborators to re-clone.
-Do not experiment with history-rewrite commands in this working directory, and do not
-treat rewriting as a substitute for revocation.
+密钥轮换后可以选择重写历史，但必须另行协调：创建新的镜像克隆、保存可恢复的离线 bundle、列出准确的敏感路径、遵循 GitHub 敏感数据移除流程、本地核对所有 refs，然后只强制更新指定仓库，并要求所有协作者重新克隆。不要在当前工作目录试验历史重写命令；重写历史不能替代吊销凭据。

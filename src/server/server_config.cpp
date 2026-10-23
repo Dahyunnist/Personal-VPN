@@ -54,10 +54,11 @@ void validate(const ServerConfig& config)
     }
     boost::system::error_code address_error;
     const auto listen_address = boost::asio::ip::make_address(config.listen_address, address_error);
-    if (address_error || !listen_address.is_v4())
+    if (address_error)
     {
-        throw std::invalid_argument("--listen-address must be a valid IPv4 address");
+        throw std::invalid_argument("--listen-address must be a valid IPv4 or IPv6 address");
     }
+    static_cast<void>(listen_address);
     if (config.tun_name.empty() || config.tun_name.size() > 15U)
     {
         throw std::invalid_argument("--tun-name must contain between 1 and 15 bytes");
@@ -67,7 +68,10 @@ void validate(const ServerConfig& config)
                               core::parse_ipv4_address(config.gateway_address),
                               config.prefix_length,
                               config.mtu,
-                              std::chrono::seconds(config.lease_seconds));
+                              std::chrono::seconds(config.lease_seconds),
+                              core::parse_ipv6_address(config.ipv6_prefix_address),
+                              core::parse_ipv6_address(config.ipv6_gateway_address),
+                              64U);
     static_cast<void>(policy);
 }
 
@@ -131,6 +135,14 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
         {
             config.gateway_address = value;
         }
+        else if (option == "--ipv6-prefix")
+        {
+            config.ipv6_prefix_address = value;
+        }
+        else if (option == "--ipv6-gateway")
+        {
+            config.ipv6_gateway_address = value;
+        }
         else if (option == "--prefix-length")
         {
             config.prefix_length =
@@ -139,7 +151,7 @@ ServerConfig parse_server_arguments(const std::vector<std::string>& arguments)
         else if (option == "--mtu")
         {
             config.mtu = static_cast<std::uint16_t>(parse_unsigned(
-                option, value, protocol::kMinimumIpv4Mtu, protocol::kMaximumTunnelMtu));
+                option, value, protocol::kMinimumIpv6Mtu, protocol::kMaximumTunnelMtu));
         }
         else if (option == "--lease-seconds")
         {
@@ -205,12 +217,14 @@ std::string server_usage(const std::string& executable_name)
            "Optional security:\n"
            "  --client-crl PATH        PEM CRL for revoked client certificates\n\n"
            "Network:\n"
-           "  --listen-address IPV4    Listen address (default: 0.0.0.0)\n"
+           "  --listen-address IP      Listen address (default: 0.0.0.0)\n"
            "  --port NUMBER            Listen port (default: 8443)\n"
            "  --tun-name NAME          Existing/created TUN name (default: pvpn0)\n"
            "  --lease-start IPV4       First client address (default: 10.8.0.2)\n"
            "  --lease-end IPV4         Last client address (default: 10.8.0.254)\n"
            "  --gateway IPV4           Tunnel gateway (default: 10.8.0.1)\n"
+           "  --ipv6-prefix IPV6        Canonical /64 ULA prefix (default: fd00:8::)\n"
+           "  --ipv6-gateway IPV6       IPv6 tunnel gateway (default: fd00:8::1)\n"
            "  --prefix-length NUMBER   Tunnel prefix length (default: 24)\n"
            "  --mtu NUMBER             Tunnel MTU (default: 1400)\n"
            "  --lease-seconds NUMBER   Lease lifetime (default: 3600)\n\n"

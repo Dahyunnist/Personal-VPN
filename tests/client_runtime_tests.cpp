@@ -96,10 +96,10 @@ class FakePacketDevice final : public ClientPacketDevice
         address = value;
         return true;
     }
-    std::optional<std::uint32_t> set_interface_mtu(const std::uint32_t value) override
+    std::optional<InterfaceMtuSnapshot> set_interface_mtu(const std::uint32_t value) override
     {
         events.push_back("set-mtu-" + std::to_string(value));
-        return 1'500U;
+        return InterfaceMtuSnapshot{1'500U, 1'500U};
     }
     bool add_route(const Ipv4Route& value) override
     {
@@ -110,9 +110,9 @@ class FakePacketDevice final : public ClientPacketDevice
     {
         events.push_back("remove-route-" + std::to_string(value.prefix_length));
     }
-    void restore_interface_mtu(const std::uint32_t value) noexcept override
+    void restore_interface_mtu(const InterfaceMtuSnapshot& value) noexcept override
     {
-        events.push_back("restore-mtu-" + std::to_string(value));
+        events.push_back("restore-mtu-" + std::to_string(value.ipv4));
     }
     void remove_interface_address(const InterfaceAddress&) noexcept override
     {

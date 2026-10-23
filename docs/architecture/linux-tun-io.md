@@ -1,26 +1,18 @@
 # Linux TUN I/O
 
-`LinuxTunDevice` owns a non-blocking `/dev/net/tun` descriptor configured with
-`IFF_TUN | IFF_NO_PI`. It does not run shell commands or modify host routes,
-forwarding, or firewall policy.
+`LinuxTunDevice` 拥有一个以非阻塞模式打开的 `/dev/net/tun` 文件描述符，并使用 `IFF_TUN | IFF_NO_PI` 配置。它不会执行 shell 命令，也不会修改主机路由、转发或防火墙策略。
 
-## I/O invariants
+## I/O 不变量
 
-- All mutable adapter state runs on one Boost.Asio strand.
-- Each successful descriptor read produces one owning packet vector.
-- Outbound packets remain owned by a bounded FIFO until the kernel write completes.
-- Only one packet write is outstanding at a time and partial packet writes fail closed.
-- The default outbound limits are 256 packets and 4 MiB. Overflow closes the adapter
-  instead of allowing unbounded memory growth.
-- Oversized and empty writes are rejected.
-- Explicit shutdown cancels pending operations without reporting a fatal device error.
-- Fatal read, write, or queue errors close the descriptor and invoke the error handler
-  once.
+- 所有可变适配器状态都在一个 Boost.Asio strand 上运行。
+- 每次成功读取描述符都会产生一个由适配器拥有的数据包向量。
+- 内核写入完成前，出站数据包始终保留在有界 FIFO 队列中。
+- 同一时刻最多有一个数据包写操作；部分数据包写入会立即失败并关闭。
+- 默认出站限制为 256 个数据包和 4 MiB。溢出时关闭适配器，不允许内存无界增长。
+- 拒绝超大写入和空写入。
+- 显式关闭会取消待处理操作，但不会把它报告成致命设备错误。
+- 致命读取、写入或队列错误会关闭描述符，并且只调用一次错误处理器。
 
-The adapter has a separate `adopt` factory for tests. Linux tests use a packet-preserving
-Unix descriptor pair to exercise the same asynchronous read, write, cancellation, and
-backpressure code without requiring root privileges or modifying the host network.
+适配器为测试提供单独的 `adopt` 工厂。Linux 测试使用保留数据包边界的 Unix 描述符对，在不需要 root 权限、不修改主机网络的前提下，测试相同的异步读写、取消和背压代码。
 
-Interface address assignment, forwarding, and NAT are deployment responsibilities.
-They will be applied declaratively by service-unit and provisioning examples rather
-than by concatenating privileged shell commands inside the server process.
+接口地址分配、转发和 NAT 均由部署负责。它们会通过 systemd 服务单元和配置示例声明式配置，而不是在服务端进程中拼接特权 shell 命令。

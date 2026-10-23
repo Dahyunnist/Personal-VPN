@@ -4,9 +4,11 @@
 #include "personal_vpn/lease_manager.hpp"
 #include "personal_vpn/protocol.hpp"
 
+#include <boost/asio/ip/address.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <cctype>
 #include <limits>
@@ -128,11 +130,52 @@ std::filesystem::path credential_path(const std::filesystem::path& config_direct
 
 std::string validate_route(const std::string& route, const bool allow_default_route)
 {
+    if (route.find(':') != std::string::npos)
+    {
+        const auto slash = route.find('/');
+        if (slash == std::string::npos || slash == 0U || slash + 1U >= route.size())
+        {
+            throw std::invalid_argument("route must use IPv6 CIDR notation: " + route);
+        }
+        const auto prefix_text = route.substr(slash + 1U);
+        std::uint16_t prefix = 0U;
+        const auto prefix_result = std::from_chars(prefix_text.data(),
+                                                   prefix_text.data() + prefix_text.size(),
+                                                   prefix,
+                                                   10);
+        if (prefix_result.ec != std::errc{} ||
+            prefix_result.ptr != prefix_text.data() + prefix_text.size() || prefix > 128U)
+        {
+            throw std::invalid_argument("IPv6 route prefix is out of range: " + route);
+        }
+        if (prefix == 0U && !allow_default_route)
+        {
+            throw std::invalid_argument("a default route requires tunnel.allow_default_route=true");
+        }
+        boost::system::error_code address_error;
+        const auto address = boost::asio::ip::make_address_v6(route.substr(0U, slash), address_error);
+        if (address_error || address.scope_id() != 0U)
+        {
+            throw std::invalid_argument("IPv6 route address is invalid: " + route);
+        }
+        auto network = address.to_bytes();
+        auto canonical = network;
+        for (std::size_t bit = prefix; bit < 128U; ++bit)
+        {
+            canonical[bit / 8U] = static_cast<std::uint8_t>(
+                canonical[bit / 8U] & static_cast<std::uint8_t>(~(1U << (7U - bit % 8U))));
+        }
+        if (network != canonical)
+        {
+            throw std::invalid_argument("route address must be the canonical network address: " + route);
+        }
+        return route;
+    }
     const auto slash = route.find('/');
     if (slash == std::string::npos || slash == 0U || slash + 1U >= route.size() ||
         route.find('/', slash + 1U) != std::string::npos)
     {
-        throw std::invalid_argument("route must use IPv4 CIDR notation: " + route);
+        throw std::invalid_argument("route must use IPv4 or IPv6 CIDR notation: " + route);
     }
     const auto address_text = route.substr(0U, slash);
     const auto prefix_text = route.substr(slash + 1U);
@@ -215,7 +258,7 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
     config.requested_mtu = static_cast<std::uint16_t>(require_unsigned(
         tunnel,
         "requested_mtu",
-        protocol::kMinimumIpv4Mtu,
+        protocol::kMinimumIpv6Mtu,
         protocol::kMaximumTunnelMtu));
     config.allow_default_route = optional_boolean(tunnel, "allow_default_route", false);
 
@@ -238,6 +281,19 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
             throw std::invalid_argument("duplicate route: " + route);
         }
         config.routes.push_back(route);
+    }
+    if (config.allow_default_route &&
+        (std::find(config.routes.begin(), config.routes.end(), "0.0.0.0/0") !=
+             config.routes.end() ||
+         std::find(config.routes.begin(), config.routes.end(), "::/0") != config.routes.end()))
+    {
+        boost::system::error_code address_error;
+        const auto address = boost::asio::ip::make_address(config.server_host, address_error);
+        if (address_error || (address.is_v6() && address.to_v6().scope_id() != 0U))
+        {
+            throw std::invalid_argument(
+                "full-tunnel mode requires a numeric server IP to prevent DNS leakage");
+        }
     }
     return config;
 }
