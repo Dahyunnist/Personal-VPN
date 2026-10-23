@@ -349,10 +349,29 @@ int main()
             throw std::runtime_error("copied broker credentials did not load into TLS");
         }
         const auto stored_directory = stored_profile.config_path.parent_path();
+        personal_vpn::broker::delete_broker_profile(stored_profile.profile_id);
         for (const auto* suffix : {"-ca.crt", "-client.crt", "-client.key", ".json"})
         {
-            static_cast<void>(DeleteFileW(
-                (stored_directory / (stored_profile.profile_id + suffix)).c_str()));
+            if (GetFileAttributesW(
+                    (stored_directory / (stored_profile.profile_id + suffix)).c_str()) !=
+                INVALID_FILE_ATTRIBUTES)
+            {
+                throw std::runtime_error("profile deletion left a copied credential file");
+            }
+        }
+        personal_vpn::broker::delete_broker_profile(stored_profile.profile_id);
+        bool invalid_profile_delete_rejected = false;
+        try
+        {
+            personal_vpn::broker::delete_broker_profile("../outside");
+        }
+        catch (const std::invalid_argument&)
+        {
+            invalid_profile_delete_rejected = true;
+        }
+        if (!invalid_profile_delete_rejected)
+        {
+            throw std::runtime_error("profile deletion accepted a path-like profile ID");
         }
         const personal_vpn::client::ClientNetworkPolicy network_policy{
             {"10.20.0.0/16"}, false};

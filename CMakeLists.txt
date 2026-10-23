@@ -203,6 +203,8 @@ if(PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
         target_link_libraries(personal_vpn_client_transport
             PRIVATE advapi32 PersonalVPN::WindowsNetwork)
         target_link_libraries(personal_vpn_client_transport PUBLIC ws2_32)
+        target_compile_definitions(personal_vpn_client_transport
+            PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00 NOMINMAX)
     endif()
     if(MSVC)
         target_compile_options(personal_vpn_client_transport PRIVATE /W4 /permissive-)
@@ -229,6 +231,8 @@ if(WIN32 AND PERSONAL_VPN_BUILD_CLIENT_TRANSPORT)
         PUBLIC PersonalVPN::BrokerProtocol PersonalVPN::ClientTransport
         PRIVATE ole32)
     target_compile_features(personal_vpn_broker_runtime PUBLIC cxx_std_17)
+    target_compile_definitions(personal_vpn_broker_runtime
+        PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00 NOMINMAX)
     if(MSVC)
         target_compile_options(personal_vpn_broker_runtime PRIVATE /W4 /permissive-)
     else()

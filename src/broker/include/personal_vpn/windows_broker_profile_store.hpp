@@ -19,6 +19,9 @@ struct StoredBrokerProfile
 [[nodiscard]] StoredBrokerProfile store_broker_profile(
     const std::filesystem::path& source_config);
 
+// Removes only the current user's imported profile files. Repeated calls are safe.
+void delete_broker_profile(const std::string& profile_id);
+
 } // namespace personal_vpn::broker
 
 #endif

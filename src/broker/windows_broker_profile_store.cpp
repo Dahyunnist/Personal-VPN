@@ -186,6 +186,35 @@ void ensure_profile_root(const std::filesystem::path& profile_path,
     apply_private_acl(directory, user, true);
 }
 
+std::filesystem::path existing_profile_root(const CurrentUser& user)
+{
+    auto directory = user.profile_path;
+    const std::array<std::filesystem::path, 4U> components{
+        L"AppData", L"Local", L"PersonalVPN", L"profiles"};
+    for (const auto& component : components)
+    {
+        directory /= component;
+        const auto attributes = GetFileAttributesW(directory.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES)
+        {
+            const auto error = GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            {
+                return {};
+            }
+            throw std::system_error(static_cast<int>(error),
+                                    std::system_category(),
+                                    "inspect broker profile directory");
+        }
+        if ((attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U ||
+            (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
+        {
+            throw std::invalid_argument("broker profile path must contain only real directories");
+        }
+    }
+    return directory;
+}
+
 std::string new_profile_id()
 {
     GUID guid{};
@@ -417,6 +446,53 @@ StoredBrokerProfile store_broker_profile(const std::filesystem::path& source_con
             static_cast<void>(DeleteFileW(path.c_str()));
         }
         throw;
+    }
+}
+
+void delete_broker_profile(const std::string& profile_id)
+{
+    if (!is_valid_profile_id(profile_id))
+    {
+        throw std::invalid_argument("broker profile ID is invalid");
+    }
+    const CurrentUser user;
+    const auto directory = existing_profile_root(user);
+    if (directory.empty())
+    {
+        return;
+    }
+    const std::array<std::string, 4U> suffixes{
+        "-ca.crt", "-client.crt", "-client.key", ".json"};
+    for (const auto& suffix : suffixes)
+    {
+        const auto path = directory / (profile_id + suffix);
+        const auto attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES)
+        {
+            const auto error = GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            {
+                continue;
+            }
+            throw std::system_error(static_cast<int>(error),
+                                    std::system_category(),
+                                    "inspect broker profile file");
+        }
+        if ((attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0U)
+        {
+            throw std::invalid_argument("broker profile files must be regular files");
+        }
+        if (!DeleteFileW(path.c_str()))
+        {
+            const auto error = GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            {
+                continue;
+            }
+            throw std::system_error(static_cast<int>(error),
+                                    std::system_category(),
+                                    "delete broker profile file");
+        }
     }
 }
 

@@ -250,6 +250,36 @@ void UIMain::Render() {
                         ImportConfig(path);
                     }
                 }
+                if (!m_brokerProfileId.empty()) {
+                    ImGui::Spacing();
+                    const bool profile_in_use =
+                        m_isConnected || m_isStarting || m_isReconnecting;
+                    ImGui::BeginDisabled(profile_in_use);
+                    const bool delete_profile = ImGui::Button("删除当前导入的 profile");
+                    ImGui::EndDisabled();
+                    if (delete_profile) {
+                        const auto choice = MessageBoxW(
+                            m_hwnd,
+                            L"这会删除 PersonalVPN 保护目录中的此 profile、副本证书和私钥。"
+                            L"不会删除原始导入文件。此操作不可撤销。\n\n继续？",
+                            L"删除 profile",
+                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+                        if (choice == IDYES) {
+                            try {
+                                personal_vpn::broker::delete_broker_profile(m_brokerProfileId);
+                                m_brokerProfileId.clear();
+                                m_clientConfig.reset();
+                                m_configPath[0] = '\0';
+                                m_serverHost[0] = '\0';
+                                m_serverPort[0] = '\0';
+                                m_routes[0] = '\0';
+                                AddLog("已删除当前导入的 profile 及其本地凭据副本");
+                            } catch (const std::exception& error) {
+                                AddLog(std::string("删除 profile 失败：") + error.what(), true);
+                            }
+                        }
+                    }
+                }
             }
 
             ImGui::Spacing();

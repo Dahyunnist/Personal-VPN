@@ -219,7 +219,9 @@ jobs:
         shell: pwsh
         run: |
           cmake --build out/ci-windows-client --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ctest --test-dir out/ci-windows-client -C Release --output-on-failure --timeout 30
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Exercise broker installer lifecycle
         shell: pwsh
         run: |
@@ -246,9 +248,11 @@ jobs:
         shell: pwsh
         run: |
           cmake --build out/ci-windows-client --config Release --target package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $package = Get-ChildItem out/ci-windows-client -Filter 'personal-vpn-*.zip' | Select-Object -First 1
           if (-not $package) { throw 'Windows client ZIP package was not created' }
           cmake "-DPACKAGE_ARCHIVE=$($package.FullName)" -P cmake/verify-windows-package.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $sbomRoot = Join-Path $env:GITHUB_WORKSPACE 'out/ci-windows-client/vcpkg_installed'
           if (-not (Test-Path -LiteralPath $sbomRoot -PathType Container)) { throw "vcpkg installed tree missing: $sbomRoot" }
           $sbom = Get-ChildItem $sbomRoot -Recurse -Filter '*.spdx.json' | Select-Object -First 1

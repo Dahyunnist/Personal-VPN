@@ -128,6 +128,8 @@ vpn_base/          保留的实习原型，用于历史对照
 - 服务端可通过 `SIGHUP` 验证并切换 TLS 凭据；客户端凭据变更仍需重启客户端，已有会话继续使用原 TLS 上下文。
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
+- Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
+- `15867b7` 远程 CI 的核心、Linux、sanitizer、fuzz 和 benchmark 门禁通过；Windows 桌面包因 vcpkg 未安装 Boost.PropertyTree 而失败。依赖修复已在当前工作区，尚待推送复验。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 
