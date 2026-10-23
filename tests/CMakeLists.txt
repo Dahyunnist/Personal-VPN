@@ -32,6 +32,7 @@ add_executable(broker_protocol_tests broker_protocol_tests.cpp)
 target_link_libraries(broker_protocol_tests PRIVATE PersonalVPN::BrokerProtocol)
 if(TARGET PersonalVPN::BrokerRuntime)
     target_link_libraries(broker_protocol_tests PRIVATE PersonalVPN::BrokerRuntime)
+    target_compile_definitions(broker_protocol_tests PRIVATE PERSONAL_VPN_HAS_BROKER_RUNTIME=1)
 
     add_executable(broker_runtime_registry_tests broker_runtime_registry_tests.cpp)
     target_link_libraries(broker_runtime_registry_tests PRIVATE PersonalVPN::BrokerRuntime)

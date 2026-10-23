@@ -1,8 +1,14 @@
 #include "personal_vpn/lease_manager.hpp"
 
-#include <boost/asio/ip/address.hpp>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <limits>
 #include <stdexcept>
@@ -71,18 +77,37 @@ std::string format_ipv4_address(const Ipv4Address& address)
 
 Ipv6Address parse_ipv6_address(const std::string& text)
 {
-    boost::system::error_code error;
-    const auto address = boost::asio::ip::make_address_v6(text, error);
-    if (error || address.scope_id() != 0U)
+    if (text.empty() || text.find('%') != std::string::npos ||
+        text.find('\0') != std::string::npos)
     {
         throw std::invalid_argument("IPv6 address is invalid or has a scope identifier");
     }
-    return address.to_bytes();
+    Ipv6Address address{};
+#ifdef _WIN32
+    const auto result = InetPtonA(AF_INET6, text.c_str(), address.data());
+#else
+    const auto result = inet_pton(AF_INET6, text.c_str(), address.data());
+#endif
+    if (result != 1)
+    {
+        throw std::invalid_argument("IPv6 address is invalid or has a scope identifier");
+    }
+    return address;
 }
 
 std::string format_ipv6_address(const Ipv6Address& address)
 {
-    return boost::asio::ip::address_v6(address).to_string();
+    std::array<char, INET6_ADDRSTRLEN> output{};
+#ifdef _WIN32
+    const auto result = InetNtopA(AF_INET6, address.data(), output.data(), output.size());
+#else
+    const auto result = inet_ntop(AF_INET6, address.data(), output.data(), output.size());
+#endif
+    if (result == nullptr)
+    {
+        throw std::runtime_error("format IPv6 address failed");
+    }
+    return output.data();
 }
 
 bool Lease::operator==(const Lease& other) const noexcept

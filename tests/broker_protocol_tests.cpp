@@ -1,5 +1,5 @@
 #include "personal_vpn/broker_protocol.hpp"
-#ifdef _WIN32
+#if defined(_WIN32) && defined(PERSONAL_VPN_HAS_BROKER_RUNTIME)
 #include "personal_vpn/windows_broker_pipe.hpp"
 #include "personal_vpn/windows_broker_profile.hpp"
 #include "personal_vpn/windows_broker_profile_loader.hpp"
@@ -16,7 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#ifdef _WIN32
+#if defined(_WIN32) && defined(PERSONAL_VPN_HAS_BROKER_RUNTIME)
 #include <atomic>
 #include <thread>
 #include <chrono>
@@ -202,7 +202,7 @@ void reject_connection_replays()
                    "connection decoder rejects duplicate request before dispatch");
 }
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(PERSONAL_VPN_HAS_BROKER_RUNTIME)
 std::wstring current_logon_sid()
 {
     HANDLE token = nullptr;
@@ -561,7 +561,7 @@ int main()
     response_round_trip_and_limits();
     reject_invalid_inputs();
     reject_connection_replays();
-#ifdef _WIN32
+#if defined(_WIN32) && defined(PERSONAL_VPN_HAS_BROKER_RUNTIME)
     try
     {
         named_pipe_authentication_and_framing();

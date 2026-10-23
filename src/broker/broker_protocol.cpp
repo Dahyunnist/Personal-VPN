@@ -57,8 +57,9 @@ bool valid_profile_id_impl(const std::string& profile_id) noexcept
     {
         return false;
     }
-    for (const unsigned char character : profile_id)
+    for (const char value : profile_id)
     {
+        const auto character = static_cast<unsigned char>(value);
         const bool ascii_letter = (character >= 'a' && character <= 'z') ||
                                   (character >= 'A' && character <= 'Z');
         const bool digit = character >= '0' && character <= '9';
