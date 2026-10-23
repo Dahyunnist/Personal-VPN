@@ -92,15 +92,14 @@ function Assert-AdministratorProtectedPath {
         'S-1-5-32-544',
         'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
     )
-    $writeRights = [Security.AccessControl.FileSystemRights]::Write -bor
-        [Security.AccessControl.FileSystemRights]::Modify -bor
+    $writeRights = [int]([Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
         [Security.AccessControl.FileSystemRights]::Delete -bor
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership -bor
-        [Security.AccessControl.FileSystemRights]::FullControl -bor
-        [Security.AccessControl.FileSystemRights]::CreateFiles -bor
-        [Security.AccessControl.FileSystemRights]::CreateDirectories -bor
-        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles)
     $current = (Resolve-Path -LiteralPath $Path).Path
     while ($true) {
         $item = Get-Item -LiteralPath $current -Force
@@ -122,7 +121,7 @@ function Assert-AdministratorProtectedPath {
             }
             if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
                 $rule.IdentityReference.Value -notin $trustedSids -and
-                (($rule.FileSystemRights -band $writeRights) -ne 0)) {
+                (([int]$rule.FileSystemRights -band $writeRights) -ne 0)) {
                 throw "Trusted installation source grants write access outside SYSTEM/Administrators: $current"
             }
         }

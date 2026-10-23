@@ -168,22 +168,21 @@ try {
         throw 'Installed binaries or policy do not have the expected Administrators owner.'
     }
     $trustedSids = @('S-1-5-18', 'S-1-5-32-544')
-    $writeRights = [Security.AccessControl.FileSystemRights]::Write -bor
-        [Security.AccessControl.FileSystemRights]::Modify -bor
+    $writeRights = [int]([Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
         [Security.AccessControl.FileSystemRights]::Delete -bor
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership -bor
-        [Security.AccessControl.FileSystemRights]::FullControl -bor
-        [Security.AccessControl.FileSystemRights]::CreateFiles -bor
-        [Security.AccessControl.FileSystemRights]::CreateDirectories -bor
-        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles)
     foreach ($path in @($programDirectory, (Join-Path $programDirectory 'bin'), $installedPolicy)) {
         $acl = Get-Acl -LiteralPath $path
         $untrustedWriter = $acl.GetAccessRules($true, $true,
             [Security.Principal.SecurityIdentifier]) | Where-Object {
                 $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
                 $_.IdentityReference.Value -notin $trustedSids -and
-                (($_.FileSystemRights -band $writeRights) -ne 0)
+                (([int]$_.FileSystemRights -band $writeRights) -ne 0)
             } | Select-Object -First 1
         if ($null -ne $untrustedWriter) {
             throw "Installed path grants an untrusted writer: $path ($($untrustedWriter.IdentityReference))"
