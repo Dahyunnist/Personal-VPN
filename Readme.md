@@ -43,8 +43,9 @@ flowchart LR
 | Windows 构建与测试 | 13 项通过，1 项本机跳过 | MinGW 桌面测试；含 schema v2 profile 导入、CRL 复制与删除、IPv4/IPv6 WFP 策略边界测试。动态 WFP 会话集成测试仅在 GitHub 临时 runner 的独立末尾步骤启用 |
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
 | Windows broker 安装器集成 | 通过 | 最新远程 Windows CI 验证安装器生命周期；受保护祖先目录允许标准卷上的“创建子目录”权限，带 `DeleteSubdirectoriesAndFiles` 权限的祖先仍被拒绝 |
+| WFP 动态会话集成 | 修复待远程复验 | `cb58ea4` 首次真实 WFP 测试发现空 provider 枚举返回 `FWP_E_NEVER_MATCH`；当前修复将其作为无旧过滤器处理，其他 WFP 错误仍失败关闭 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
-| 远程 CI（`0c44a0c`） | CI 全部任务通过；CodeQL 通过 | Linux Debug/Release、Windows 核心 Debug/Release、Windows 桌面构建与测试、broker 安装器生命周期、ZIP 校验、仓库策略、ASan/UBSan、协议 fuzz、benchmark 和 CodeQL 均通过 |
+| 远程 CI（`cb58ea4`） | 8/9 个 CI 任务通过；CodeQL 通过 | Linux Debug/Release、Windows 核心 Debug/Release、安装器生命周期、ZIP 校验、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 通过；Windows WFP 动态会话集成失败，修复待复验 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
 以上测试验证代码构建和自动化测试，不代表真实公网 IPv6 连通性、双主机部署或生产环境验证。Linux 服务端不会自动开启 IPv6 转发、配置云防火墙、上游路由或 NAT66；部署前请阅读 [IPv6 部署说明](docs/operations/ipv6-deployment.md)。
@@ -131,7 +132,7 @@ vpn_base/          保留的实习原型，用于历史对照
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。WFP 故障关闭规则有策略单测，CI 末尾会短暂安装并清除双栈策略以验证动态 Permit 会话；真实网络流量的阻断行为仍未验证。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
-- 最新远程 CI（提交 `0c44a0c`）全部通过，CodeQL 也通过。Windows 安装器对祖先目录仅豁免“创建子目录”权限；删除子项、写入文件、ACL、所有权及重解析点检查仍保留。CI 的安装器生命周期用例验证了受保护路径接受和危险祖先 ACL 拒绝。
+- `cb58ea4` 远程 CI 的 8/9 个任务通过，CodeQL 通过；唯一失败是新加的 WFP 动态会话集成在首次空过滤器枚举时收到 `FWP_E_NEVER_MATCH`。工作区已修复为空结果处理，待远程复验。Windows 安装器对祖先目录仅豁免“创建子目录”权限；删除子项、写入文件、ACL、所有权及重解析点检查仍保留。CI 安装器生命周期用例验证了受保护路径接受和危险祖先 ACL 拒绝。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 

@@ -185,9 +185,13 @@ std::vector<GUID> enumerate_provider_filters(HANDLE engine)
     query.providerKey = &kProviderKey;
     query.flags = kIncludeBootTimeFilters;
     HANDLE enumeration = nullptr;
-    check_wfp(FwpmFilterCreateEnumHandle0(engine, &query, &enumeration),
-              "create WFP filter enumeration");
     std::vector<GUID> keys;
+    const auto create_result = FwpmFilterCreateEnumHandle0(engine, &query, &enumeration);
+    if (create_result == static_cast<DWORD>(FWP_E_NEVER_MATCH))
+    {
+        return keys;
+    }
+    check_wfp(create_result, "create WFP filter enumeration");
     try
     {
         for (;;)
