@@ -176,7 +176,9 @@ void write_test_identity(const std::wstring& key_path, const std::wstring& certi
 void write_client_profile(const std::filesystem::path& path,
                           const std::string& certificate_name,
                           const std::string& key_name,
-                          const bool add_unknown_field)
+                          const bool add_unknown_field,
+                          const std::string& routes = "[\"10.20.0.0/16\"]",
+                          const bool allow_default_route = false)
 {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
@@ -191,7 +193,9 @@ void write_client_profile(const std::filesystem::path& path,
            << certificate_name << "\", \"certificate_chain_file\": \"" << certificate_name
            << "\", \"private_key_file\": \"" << key_name << "\"},\n"
               "  \"tunnel\": {\"requested_mtu\": 1400, \"routes\": "
-              "[\"10.20.0.0/16\"], \"allow_default_route\": false}"
+           << routes << ", \"allow_default_route\": "
+           << (allow_default_route ? "true" : "false")
+           << "}"
            << (add_unknown_field ? ",\n  \"unexpected\": true" : "") << "\n}\n";
     if (!output)
     {
@@ -318,6 +322,28 @@ int main()
         if (tls_context.native_handle() == nullptr)
         {
             throw std::runtime_error("TLS context did not load the profile's validated key");
+        }
+        const personal_vpn::client::ClientNetworkPolicy network_policy{
+            {"10.20.0.0/16"}, false};
+        client_config = personal_vpn::client::load_client_config(profile, network_policy);
+        if (client_config.routes != std::vector<std::string>{"10.20.0.0/16"})
+        {
+            throw std::runtime_error("trusted network policy rejected its authorized route");
+        }
+        write_client_profile(profile, certificate_name, key_name, false,
+                             "[\"10.30.0.0/16\"]");
+        bool unauthorized_route_rejected = false;
+        try
+        {
+            static_cast<void>(personal_vpn::client::load_client_config(profile, network_policy));
+        }
+        catch (const std::invalid_argument&)
+        {
+            unauthorized_route_rejected = true;
+        }
+        if (!unauthorized_route_rejected)
+        {
+            throw std::runtime_error("trusted network policy accepted a user-selected route");
         }
         write_client_profile(profile, certificate_name, key_name, true);
         bool unknown_profile_field_rejected = false;

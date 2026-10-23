@@ -13,6 +13,7 @@ namespace
 {
 using personal_vpn::client::load_client_config;
 using personal_vpn::client::make_client_tls_context;
+using personal_vpn::client::ClientNetworkPolicy;
 
 int failures = 0;
 
@@ -104,6 +105,35 @@ int main(int argc, char* argv[])
     write_config(path, valid_config("", "[\"0.0.0.0/0\"]", "true"));
     check(load_client_config(path).allow_default_route,
           "numeric server IP permits explicitly authorized full-tunnel configuration");
+    const ClientNetworkPolicy split_tunnel_policy{{"10.20.0.0/16"}, false};
+    write_config(path, valid_config());
+    check(load_client_config(path, split_tunnel_policy).routes ==
+              std::vector<std::string>{"10.20.0.0/16"},
+          "trusted route policy accepts an authorized profile route");
+    write_config(path, valid_config("", "[\"10.30.0.0/16\"]"));
+    bool unauthorized_route_rejected = false;
+    try
+    {
+        static_cast<void>(load_client_config(path, split_tunnel_policy));
+    }
+    catch (const std::invalid_argument&)
+    {
+        unauthorized_route_rejected = true;
+    }
+    check(unauthorized_route_rejected,
+          "trusted route policy rejects a user-selected unauthorized prefix");
+    write_config(path, valid_config("", "[\"0.0.0.0/0\"]", "true"));
+    bool unauthorized_default_rejected = false;
+    try
+    {
+        static_cast<void>(load_client_config(path, split_tunnel_policy));
+    }
+    catch (const std::invalid_argument&)
+    {
+        unauthorized_default_rejected = true;
+    }
+    check(unauthorized_default_rejected,
+          "trusted route policy rejects a user-selected default route");
     auto hostname_full_tunnel = valid_config("", "[\"0.0.0.0/0\"]", "true");
     const auto address_position = hostname_full_tunnel.find("127.0.0.1");
     hostname_full_tunnel.replace(address_position, std::string("127.0.0.1").size(),

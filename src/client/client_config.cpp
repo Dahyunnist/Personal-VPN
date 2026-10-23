@@ -211,8 +211,24 @@ std::string validate_route(const std::string& route, const bool allow_default_ro
 
 } // namespace
 
-ClientConfig load_client_config(const std::filesystem::path& config_file)
+static ClientConfig load_client_config_impl(const std::filesystem::path& config_file,
+                                            const ClientNetworkPolicy* policy)
 {
+    std::set<std::string> allowed_routes;
+    if (policy != nullptr)
+    {
+        if (policy->allowed_routes.empty() || policy->allowed_routes.size() > 64U)
+        {
+            throw std::invalid_argument("trusted network policy must contain 1 to 64 routes");
+        }
+        for (const auto& route : policy->allowed_routes)
+        {
+            if (!allowed_routes.insert(validate_route(route, policy->allow_default_route)).second)
+            {
+                throw std::invalid_argument("trusted network policy contains duplicate routes");
+            }
+        }
+    }
     const auto absolute_config = std::filesystem::absolute(config_file).lexically_normal();
     std::error_code file_error;
     const auto size = std::filesystem::file_size(absolute_config, file_error);
@@ -261,6 +277,10 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
         protocol::kMinimumIpv6Mtu,
         protocol::kMaximumTunnelMtu));
     config.allow_default_route = optional_boolean(tunnel, "allow_default_route", false);
+    if (policy != nullptr && config.allow_default_route && !policy->allow_default_route)
+    {
+        throw std::invalid_argument("profile requests a default route not authorized by policy");
+    }
 
     const auto routes = tunnel.get_child_optional("routes");
     if (!routes.has_value() || routes->empty() || routes->size() > 64U)
@@ -276,6 +296,10 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
         }
         const auto route = validate_route(entry.second.get_value<std::string>(),
                                           config.allow_default_route);
+        if (policy != nullptr && allowed_routes.count(route) == 0U)
+        {
+            throw std::invalid_argument("profile route is not authorized by network policy");
+        }
         if (!unique_routes.insert(route).second)
         {
             throw std::invalid_argument("duplicate route: " + route);
@@ -296,6 +320,17 @@ ClientConfig load_client_config(const std::filesystem::path& config_file)
         }
     }
     return config;
+}
+
+ClientConfig load_client_config(const std::filesystem::path& config_file)
+{
+    return load_client_config_impl(config_file, nullptr);
+}
+
+ClientConfig load_client_config(const std::filesystem::path& config_file,
+                                const ClientNetworkPolicy& policy)
+{
+    return load_client_config_impl(config_file, &policy);
 }
 
 } // namespace personal_vpn::client

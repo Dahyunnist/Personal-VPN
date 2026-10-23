@@ -22,7 +22,16 @@ struct ClientConfig
     bool allow_default_route{false};
 };
 
+// Supplied by a trusted administrator/service boundary, never by the user profile.
+struct ClientNetworkPolicy
+{
+    std::vector<std::string> allowed_routes;
+    bool allow_default_route{false};
+};
+
 [[nodiscard]] ClientConfig load_client_config(const std::filesystem::path& config_file);
+[[nodiscard]] ClientConfig load_client_config(const std::filesystem::path& config_file,
+                                              const ClientNetworkPolicy& policy);
 
 } // namespace personal_vpn::client
 
