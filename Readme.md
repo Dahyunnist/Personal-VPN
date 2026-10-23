@@ -44,6 +44,7 @@ flowchart LR
 | Windows 核心构建与测试 | MinGW 9/9；MSVC Debug/Release 通过 | 最新远程 CI 的核心配置通过 |
 | Windows broker 安装器集成 | `86b828d` 复验失败 | 新的具体写入权限位检查仍在 `-WhatIf` 预检处拒绝 `C:\`；原因尚未从 runner ACL 完整证实。安装器生命周期和 ZIP 校验未运行。放宽目录写权限检查有安全风险，需先确定受支持的安全目录边界 |
 | Windows ZIP 内容 | 本地校验未通过 | 包含客户端、broker 和安装脚本，但本机已有的 Wintun DLL 缺少随包许可证文件；该 ZIP 不可分发 |
+| 远程 CI（`1f17f95`） | 核心 9 项通过；Windows 桌面打包进行中 | Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 均通过；Windows 桌面打包尚未结束，不能视为全绿 |
 | 性能与健壮性工具 | 已配置 | CI 含 sanitizer、协议 fuzz 和 benchmark 工作流；具体结果以对应工作流记录及项目文档为准 |
 
 以上测试验证代码构建和自动化测试，不代表真实公网 IPv6 连通性、双主机部署或生产环境验证。Linux 服务端不会自动开启 IPv6 转发、配置云防火墙、上游路由或 NAT66；部署前请阅读 [IPv6 部署说明](docs/operations/ipv6-deployment.md)。
@@ -130,8 +131,9 @@ vpn_base/          保留的实习原型，用于历史对照
 - 指标输出到标准输出；没有原生 Prometheus 网络端点或分布式追踪。
 - Linux 转发/路由配置、Windows broker 安装和机器策略仍需要管理员参与；broker 尚未通过真实服务身份、ACL、升级回滚和 Wintun 隧道验证。
 - Windows GUI 可删除当前选中的导入 profile 及本地凭据副本；暂不提供历史 profile 列表和批量管理。
-- `86b828d` 远程 CI 的核心 Debug/Release、Linux Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 通过。Windows 桌面构建及 12 项测试通过；broker 安装器集成在 `-WhatIf` 预检拒绝 `C:\`，ZIP 校验因此跳过。尚未在不降低安全边界的前提下解决该预检问题。
+- `1f17f95` 远程 CI 的 Linux Debug/Release、Windows 核心 Debug/Release、仓库策略、ASan/UBSan、协议 fuzz 和 benchmark 已通过；Windows 桌面打包仍在运行。上一次完整 Windows 桌面作业在 `-WhatIf` 预检处拒绝 `C:\`，因此安装器生命周期和 ZIP 校验未执行。尚未在不降低安全边界的前提下解决该预检问题。
 - 尚无签名的正式 Windows 安装包、可复现构建声明、受控端到端性能/长稳结果或独立安全审计。
 - GitHub 发布工作流已配置无密钥证明等门禁；远程发布和消费者侧完整验证仍有待完成。
 
 原型目录 `vpn_base/` 保留实习阶段实现，根目录构建系统使用重构后的实现。旧版本仓库中曾出现的凭据应视为已泄露，不应继续使用。项目的开源许可和实习成果发布权仍待确认；详情见[知识产权与许可确认清单](docs/governance/ip-and-licensing-checklist.md)。
+
