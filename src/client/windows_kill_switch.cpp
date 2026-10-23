@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 #include <vector>
 
@@ -242,6 +243,65 @@ void delete_provider_filters(HANDLE engine)
     }
 }
 
+std::string describe_sublayer_filter_references(HANDLE engine)
+{
+    FWPM_FILTER_ENUM_TEMPLATE0 query{};
+    query.flags = kIncludeBootTimeFilters;
+    HANDLE enumeration = nullptr;
+    const auto create_result = FwpmFilterCreateEnumHandle0(engine, &query, &enumeration);
+    if (create_result == static_cast<DWORD>(FWP_E_NEVER_MATCH))
+    {
+        return "remaining filters: 0";
+    }
+    check_wfp(create_result, "create WFP sublayer diagnostic enumeration");
+
+    std::size_t provider_owned = 0U;
+    std::size_t other_owned = 0U;
+    try
+    {
+        for (;;)
+        {
+            FWPM_FILTER0** entries = nullptr;
+            UINT32 count = 0U;
+            check_wfp(FwpmFilterEnum0(engine, enumeration, 128U, &entries, &count),
+                      "enumerate WFP sublayer diagnostic filters");
+            for (UINT32 index = 0U; index < count; ++index)
+            {
+                const auto* const filter = entries[index];
+                if (IsEqualGUID(filter->subLayerKey, kSubLayerKey) != FALSE)
+                {
+                    if (filter->providerKey != nullptr &&
+                        IsEqualGUID(*filter->providerKey, kProviderKey) != FALSE)
+                    {
+                        ++provider_owned;
+                    }
+                    else
+                    {
+                        ++other_owned;
+                    }
+                }
+            }
+            FwpmFreeMemory0(reinterpret_cast<void**>(&entries));
+            if (count == 0U)
+            {
+                break;
+            }
+        }
+    }
+    catch (...)
+    {
+        if (enumeration != nullptr)
+        {
+            static_cast<void>(FwpmFilterDestroyEnumHandle0(engine, enumeration));
+        }
+        throw;
+    }
+    check_wfp(FwpmFilterDestroyEnumHandle0(engine, enumeration),
+              "destroy WFP sublayer diagnostic enumeration");
+    return "remaining filters: provider-owned=" + std::to_string(provider_owned) +
+           ", other=" + std::to_string(other_owned);
+}
+
 void add_filter(HANDLE engine,
                 const GUID& layer,
                 const UINT32 flags,
@@ -392,7 +452,16 @@ void remove_provider(HANDLE engine)
     if (sublayer_result != ERROR_SUCCESS &&
         sublayer_result != static_cast<DWORD>(FWP_E_SUBLAYER_NOT_FOUND))
     {
-        throw_wfp_error("remove PersonalVPN WFP sublayer", sublayer_result);
+        std::string operation = "remove PersonalVPN WFP sublayer";
+        try
+        {
+            operation += " (" + describe_sublayer_filter_references(engine) + ")";
+        }
+        catch (...)
+        {
+            operation += " (remaining filter inventory unavailable)";
+        }
+        throw_wfp_error(operation.c_str(), sublayer_result);
     }
     const auto provider_result = FwpmProviderDeleteByKey0(engine, &kProviderKey);
     if (provider_result != ERROR_SUCCESS &&
