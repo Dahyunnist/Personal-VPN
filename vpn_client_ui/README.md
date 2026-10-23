@@ -1,30 +1,22 @@
-# Personal-VPN Windows client
+# Personal-VPN Windows 客户端
 
-The desktop client is a Win32/DirectX 11/Dear ImGui shell around the redesigned
-`ClientRuntime`. It no longer compiles the legacy duplicated client, accepts embedded
-private keys, asks the user to choose a TUN address, or assumes that one TLS read is
-one IP packet.
+桌面程序使用 Win32、DirectX 11 和 Dear ImGui。普通 UI 通过经身份验证的 Windows 命名管道调用 SCM broker；UI 不直接创建 Wintun，也不修改 IP 路由。
 
-## Runtime behavior
+## 运行方式
 
-- The profile is strictly validated before any privileged operation.
-- The exact configured DNS/IP identity is verified during mutual TLS.
-- The server assigns the client address, gateway, prefix, and negotiated MTU.
-- Wintun address, MTU, and all profile routes are applied transactionally.
-- The UI reports real runtime states; a successful `Start` call is not displayed as a
-  successful connection until TLS, protocol assignment, and Windows configuration all
-  complete.
-- Disconnect sends protocol `CLOSE`, interrupts the Wintun wait, joins both runtime
-  threads, and rolls back only network objects created by this connection.
+- 导入配置前会校验 profile，并把配置及三份凭据复制到当前用户保护目录：`%USERPROFILE%\AppData\Local\PersonalVPN\profiles`。
+- 导入会生成不透明 profile ID；UI 只向 broker 发送该 ID，不通过 IPC 传凭据、路由或任意文件路径。
+- broker 在调用者身份下读取 profile，使用管理员保护的机器策略限制路由，再启动客户端运行时。
+- 服务端通过双向 TLS 验证客户端身份，并分配客户端地址、网关、前缀和 MTU。
+- UI 状态来自 broker 的运行时状态，不会把“请求已受理”误报成连接成功。
+- 正常停止会请求 broker 断开；UI 崩溃或管道中断时，服务端关闭运行时并清理其创建的网络状态。
+- 关闭持续性断线保护会单独请求 UAC 提权。
 
-The former shell-based ping/curl test was removed because it combined user-controlled
-text into a command line and did not prove tunnel protocol health. Connection status
-now comes from the authenticated protocol state machine.
+导入的 profile 目前没有 GUI 删除/管理入口。删除前须确认对应隧道已断开，并由用户手动清理应用 profile 目录中的目标文件。不要删除其他 profile 或修改服务策略来绕过授权。
 
-## Build
+## 构建
 
-Build from the repository root. A CMake toolchain (for example vcpkg) must provide
-Boost headers and OpenSSL for the selected Windows compiler.
+从仓库根目录构建。CMake 工具链（例如 vcpkg）需为所选 Windows 编译器提供 Boost 和 OpenSSL。
 
 ```powershell
 cmake -S . -B out/windows-client -A x64 `
@@ -32,19 +24,13 @@ cmake -S . -B out/windows-client -A x64 `
   -DPERSONAL_VPN_BUILD_WINDOWS_UI=ON `
   -DPERSONAL_VPN_WINTUN_DLL=C:/deps/wintun/bin/amd64/wintun.dll
 cmake --build out/windows-client --config Release --parallel
+ctest --test-dir out/windows-client -C Release --output-on-failure
 ```
 
-Dear ImGui v1.91.9b is fetched at its pinned full commit ID. Set
-`PERSONAL_VPN_IMGUI_DIR` to an existing checkout for offline builds. Supply a pinned,
-independently verified `PERSONAL_VPN_WINTUN_DLL` for offline builds, or explicitly set
-`PERSONAL_VPN_FETCH_WINTUN=ON` to download Wintun 0.14.1 with a fixed SHA-256 check.
+Dear ImGui 使用固定完整提交 ID。离线构建可用 `PERSONAL_VPN_IMGUI_DIR` 指向现有源码。离线 Wintun 构建需提供经独立校验的 `PERSONAL_VPN_WINTUN_DLL`；也可显式启用 `PERSONAL_VPN_FETCH_WINTUN=ON`，下载 Wintun 0.14.1 并校验固定 SHA-256。
 
-## Run
+## 启动与限制
 
-The application requires an elevated token to create the Wintun interface and IP
-Helper entries. Import a schema-version-1 profile such as
-`configs/client.example.json`, then click **连接VPN** once. Routes come from the
-profile; the client address is intentionally not editable.
+普通客户端 UI 不需要管理员权限。首次使用前，管理员须按 [`docs/deployment/windows-broker.md`](../docs/deployment/windows-broker.md) 安装 broker 并配置机器路由策略。导入 schema v1 profile，例如 [`configs/client.example.json`](../configs/client.example.json)，再点击“连接 VPN”。客户端地址由服务端分配，不可在 UI 中编辑。
 
-Private keys must be stored outside the repository with a per-user ACL. See
-`docs/security/client-configuration.md`.
+broker 目前只支持活动物理控制台会话。真实服务身份、服务 ACL、升级/回滚及 Wintun 隧道尚未通过 Windows 虚拟机验证；当前实现不能视为生产认证。密钥历史与 ACL 要求见 [`docs/security/client-configuration.md`](../docs/security/client-configuration.md)。

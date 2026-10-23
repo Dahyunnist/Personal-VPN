@@ -1,6 +1,6 @@
 # Windows broker 服务部署
 
-当前 Windows ZIP 包含桌面客户端、broker 服务、Wintun 和本安装脚本。脚本仅支持新安装；已有服务必须先卸载。真实 Wintun 隧道尚未在虚拟机验证，不能视为生产认证。
+当前 Windows ZIP 包含桌面客户端、broker 服务、Wintun 和本安装脚本。普通用户启动 UI 后，通过 broker 请求连接；安装 broker 和设置机器路由策略需要管理员权限。脚本仅支持新安装；已有服务必须先卸载。真实 Wintun 隧道尚未在虚拟机验证，不能视为生产认证。
 
 ## 安装
 
@@ -43,5 +43,6 @@ Unblock-File .\deploy\windows\install-broker.ps1
 ## 限制
 
 - 服务当前只发现活动物理控制台会话，不支持 RDP 和多用户并行。
-- UI 尚未接入 broker，当前客户端仍需管理员权限。
-- 脚本未实现升级回滚，也未验证服务 ACL、重启恢复、路由清理或真实网络连通性。
+- GUI 已接入 broker；正常启动不需要管理员权限。安装/卸载 broker 和修改机器策略仍需管理员权限。
+- 导入配置会将配置及证书/密钥复制到 `%USERPROFILE%\AppData\Local\PersonalVPN\profiles`。目录由当前用户、SYSTEM 和 Administrators 访问；目前没有 GUI profile 删除功能。停止隧道不会删除 profile。
+- 脚本未实现升级回滚，也未在虚拟机验证服务 ACL、重启恢复、路由清理或真实网络连通性。不要将当前实现视作生产认证。

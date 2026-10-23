@@ -31,7 +31,14 @@
 - 私钥 ACL 加固后，使用 MinGW GCC 14.2.0 重建 Windows Release 桌面包；9/9 项 CTest 通过，覆盖仅当前用户及 11 种宽泛主体 DACL。ZIP 通过 `cmake/verify-windows-package.cmake`。
 - 发布工作流 YAML 解析成功；增加发布期校验和与来源验证后，`git diff --check` 通过。发布校验和验证器 6/6 测试通过，覆盖 Windows CRLF 输入、Linux/Windows 归档、校验和被篡改/缺失、路径遍历和意外制品。工作流 YAML 具备仓库范围的 attestation 读取权限和源码检出步骤；发布验证会绑定签名者工作流与标签，并拒绝自托管运行器。
 - 2026-10-21 在 WSL2 Ubuntu 中重新配置并运行当前 Linux Release 套件，20/20 项 CTest 全部通过。DrvFS 上生成的私钥会显示为 `777`；现已把 WSL 测试 PKI 移到 Linux `/tmp`，密钥权限为 `600`。该修复只调整测试证书存放位置，不放宽生产密钥检查。
-- 当前 Windows Release 和 Debug 桌面套件各通过 10/10 项测试；Windows Release ZIP 内容验证通过。此本机已有的 Wintun DLL 缺少随包许可证文件，因此该 ZIP 不适合直接分发。
+- 截至 2026-10-21，Windows Release 和 Debug 桌面套件各通过 10/10 项测试；该本地 Release ZIP 因 Wintun 许可证缺失，不适合分发。此项为历史记录，不代表当前代码或制品状态。
+
+## Broker GUI 接入阶段（2026-10-23）
+
+- `VPNClientCore` 已切换到 `BrokerClientRuntimeControl`；普通 UI 不再要求管理员令牌，也不再直接创建 `ClientRuntime` 或调用 Windows 网络后端。连接通过认证命名管道传输不透明 profile ID，状态由 broker 轮询返回；管道丢失后由服务端清理运行时。
+- GUI 导入配置时会将配置和凭据复制到当前用户保护目录。导入文件选择已改用 Unicode Windows API；profile store 使用文件流读取路径，避免非 ASCII 路径被窄字符编码破坏。
+- 持续性断线保护关闭仍单独启动 UAC 确认。失败时 UI 不回退到本地网络特权路径。
+- MinGW 桌面构建通过，12/12 项 CTest 通过；测试覆盖 broker 命名管道 Connect/Status/Disconnect 生命周期。真实 SCM 服务身份、ACL、UAC 交互、Wintun 数据面、安装升级回滚和多会话尚未验证。
 
 上述检查不等于真实 Windows VPN 隧道验证，也不能证明端到端性能。远程 Windows 打包门禁和受控双主机证据仍待完成；本地 ZIP 检查不能替代 vcpkg SBOM 门禁。另见[GitHub 认证操作指南](authenticated-github-sop.md)及[性能测试说明](../performance/benchmarking.md)。
 

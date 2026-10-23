@@ -16,7 +16,7 @@ openssl x509 -in /etc/personal-vpn/pki/server.crt -noout -subject -issuer -dates
 openssl crl -in /etc/personal-vpn/pki/client.crl -noout -lastupdate -nextupdate
 ```
 
-Windows 客户端（管理员 PowerShell）：
+Windows 网络状态检查（需管理员权限的 PowerShell；桌面 UI 正常启动不需要提权）：
 
 ```powershell
 Get-NetAdapter | Where-Object InterfaceDescription -Match 'Wintun'

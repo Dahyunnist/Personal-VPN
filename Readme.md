@@ -12,7 +12,8 @@ Personal-VPN 是一个基于 C++17 的双栈 VPN 隧道参考实现：Windows �
 flowchart LR
     A[Windows 应用] --> B[Windows IP 协议栈]
     B --> C[Wintun 虚拟网卡]
-    C --> D[C++ 客户端运行时]
+    C <--> D[SCM broker 服务<br/>C++ 客户端运行时]
+    U[普通权限桌面 UI] <-->|认证命名管道| D
     D <-->|协议 v2 / 双向 TLS| E[C++ Linux 服务端]
     E <--> F[Linux TUN]
     F --> G[Linux 路由 / 防火墙 / NAT]

@@ -1,69 +1,54 @@
-# Windows desktop client design
+# Windows 桌面客户端设计
 
-## Ownership hierarchy
+## 组件与所有权
 
 ```text
 UIMain
 └── VPNClientCore
-    └── ClientRuntime (single-use connection lifecycle)
-        ├── io_context + resolver + connection deadline
-        ├── TLS context + TlsTunnelClient
-        │   ├── protocol ClientSessionController
-        │   ├── FrameDecoder
-        │   └── bounded serialized write queue
-        ├── WindowsNetworkBackend
-        │   ├── pinned-location Wintun module
-        │   ├── adapter + packet ring
-        │   └── interrupt event
-        ├── ClientNetworkTransaction
-        ├── I/O thread
-        └── interruptible packet-device reader thread
+    └── BrokerClientRuntimeControl
+        └── authenticated Windows named pipe
+            └── SCM broker service
+                └── BrokerRuntimeRegistry (one runtime per caller SID)
+                    └── ClientRuntime
+                        ├── io_context, resolver, connection deadline
+                        ├── TLS, protocol session, frame decoder
+                        ├── bounded serialized write queue
+                        ├── WindowsNetworkBackend, Wintun, network transaction
+                        └── I/O and interruptible packet-reader threads
 ```
 
-There are no process-global sockets, adapters, routes, I/O contexts, stop flags, or
-thread pools. Destruction proceeds from the runtime down and never detaches a thread.
+UI 只持有 broker IPC 客户端，不持有适配器、路由或特权运行时。管道中断、用户注销或服务停止时，服务会停止并 join 运行时，再回滚其创建的网络对象。线程不会 detach。broker 以 LocalSystem 运行，目前只支持活动物理控制台会话；服务隔离和真实驱动生命周期仍待虚拟机验证。
 
-## State model
+## 状态模型
 
 ```text
 Stopped -> Starting -> Resolving -> Connecting -> ConfiguringNetwork -> Connected
-Resolving / Connecting / Connected -- transient loss --> Reconnecting
+Resolving / Connecting / Connected -- temporary failure --> Reconnecting
 Reconnecting -- retry timer --> Resolving
-any live state -- user stop --> Stopping -> Stopped
+any active state -- user stop --> Stopping -> Stopped
 certificate, protocol, or local setup failure --> Failed
 ```
 
-Transient DNS, TCP, timeout, and transport failures retry indefinitely with capped
-exponential backoff and jitter (0.5-30 seconds). Before each retry, the runtime stops
-the packet reader and rolls back routes, interface address, MTU, packet session, and
-adapter state. A server rejection or non-retryable TLS error ends the runtime instead.
+DNS、TCP、超时和暂时性传输故障会使用带上限的抖动指数退避重试（0.5–30 秒）。每次重试前，运行时停止包读取线程，并回滚路由、接口地址、MTU、包会话和适配器状态。服务端拒绝或不可重试的 TLS 错误会结束运行时。
 
-`VPNClientCore::Start` reports only that startup was accepted. `UIMain::Update` reads
-the runtime's atomic state each frame. This prevents the old false-positive behavior
-that marked the UI connected before DNS, TCP, TLS, assignment, or Wintun setup had
-completed.
+`VPNClientCore::Start` 仅表示已发送连接请求。UI 根据 broker 状态更新；只有 TLS、协议地址分配和 Windows 网络配置全部完成后，才显示已连接。
 
-The runtime has a deadline spanning resolution through authenticated IP assignment.
-On success, it starts one blocking Wintun reader that is woken by a dedicated Windows
-event during shutdown. Downlink delivery remains on the serialized TLS strand.
+运行时设有连接 deadline，覆盖 DNS 解析至认证后的 IP 分配。连接成功后启动一个阻塞式 Wintun 读取线程；关闭时通过专用 Windows event 唤醒。下行数据仍由串行化 TLS strand 处理。
 
-## Error boundary
+## 错误边界
 
-Callbacks expose bounded state messages, not certificate or key contents. A remote
-protocol error is reported by numeric code. Callback exceptions are contained at the
-runtime boundary. Transport, adapter, route, and callback failures all converge on the
-same idempotent finish path.
+IPC 只传不透明 profile ID、请求 ID、状态和有界诊断，不传凭据、路由、任意路径或命令。回调不会暴露证书或密钥内容；运行时边界会捕获回调异常。所有故障都进入同一幂等清理路径。broker 或 IPC 失败时，UI 不得回退到本地特权网络操作。
 
-## Removed legacy behavior
+## 已移除的旧行为
 
-- embedded PEM data in JSON;
-- client-selected TUN IP and newline address negotiation;
-- unframed TLS packet reads;
-- hard-coded `10.8.0.1` route gateway;
-- global `std::cout`/`std::cerr` replacement;
-- command-line construction for ping/curl testing;
-- sleep-based connection detection; and
-- timeout-driven thread detachment.
+- JSON 内嵌 PEM 私钥；
+- 客户端自行选择 TUN 地址及换行地址协商；
+- 未分帧的 TLS 数据包读取；
+- 硬编码 `10.8.0.1` 路由网关；
+- 全局替换 `std::cout` / `std::cerr`；
+- 用命令行拼接 ping/curl 测试；
+- 基于 sleep 的连接检测；
+- 超时后 detach 线程；
+- GUI 直接创建 Wintun 或配置系统路由。
 
-The old `client_core_impl.cpp` and duplicated `client/` implementation were deleted
-after the new executable built successfully.
+旧 `client_core_impl.cpp` 和重复的 `client/` 实现已在新可执行程序构建成功后删除。
