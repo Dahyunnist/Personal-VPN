@@ -28,7 +28,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ninja-build libboost-dev libssl-dev
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         with:
           languages: c-cpp
           build-mode: manual
